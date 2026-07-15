@@ -1,0 +1,13 @@
+# 测试配置：使用内存数据库，并禁用启动时 Redis 清理，避免依赖或影响本机服务。
+spring:
+  datasource:
+    url: "jdbc:h2:mem:shopmall;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE"
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+redis:
+  clear-on-startup: false

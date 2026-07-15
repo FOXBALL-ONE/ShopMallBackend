@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: ShopMall
+  # 从项目根目录的 .env 加载环境变量（按 properties 格式解析；文件缺失时不报错）。
+  # .env 不提交到 git；真实 OS/Docker 环境变量优先级高于 .env（12-factor）。
+  config:
+    import: "optional:file:.env[.properties]"
+  servlet:
+    multipart:
+      max-file-size: "${FILE_MAX_FILE_SIZE:100MB}"
+      max-request-size: "${FILE_MAX_REQUEST_SIZE:500MB}"
+  datasource:
+    url: "${DB_URL:jdbc:postgresql://localhost:5432/shopmall}"
+    username: "${DB_USERNAME:postgres}"
+    password: "${DB_PASSWORD:postgres}"
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      # update=开发自动建表 / validate=生产校验 / none
+      ddl-auto: "${DB_DDL:update}"
+    open-in-view: false
+  data:
+    redis:
+      host: "${REDIS_HOST:localhost}"
+      port: "${REDIS_PORT:6379}"
+      password: "${REDIS_PASSWORD:}"
+  mail:
+    host: "${MAIL_HOST:}"
+    port: "${MAIL_PORT:587}"
+    username: "${MAIL_USERNAME:}"
+    password: "${MAIL_PASSWORD:}"
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+server:
+  port: "${SERVER_PORT:8080}"
+
+# RedisCleanupConfig 读取：启动时是否清空 Redis（本地/测试用，生产设 false）
+redis:
+  clear-on-startup: "${REDIS_CLEAR_ON_STARTUP:true}"
+
+neko:
+  security:
+    jwt:
+      # 生产环境务必通过 .env 覆盖为足够长的随机串
+      secret: "${JWT_SECRET:dev-secret-do-not-use-in-prod-please-override-via-JWT_SECRET}"
+      ttl-seconds: "${JWT_TTL_SECONDS:259200}"
+  file:
+    storage-path: "${FILE_STORAGE_PATH:./storage}"
+    base-url: "${FILE_BASE_URL:http://localhost:8080}"
+    signing-secret: "${FILE_SIGNING_SECRET:dev-file-signing-secret-do-not-use-in-prod}"
+    download-token-ttl-seconds: "${FILE_DOWNLOAD_LINK_TTL_SECONDS:300}"
+    max-batch-size: "${FILE_MAX_BATCH_SIZE:20}"
+    max-file-size-bytes: "${FILE_MAX_FILE_SIZE_BYTES:104857600}"
+  mail:
+    verification:
+      # 发件人地址，留空则回退到 spring.mail.username
+      from: "${MAIL_FROM:}"
