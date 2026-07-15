@@ -1,5 +1,6 @@
 package top.foxball.shopmall.entity.jdbc
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.annotation.JsonProperty
 import jakarta.persistence.CollectionTable
 import jakarta.persistence.Column
@@ -18,12 +19,18 @@ import jakarta.persistence.OrderColumn
 import jakarta.persistence.Table
 import jakarta.persistence.UniqueConstraint
 import jakarta.validation.Valid
+import jakarta.validation.constraints.AssertTrue
+import jakarta.validation.constraints.DecimalMin
+import jakarta.validation.constraints.Digits
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.PastOrPresent
 import jakarta.validation.constraints.Pattern
 import jakarta.validation.constraints.Size
 import lombok.Data
 import org.hibernate.annotations.CreationTimestamp
 import org.hibernate.annotations.UpdateTimestamp
+import java.math.BigDecimal
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.UUID
 
@@ -80,6 +87,67 @@ class User(
     /** 偏好展示币种（ISO 4217，如 USD、EUR），为空时回退站点默认。 */
     @Column(length = 3)
     var currency: String? = "USD",
+
+    /** 出生日期；采用 ISO-8601 `yyyy-MM-dd`，不包含时区或具体出生时间。 */
+    @field:PastOrPresent(message = "生日不能晚于今天")
+    @Column
+    var birthday: LocalDate? = null,
+
+    /** 胸围；与 [waist]、[hip]、[torso]、[height] 共用 [lengthUnit]。 */
+    @field:DecimalMin("0.01")
+    @field:Digits(integer = 4, fraction = 2)
+    @Column(precision = 6, scale = 2)
+    var bust: BigDecimal? = null,
+
+    /** 腰围。 */
+    @field:DecimalMin("0.01")
+    @field:Digits(integer = 4, fraction = 2)
+    @Column(precision = 6, scale = 2)
+    var waist: BigDecimal? = null,
+
+    /** 臀围。 */
+    @field:DecimalMin("0.01")
+    @field:Digits(integer = 4, fraction = 2)
+    @Column(precision = 6, scale = 2)
+    var hip: BigDecimal? = null,
+
+    /** 躯干长度。 */
+    @field:DecimalMin("0.01")
+    @field:Digits(integer = 4, fraction = 2)
+    @Column(precision = 6, scale = 2)
+    var torso: BigDecimal? = null,
+
+    /** 文胸下胸围/罩杯带围，例如 32、34 或 75。 */
+    @field:Size(max = 12)
+    @Column(length = 12)
+    var braSize: String? = null,
+
+    /** 文胸罩杯，例如 A、B、C、D 或 DD。 */
+    @field:Size(max = 8)
+    @Column(length = 8)
+    var cupSize: String? = null,
+
+    /** 体重，单位由 [weightUnit] 指定。 */
+    @field:DecimalMin("0.01")
+    @field:Digits(integer = 4, fraction = 2)
+    @Column(precision = 6, scale = 2)
+    var weight: BigDecimal? = null,
+
+    /** 体重单位；与长度单位分离，避免将体重误标为英寸或厘米。 */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 4)
+    var weightUnit: WeightUnit? = null,
+
+    /** 身高；单位由 [lengthUnit] 指定。 */
+    @field:DecimalMin("0.01")
+    @field:Digits(integer = 4, fraction = 2)
+    @Column(precision = 6, scale = 2)
+    var height: BigDecimal? = null,
+
+    /** 胸围、腰围、臀围、躯干和身高统一使用的长度单位，仅允许 INCH 或 CM。 */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 5)
+    var lengthUnit: LengthUnit? = null,
 
     /** 是否已通过邮箱验证，未验证前限制下单等敏感操作。 */
     @Column(nullable = false)
@@ -143,7 +211,22 @@ class User(
     )
     @OrderColumn(name = "sort_order")
     var deliveryAddress: MutableList<DeliveryAddressItem> = mutableListOf(),
-)
+) {
+    /** 填写任一长度数据时必须选择 INCH 或 CM，避免持久化不可解释的数值。 */
+    @get:JsonIgnore
+    @get:AssertTrue(message = "填写身体尺寸时必须选择长度单位")
+    val isLengthUnitValid: Boolean
+        get() = !hasLengthMeasurements() || lengthUnit != null
+
+    /** 填写体重时必须给出 KG 或 LB。 */
+    @get:JsonIgnore
+    @get:AssertTrue(message = "填写体重时必须选择体重单位")
+    val isWeightUnitValid: Boolean
+        get() = weight == null || weightUnit != null
+
+    private fun hasLengthMeasurements(): Boolean =
+        bust != null || waist != null || hip != null || torso != null || height != null
+}
 
 /** 配送地址；国家使用 ISO 3166-1 alpha-2 代码，电话使用 E.164 格式。 */
 @Embeddable
@@ -231,4 +314,14 @@ enum class Status {
 /** 账号角色。 */
 enum class Role {
     CUSTOMER, ADMIN
+}
+
+/** 身体长度与围度单位。 */
+enum class LengthUnit {
+    INCH, CM
+}
+
+/** 体重单位。 */
+enum class WeightUnit {
+    KG, LB
 }

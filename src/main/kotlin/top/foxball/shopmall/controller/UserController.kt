@@ -10,9 +10,78 @@ import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.ResponseBuilder
+import java.math.BigDecimal
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.UUID
 import top.foxball.shopmall.shared.Response as ApiResponse
+
+/** 用户资料的对外响应模型，明确排除密码和内部登录 IP。 */
+private data class UserProfileResponse(
+    val id: Long,
+    val email: String,
+    val username: String,
+    val firstName: String,
+    val lastName: String,
+    val phone: String?,
+    val avatar: String?,
+    val locale: String?,
+    val currency: String?,
+    val birthday: LocalDate?,
+    val bust: BigDecimal?,
+    val waist: BigDecimal?,
+    val hip: BigDecimal?,
+    val torso: BigDecimal?,
+    val braSize: String?,
+    val cupSize: String?,
+    val weight: BigDecimal?,
+    val weightUnit: top.foxball.shopmall.entity.jdbc.WeightUnit?,
+    val height: BigDecimal?,
+    val lengthUnit: top.foxball.shopmall.entity.jdbc.LengthUnit?,
+    val emailVerified: Boolean,
+    val marketingConsent: Boolean,
+    val role: Role,
+    val enabled: Boolean,
+    val status: Status,
+    val lastLoginAt: LocalDateTime?,
+    val createdAt: LocalDateTime?,
+    val updatedAt: LocalDateTime?,
+    val deliveryAddress: List<DeliveryAddressItem>,
+)
+
+/** 将持久化用户映射为对外资料，避免多个接口遗漏新字段或泄露密码。 */
+private fun User.toProfileResponse(): UserProfileResponse =
+    UserProfileResponse(
+        id = requireNotNull(id),
+        email = email,
+        username = username,
+        firstName = firstName,
+        lastName = lastName,
+        phone = phone,
+        avatar = avatar,
+        locale = locale,
+        currency = currency,
+        birthday = birthday,
+        bust = bust,
+        waist = waist,
+        hip = hip,
+        torso = torso,
+        braSize = braSize,
+        cupSize = cupSize,
+        weight = weight,
+        weightUnit = weightUnit,
+        height = height,
+        lengthUnit = lengthUnit,
+        emailVerified = emailVerified,
+        marketingConsent = marketingConsent,
+        role = role,
+        enabled = enabled,
+        status = status,
+        lastLoginAt = lastLoginAt,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        deliveryAddress = deliveryAddress.toList(),
+    )
 
 /** 用户注册、个人资料及配送地址接口。 */
 @RestController
@@ -26,48 +95,8 @@ class UserController(
     fun createUser(
         @Valid @RequestBody user: User,
     ): ResponseEntity<ApiResponse> {
-        data class Response(
-            val id: Long,
-            val email: String,
-            val username: String,
-            val firstName: String,
-            val lastName: String,
-            val phone: String?,
-            val avatar: String?,
-            val locale: String?,
-            val currency: String?,
-            val emailVerified: Boolean,
-            val marketingConsent: Boolean,
-            val role: Role,
-            val enabled: Boolean,
-            val status: Status,
-            val lastLoginAt: LocalDateTime?,
-            val createdAt: LocalDateTime?,
-            val updatedAt: LocalDateTime?,
-            val deliveryAddress: List<DeliveryAddressItem>,
-        )
-
         val user = userService.createUser(user)
-        val rs = Response(
-            id = user.id!!,
-            email = user.email,
-            username = user.username,
-            firstName = user.firstName,
-            lastName = user.lastName,
-            phone = user.phone,
-            avatar = user.avatar,
-            locale = user.locale,
-            currency = user.currency,
-            emailVerified = user.emailVerified,
-            marketingConsent = user.marketingConsent,
-            role = user.role,
-            enabled = user.enabled,
-            status = user.status,
-            lastLoginAt = user.lastLoginAt,
-            createdAt = user.createdAt,
-            updatedAt = user.updatedAt,
-            deliveryAddress = user.deliveryAddress.toList(),
-        )
+        val rs = user.toProfileResponse()
 
         return builder.ok().data(rs).build()
     }
@@ -76,54 +105,13 @@ class UserController(
     fun createUsers(
         @RequestBody users: List<@Valid User>,
     ): ResponseEntity<ApiResponse> {
-        data class UserResponse(
-            val id: Long,
-            val email: String,
-            val username: String,
-            val firstName: String,
-            val lastName: String,
-            val phone: String?,
-            val avatar: String?,
-            val locale: String?,
-            val currency: String?,
-            val emailVerified: Boolean,
-            val marketingConsent: Boolean,
-            val role: Role,
-            val enabled: Boolean,
-            val status: Status,
-            val lastLoginAt: LocalDateTime?,
-            val createdAt: LocalDateTime?,
-            val updatedAt: LocalDateTime?,
-            val deliveryAddress: List<DeliveryAddressItem>,
-        )
         data class Response(
-            val users: List<UserResponse>,
+            val users: List<UserProfileResponse>,
         )
 
         val users = userService.createUsers(users)
         val rs = Response(
-            users = users.map { user ->
-                UserResponse(
-                    id = user.id!!,
-                    email = user.email,
-                    username = user.username,
-                    firstName = user.firstName,
-                    lastName = user.lastName,
-                    phone = user.phone,
-                    avatar = user.avatar,
-                    locale = user.locale,
-                    currency = user.currency,
-                    emailVerified = user.emailVerified,
-                    marketingConsent = user.marketingConsent,
-                    role = user.role,
-                    enabled = user.enabled,
-                    status = user.status,
-                    lastLoginAt = user.lastLoginAt,
-                    createdAt = user.createdAt,
-                    updatedAt = user.updatedAt,
-                    deliveryAddress = user.deliveryAddress.toList(),
-                )
-            },
+            users = users.map { it.toProfileResponse() },
         )
 
         return builder.ok().data(rs).build()
@@ -229,52 +217,12 @@ class UserController(
         @PathVariable id: Long,
         @AuthenticationPrincipal currentUserId: Long,
     ): ResponseEntity<ApiResponse> {
-        data class Response(
-            val id: Long,
-            val email: String,
-            val username: String,
-            val firstName: String,
-            val lastName: String,
-            val phone: String?,
-            val avatar: String?,
-            val locale: String?,
-            val currency: String?,
-            val emailVerified: Boolean,
-            val marketingConsent: Boolean,
-            val role: Role,
-            val enabled: Boolean,
-            val status: Status,
-            val lastLoginAt: LocalDateTime?,
-            val createdAt: LocalDateTime?,
-            val updatedAt: LocalDateTime?,
-            val deliveryAddress: List<DeliveryAddressItem>,
-        )
-
         if (id != currentUserId) {
             return builder.forbidden().message("只能查看自己的用户信息").build()
         }
         val user = userService.getUserById(id)
             ?: return builder.notFound().build()
-        val rs = Response(
-            id = user.id!!,
-            email = user.email,
-            username = user.username,
-            firstName = user.firstName,
-            lastName = user.lastName,
-            phone = user.phone,
-            avatar = user.avatar,
-            locale = user.locale,
-            currency = user.currency,
-            emailVerified = user.emailVerified,
-            marketingConsent = user.marketingConsent,
-            role = user.role,
-            enabled = user.enabled,
-            status = user.status,
-            lastLoginAt = user.lastLoginAt,
-            createdAt = user.createdAt,
-            updatedAt = user.updatedAt,
-            deliveryAddress = user.deliveryAddress.toList(),
-        )
+        val rs = user.toProfileResponse()
 
         return builder.ok().data(rs).build()
     }
@@ -284,28 +232,8 @@ class UserController(
         @RequestParam ids: List<Long>,
         @AuthenticationPrincipal currentUserId: Long,
     ): ResponseEntity<ApiResponse> {
-        data class UserResponse(
-            val id: Long,
-            val email: String,
-            val username: String,
-            val firstName: String,
-            val lastName: String,
-            val phone: String?,
-            val avatar: String?,
-            val locale: String?,
-            val currency: String?,
-            val emailVerified: Boolean,
-            val marketingConsent: Boolean,
-            val role: Role,
-            val enabled: Boolean,
-            val status: Status,
-            val lastLoginAt: LocalDateTime?,
-            val createdAt: LocalDateTime?,
-            val updatedAt: LocalDateTime?,
-            val deliveryAddress: List<DeliveryAddressItem>,
-        )
         data class Response(
-            val users: List<UserResponse>,
+            val users: List<UserProfileResponse>,
         )
 
         if (ids.any { it != currentUserId }) {
@@ -313,28 +241,7 @@ class UserController(
         }
         val users = userService.getUsersByIds(ids)
         val rs = Response(
-            users = users.map { user ->
-                UserResponse(
-                    id = user.id!!,
-                    email = user.email,
-                    username = user.username,
-                    firstName = user.firstName,
-                    lastName = user.lastName,
-                    phone = user.phone,
-                    avatar = user.avatar,
-                    locale = user.locale,
-                    currency = user.currency,
-                    emailVerified = user.emailVerified,
-                    marketingConsent = user.marketingConsent,
-                    role = user.role,
-                    enabled = user.enabled,
-                    status = user.status,
-                    lastLoginAt = user.lastLoginAt,
-                    createdAt = user.createdAt,
-                    updatedAt = user.updatedAt,
-                    deliveryAddress = user.deliveryAddress.toList(),
-                )
-            },
+            users = users.map { it.toProfileResponse() },
         )
 
         return builder.ok().data(rs).build()
@@ -346,27 +253,6 @@ class UserController(
         @AuthenticationPrincipal currentUserId: Long,
         @Valid @RequestBody user: User,
     ): ResponseEntity<ApiResponse> {
-        data class Response(
-            val id: Long,
-            val email: String,
-            val username: String,
-            val firstName: String,
-            val lastName: String,
-            val phone: String?,
-            val avatar: String?,
-            val locale: String?,
-            val currency: String?,
-            val emailVerified: Boolean,
-            val marketingConsent: Boolean,
-            val role: Role,
-            val enabled: Boolean,
-            val status: Status,
-            val lastLoginAt: LocalDateTime?,
-            val createdAt: LocalDateTime?,
-            val updatedAt: LocalDateTime?,
-            val deliveryAddress: List<DeliveryAddressItem>,
-        )
-
         if (id != currentUserId) {
             return builder.forbidden().message("只能更新自己的用户信息").build()
         }
@@ -374,26 +260,7 @@ class UserController(
             ?: return builder.notFound().build()
         existingUser.applyEditableProfileChanges(user)
         val user = userService.updateUser(existingUser)
-        val rs = Response(
-            id = user.id!!,
-            email = user.email,
-            username = user.username,
-            firstName = user.firstName,
-            lastName = user.lastName,
-            phone = user.phone,
-            avatar = user.avatar,
-            locale = user.locale,
-            currency = user.currency,
-            emailVerified = user.emailVerified,
-            marketingConsent = user.marketingConsent,
-            role = user.role,
-            enabled = user.enabled,
-            status = user.status,
-            lastLoginAt = user.lastLoginAt,
-            createdAt = user.createdAt,
-            updatedAt = user.updatedAt,
-            deliveryAddress = user.deliveryAddress.toList(),
-        )
+        val rs = user.toProfileResponse()
 
         return builder.ok().data(rs).build()
     }
@@ -403,28 +270,8 @@ class UserController(
         @RequestBody users: List<@Valid User>,
         @AuthenticationPrincipal currentUserId: Long,
     ): ResponseEntity<ApiResponse> {
-        data class UserResponse(
-            val id: Long,
-            val email: String,
-            val username: String,
-            val firstName: String,
-            val lastName: String,
-            val phone: String?,
-            val avatar: String?,
-            val locale: String?,
-            val currency: String?,
-            val emailVerified: Boolean,
-            val marketingConsent: Boolean,
-            val role: Role,
-            val enabled: Boolean,
-            val status: Status,
-            val lastLoginAt: LocalDateTime?,
-            val createdAt: LocalDateTime?,
-            val updatedAt: LocalDateTime?,
-            val deliveryAddress: List<DeliveryAddressItem>,
-        )
         data class Response(
-            val users: List<UserResponse>,
+            val users: List<UserProfileResponse>,
         )
 
         if (users.any { it.id != currentUserId }) {
@@ -438,28 +285,7 @@ class UserController(
         existingUser.applyEditableProfileChanges(users.single())
         val users = userService.updateUsers(listOf(existingUser))
         val rs = Response(
-            users = users.map { user ->
-                UserResponse(
-                    id = user.id!!,
-                    email = user.email,
-                    username = user.username,
-                    firstName = user.firstName,
-                    lastName = user.lastName,
-                    phone = user.phone,
-                    avatar = user.avatar,
-                    locale = user.locale,
-                    currency = user.currency,
-                    emailVerified = user.emailVerified,
-                    marketingConsent = user.marketingConsent,
-                    role = user.role,
-                    enabled = user.enabled,
-                    status = user.status,
-                    lastLoginAt = user.lastLoginAt,
-                    createdAt = user.createdAt,
-                    updatedAt = user.updatedAt,
-                    deliveryAddress = user.deliveryAddress.toList(),
-                )
-            },
+            users = users.map { it.toProfileResponse() },
         )
 
         return builder.ok().data(rs).build()
@@ -523,6 +349,17 @@ class UserController(
         avatar = source.avatar
         locale = source.locale
         currency = source.currency
+        birthday = source.birthday
+        bust = source.bust
+        waist = source.waist
+        hip = source.hip
+        torso = source.torso
+        braSize = source.braSize
+        cupSize = source.cupSize
+        weight = source.weight
+        weightUnit = source.weightUnit
+        height = source.height
+        lengthUnit = source.lengthUnit
         marketingConsent = source.marketingConsent
     }
 }
