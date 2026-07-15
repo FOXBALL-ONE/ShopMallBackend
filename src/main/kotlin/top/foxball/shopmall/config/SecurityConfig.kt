@@ -1,0 +1,110 @@
+package top.foxball.shopmall.config
+
+import jakarta.servlet.http.HttpServletResponse
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
+import org.springframework.http.HttpMethod
+import org.springframework.security.config.Customizer
+import org.springframework.security.config.annotation.web.builders.HttpSecurity
+import org.springframework.security.config.http.SessionCreationPolicy
+import org.springframework.security.web.SecurityFilterChain
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
+import org.springframework.web.cors.CorsConfiguration
+import org.springframework.web.cors.CorsConfigurationSource
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource
+import top.foxball.shopmall.authentication.JwtAuthenticationFilter
+import top.foxball.shopmall.authentication.JwtService
+import top.foxball.shopmall.authentication.LoginTokenAuthentication
+
+/**
+ * Spring Security 配置：无状态 JWT。
+ *
+ * 鉴权分级（authorizeHttpRequests 按声明顺序首匹配）：
+ *  - 登录 / 刷新 / 注册 / 邮箱验证码 / 找回密码 / 邮箱验证登录：不要求 JWT（匿名流程）
+ *  - 公开查询 GET（项目 / 想法列表、详情、计数、子资源）：匿名可访问
+ *  - 公开投稿 POST（新项目 / 想法 / 评论 / 加入申请）：匿名提交，后端固定 PENDING 待审
+ *  - 项目方自服务（admin/project 下）：凭 controlPassword 鉴权，非 JWT，由 service 层校验
+ *  - 文件读取 GET（/api/files 路径）：匿名可读，私有/文档下载由 FileService 二次鉴权
+ *  - 其余（管理端 admin/object-items、admin/minds，auth/logout、auth/me、auth/change-password，
+ *    还有 project 下的写入 PUT/DELETE/batch，以及文件上传/删除 POST/DELETE）均需 JWT
+ *
+ * JWT 解析由 [JwtAuthenticationFilter] 在 [UsernamePasswordAuthenticationFilter] 之前执行；
+ * 受保护接口未携带有效令牌时由 authenticationEntryPoint 统一回 401 JSON。
+ */
+@Configuration
+class SecurityConfig(
+    private val jwtService: JwtService,
+    private val loginTokenAuthentication: LoginTokenAuthentication,
+) {
+
+    @Bean
+    fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
+        http
+            .csrf { it.disable() }
+            .cors(Customizer.withDefaults())
+            .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
+            .authorizeHttpRequests {
+                // 登录 / 刷新 / 注册 / 邮箱验证码 / 找回密码 / 邮箱验证登录：不要求 JWT
+                // （刷新令牌走 HttpOnly Cookie，注册走一次性邀请码+邮箱验证码，验证码/找回/邮箱登录为匿名流程）
+                it.requestMatchers(
+                    "/api/auth/login",
+                    "/api/auth/login/email",
+                    "/api/auth/refresh",
+                    "/api/auth/register/manager",
+                    "/api/auth/verification-code",
+                    "/api/auth/reset-password",
+                    "/error",
+                ).permitAll()
+                // 公开查询（GET）：项目 / 想法的列表、详情、计数、动态、评论，匿名可访问
+                it.requestMatchers(HttpMethod.GET, "/api/project/**").permitAll()
+                // 公开投稿（POST）：新项目 / 想法 / 评论 / 加入申请，匿名提交（后端固定 PENDING 待审）
+                it.requestMatchers(
+                    HttpMethod.POST,
+                    "/api/project/object-items",
+                    "/api/project/object-items/*/comments",
+                    "/api/project/object-items/*/join-applications",
+                    "/api/project/minds",
+                ).permitAll()
+                // 项目方自服务：凭 controlPassword 鉴权（非 JWT），安全层放行，由 service 层校验密码
+                it.requestMatchers("/api/admin/project/**").permitAll()
+                // 仅带签名的下载 URL 可匿名访问，其余文件接口均要求 JWT。
+                it.requestMatchers(HttpMethod.GET, "/api/files/*/download").permitAll()
+                it.requestMatchers("/api/files/**").authenticated()
+                it.requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                // 其余接口需 JWT：管理端 /api/admin/object-items、/api/admin/minds、/api/auth/logout、/api/auth/me，
+                // 以及 /api/project/** 下的写入（PUT/DELETE/batch）——这些由登录管理员携带 token 调用
+                it.anyRequest().authenticated()
+            }
+            .exceptionHandling {
+                // 无/失效 JWT 的受保护接口统一回 401 JSON（与 shared.Response 体一致）
+                it.authenticationEntryPoint { _, response, _ ->
+                    response.contentType = "application/json;charset=UTF-8"
+                    response.status = HttpServletResponse.SC_UNAUTHORIZED
+                    response.writer.write("""{"status":401,"message":"Unauthorized","data":{}}""")
+                }
+            }
+            // 在标准账号密码过滤器前插入 JWT 过滤器：解析 Bearer 令牌并写入 SecurityContext
+            .addFilterBefore(
+                JwtAuthenticationFilter(jwtService, loginTokenAuthentication),
+                UsernamePasswordAuthenticationFilter::class.java,
+            )
+        return http.build()
+    }
+
+    @Bean
+    fun corsConfigurationSource(): CorsConfigurationSource {
+        val config = CorsConfiguration().apply {
+            // origin 走回显：allowedOriginPatterns 支持带凭证，浏览器会收到具体 origin（而非字面 *）
+            allowedOriginPatterns = listOf("*")
+            // 方法 / 请求头必须显式列举：allowCredentials=true 时，浏览器不接受通配 *，
+            // 否则 preflight 会以 "field content-type is not allowed by Access-Control-Allow-Headers" 拦截
+            allowedMethods = listOf("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+            allowedHeaders = listOf("Authorization", "Content-Type", "Accept", "X-Requested-With")
+            allowCredentials = true
+            maxAge = 3600
+        }
+        val source = UrlBasedCorsConfigurationSource()
+        source.registerCorsConfiguration("/**", config)
+        return source
+    }
+}
