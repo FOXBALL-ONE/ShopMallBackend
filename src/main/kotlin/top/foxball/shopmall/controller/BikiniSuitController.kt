@@ -14,13 +14,9 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import top.foxball.shopmall.entity.jdbc.BikiniSuit
-import top.foxball.shopmall.entity.jdbc.BikiniSuitSizeRecommendation
-import top.foxball.shopmall.entity.jdbc.Tag
 import top.foxball.shopmall.service.AdminAccessService
 import top.foxball.shopmall.service.BikiniSuitService
 import top.foxball.shopmall.shared.ResponseBuilder
-import java.math.BigDecimal
-import java.time.LocalDateTime
 import top.foxball.shopmall.shared.Response as ApiResponse
 
 /** 商品写入请求；标签 ID 独立传递，避免客户端直接构造持久化标签实体。 */
@@ -29,54 +25,6 @@ data class BikiniSuitUpsertRequest(
     val bikiniSuit: BikiniSuit = BikiniSuit(),
     @field:Size(max = 20)
     val tagIds: Set<Long> = emptySet(),
-)
-
-private data class BikiniSuitResponse(
-    val id: Long,
-    val name: String,
-    val topSize: BikiniSuit.Size?,
-    val topSizeRecommendation: BikiniSuitSizeRecommendation?,
-    val bottomSize: BikiniSuit.Size?,
-    val bottomSizeRecommendation: BikiniSuitSizeRecommendation?,
-    val color: String,
-    val price: BigDecimal,
-    val warehouseVolume: Int,
-    val salesVolume: Int,
-    val status: BikiniSuit.Status,
-    val highlight: List<String>,
-    val images: List<String>,
-    val fitSense: String?,
-    val description: String?,
-    val designAndExtras: List<String>,
-    val careInstructions: List<String>,
-    val score: Float?,
-    val tags: List<Tag>,
-    val createdAt: LocalDateTime?,
-    val updatedAt: LocalDateTime?,
-)
-
-private fun BikiniSuit.toResponse(): BikiniSuitResponse = BikiniSuitResponse(
-    id = requireNotNull(id),
-    name = name,
-    topSize = topSize,
-    topSizeRecommendation = topSize?.recommendation,
-    bottomSize = bottomSize,
-    bottomSizeRecommendation = bottomSize?.recommendation,
-    color = color,
-    price = price,
-    warehouseVolume = warehouseVolume,
-    salesVolume = salesVolume,
-    status = status,
-    highlight = highlight.toList(),
-    images = images.toList(),
-    fitSense = fitSense,
-    description = description,
-    designAndExtras = designAndExtras.toList(),
-    careInstructions = careInstructions.toList(),
-    score = score,
-    tags = tags.sortedBy(Tag::sortOrder),
-    createdAt = createdAt,
-    updatedAt = updatedAt,
 )
 
 /** 面向前台的上架商品读取接口，以及管理员商品目录 CRUD 接口。 */

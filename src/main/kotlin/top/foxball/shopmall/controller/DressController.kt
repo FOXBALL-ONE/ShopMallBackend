@@ -13,91 +13,90 @@ import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
-import top.foxball.shopmall.entity.jdbc.OnePieceSuit
+import top.foxball.shopmall.entity.jdbc.Dress
 import top.foxball.shopmall.service.AdminAccessService
-import top.foxball.shopmall.service.OnePieceSuitService
+import top.foxball.shopmall.service.DressService
 import top.foxball.shopmall.shared.ResponseBuilder
 import top.foxball.shopmall.shared.Response as ApiResponse
 
 /** 商品写入请求；标签 ID 独立传递，避免客户端直接构造持久化标签实体。 */
-data class OnePieceSuitUpsertRequest(
+data class DressUpsertRequest(
     @field:Valid
-    val onePieceSuit: OnePieceSuit = OnePieceSuit(),
+    val dress: Dress = Dress(),
     @field:Size(max = 20)
     val tagIds: Set<Long> = emptySet(),
 )
 
-/** 消费者读取上架商品，商城管理员维护全部一件式泳衣目录。 */
+/** 消费者读取上架连衣裙，商城管理员维护全部连衣裙目录。 */
 @RestController
 @RequestMapping
-class OnePieceSuitController(
-    private val onePieceSuitService: OnePieceSuitService,
+class DressController(
+    private val dressService: DressService,
     private val adminAccessService: AdminAccessService,
     private val builder: ResponseBuilder,
 ) {
-    @GetMapping("/api/one-piece-suits")
+    @GetMapping("/api/dresses")
     fun listPublished(): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuits: List<OnePieceSuitResponse>)
-        return builder.ok().data(Response(onePieceSuitService.listPublished().map(OnePieceSuit::toResponse))).build()
+        data class Response(val dresses: List<DressResponse>)
+        return builder.ok().data(Response(dressService.listPublished().map(Dress::toResponse))).build()
     }
 
-    @GetMapping("/api/one-piece-suits/{id}")
+    @GetMapping("/api/dresses/{id}")
     fun getPublished(@PathVariable id: Long): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuit: OnePieceSuitResponse)
-        val onePieceSuit = onePieceSuitService.getPublished(id) ?: return builder.notFound().build()
-        return builder.ok().data(Response(onePieceSuit.toResponse())).build()
+        data class Response(val dress: DressResponse)
+        val dress = dressService.getPublished(id) ?: return builder.notFound().build()
+        return builder.ok().data(Response(dress.toResponse())).build()
     }
 
-    @GetMapping("/api/admin/one-piece-suits")
+    @GetMapping("/api/admin/dresses")
     fun listForAdmin(@AuthenticationPrincipal userId: Long): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuits: List<OnePieceSuitResponse>)
+        data class Response(val dresses: List<DressResponse>)
         adminAccessService.requireAdmin(userId)
-        return builder.ok().data(Response(onePieceSuitService.listForAdmin().map(OnePieceSuit::toResponse))).build()
+        return builder.ok().data(Response(dressService.listForAdmin().map(Dress::toResponse))).build()
     }
 
-    @GetMapping("/api/admin/one-piece-suits/{id}")
+    @GetMapping("/api/admin/dresses/{id}")
     fun getForAdmin(
         @AuthenticationPrincipal userId: Long,
         @PathVariable id: Long,
     ): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuit: OnePieceSuitResponse)
+        data class Response(val dress: DressResponse)
         adminAccessService.requireAdmin(userId)
-        val onePieceSuit = onePieceSuitService.getForAdmin(id) ?: return builder.notFound().build()
-        return builder.ok().data(Response(onePieceSuit.toResponse())).build()
+        val dress = dressService.getForAdmin(id) ?: return builder.notFound().build()
+        return builder.ok().data(Response(dress.toResponse())).build()
     }
 
-    @PostMapping("/api/admin/one-piece-suits")
+    @PostMapping("/api/admin/dresses")
     fun create(
         @AuthenticationPrincipal userId: Long,
-        @Valid @RequestBody request: OnePieceSuitUpsertRequest,
+        @Valid @RequestBody request: DressUpsertRequest,
     ): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuit: OnePieceSuitResponse)
+        data class Response(val dress: DressResponse)
         adminAccessService.requireAdmin(userId)
-        val onePieceSuit = onePieceSuitService.create(request.onePieceSuit, request.tagIds)
-        return builder.status(HttpStatus.CREATED).data(Response(onePieceSuit.toResponse())).build()
+        val dress = dressService.create(request.dress, request.tagIds)
+        return builder.status(HttpStatus.CREATED).data(Response(dress.toResponse())).build()
     }
 
-    @PutMapping("/api/admin/one-piece-suits/{id}")
+    @PutMapping("/api/admin/dresses/{id}")
     fun update(
         @AuthenticationPrincipal userId: Long,
         @PathVariable id: Long,
-        @Valid @RequestBody request: OnePieceSuitUpsertRequest,
+        @Valid @RequestBody request: DressUpsertRequest,
     ): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuit: OnePieceSuitResponse)
+        data class Response(val dress: DressResponse)
         adminAccessService.requireAdmin(userId)
-        val onePieceSuit = onePieceSuitService.update(id, request.onePieceSuit, request.tagIds)
-            ?: return builder.notFound().build()
-        return builder.ok().data(Response(onePieceSuit.toResponse())).build()
+        val dress = dressService.update(id, request.dress, request.tagIds) ?: return builder.notFound().build()
+        return builder.ok().data(Response(dress.toResponse())).build()
     }
 
-    @DeleteMapping("/api/admin/one-piece-suits/{id}")
+    @DeleteMapping("/api/admin/dresses/{id}")
     fun delete(
         @AuthenticationPrincipal userId: Long,
         @PathVariable id: Long,
     ): ResponseEntity<ApiResponse> {
         data class Response(val id: Long, val deleted: Boolean)
         adminAccessService.requireAdmin(userId)
-        if (!onePieceSuitService.delete(id)) return builder.notFound().build()
+        if (!dressService.delete(id)) return builder.notFound().build()
         return builder.ok().data(Response(id, true)).build()
     }
 }

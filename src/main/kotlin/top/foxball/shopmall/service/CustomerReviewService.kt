@@ -4,7 +4,7 @@ import top.foxball.shopmall.entity.jdbc.CustomerReview
 import top.foxball.shopmall.entity.jdbc.ReviewStatus
 
 interface CustomerReviewService {
-    fun listPublishedByBikiniSuit(bikiniSuitId: Long): List<CustomerReview>
+    fun listPublishedByProduct(productId: Long): List<CustomerReview>
 
     fun getPublished(id: Long): CustomerReview?
 
@@ -12,7 +12,7 @@ interface CustomerReviewService {
 
     fun getForAdmin(id: Long): CustomerReview?
 
-    fun create(customerId: Long, bikiniSuitId: Long, source: CustomerReview): CustomerReview?
+    fun create(customerId: Long, productId: Long, source: CustomerReview): CustomerReview?
 
     fun updateByCustomer(id: Long, customerId: Long, source: CustomerReview): CustomerReview?
 

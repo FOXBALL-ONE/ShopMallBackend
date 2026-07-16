@@ -60,8 +60,11 @@ class SecurityConfig(
                 // 独立站前台商品、标签和已审核评价均允许匿名读取；写入接口仍要求 JWT。
                 it.requestMatchers(
                     HttpMethod.GET,
+                    "/api/products/**",
                     "/api/bikini-suits/**",
                     "/api/one-piece-suits/**",
+                    "/api/dresses/**",
+                    "/api/cover-ups/**",
                     "/api/tags/**",
                     "/api/customer-reviews/**",
                 ).permitAll()

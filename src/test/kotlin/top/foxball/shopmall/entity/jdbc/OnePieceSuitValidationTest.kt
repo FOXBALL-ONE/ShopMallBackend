@@ -12,25 +12,26 @@ class OnePieceSuitValidationTest {
     @Test
     fun `accepts a complete one piece suit SKU`() {
         val suit = OnePieceSuit(
-            name = "Sculpting Scoop One Piece",
             size = OnePieceSuit.Size.M,
-            color = "Navy",
-            price = BigDecimal("98.00"),
             supportLevel = OnePieceSuit.SupportLevel.MEDIUM,
             coverage = OnePieceSuit.Coverage.FULL,
             torsoFit = OnePieceSuit.TorsoFit.REGULAR,
-        )
+        ).apply {
+            name = "Sculpting Scoop One Piece"
+            color = "Navy"
+            price = BigDecimal("98.00")
+        }
 
         assertTrue(validator.validate(suit).isEmpty())
     }
 
     @Test
     fun `rejects a missing size and a non-positive price`() {
-        val suit = OnePieceSuit(
-            name = "Sculpting Scoop One Piece",
-            color = "Navy",
-            price = BigDecimal.ZERO,
-        )
+        val suit = OnePieceSuit().apply {
+            name = "Sculpting Scoop One Piece"
+            color = "Navy"
+            price = BigDecimal.ZERO
+        }
 
         val invalidProperties = validator.validate(suit).map { it.propertyPath.toString() }.toSet()
         assertEquals(setOf("price", "size"), invalidProperties)

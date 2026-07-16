@@ -9,9 +9,9 @@ class CustomerReviewValidationTest {
     private val validator = Validation.buildDefaultValidatorFactory().validator
 
     @Test
-    fun `accepts a review linked to a bikini suit`() {
+    fun `accepts a review linked to a product`() {
         val review = CustomerReview(
-            bikiniSuit = BikiniSuit(),
+            product = BikiniSuit(),
             customerId = 101,
             rating = 5,
             content = "Comfortable and true to size.",
@@ -21,7 +21,7 @@ class CustomerReviewValidationTest {
     }
 
     @Test
-    fun `rejects a review without a bikini suit or with an invalid rating`() {
+    fun `rejects a review without a product or with an invalid rating`() {
         val review = CustomerReview(
             customerId = 101,
             rating = 6,
@@ -29,6 +29,6 @@ class CustomerReviewValidationTest {
         )
 
         val invalidProperties = validator.validate(review).map { it.propertyPath.toString() }.toSet()
-        assertEquals(setOf("bikiniSuit", "rating"), invalidProperties)
+        assertEquals(setOf("product", "rating"), invalidProperties)
     }
 }

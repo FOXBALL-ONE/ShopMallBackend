@@ -5,8 +5,8 @@ import top.foxball.shopmall.entity.jdbc.CustomerReview
 import top.foxball.shopmall.entity.jdbc.ReviewStatus
 
 interface CustomerReviewRepository : JpaRepository<CustomerReview, Long> {
-    fun findAllByBikiniSuit_IdAndStatusOrderByCreatedAtDesc(
-        bikiniSuitId: Long,
+    fun findAllByProduct_IdAndStatusOrderByCreatedAtDesc(
+        productId: Long,
         status: ReviewStatus,
     ): List<CustomerReview>
 

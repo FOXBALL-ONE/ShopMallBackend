@@ -13,91 +13,90 @@ import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
-import top.foxball.shopmall.entity.jdbc.OnePieceSuit
+import top.foxball.shopmall.entity.jdbc.CoverUp
 import top.foxball.shopmall.service.AdminAccessService
-import top.foxball.shopmall.service.OnePieceSuitService
+import top.foxball.shopmall.service.CoverUpService
 import top.foxball.shopmall.shared.ResponseBuilder
 import top.foxball.shopmall.shared.Response as ApiResponse
 
 /** 商品写入请求；标签 ID 独立传递，避免客户端直接构造持久化标签实体。 */
-data class OnePieceSuitUpsertRequest(
+data class CoverUpUpsertRequest(
     @field:Valid
-    val onePieceSuit: OnePieceSuit = OnePieceSuit(),
+    val coverUp: CoverUp = CoverUp(),
     @field:Size(max = 20)
     val tagIds: Set<Long> = emptySet(),
 )
 
-/** 消费者读取上架商品，商城管理员维护全部一件式泳衣目录。 */
+/** 消费者读取上架罩衫，商城管理员维护全部罩衫目录。 */
 @RestController
 @RequestMapping
-class OnePieceSuitController(
-    private val onePieceSuitService: OnePieceSuitService,
+class CoverUpController(
+    private val coverUpService: CoverUpService,
     private val adminAccessService: AdminAccessService,
     private val builder: ResponseBuilder,
 ) {
-    @GetMapping("/api/one-piece-suits")
+    @GetMapping("/api/cover-ups")
     fun listPublished(): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuits: List<OnePieceSuitResponse>)
-        return builder.ok().data(Response(onePieceSuitService.listPublished().map(OnePieceSuit::toResponse))).build()
+        data class Response(val coverUps: List<CoverUpResponse>)
+        return builder.ok().data(Response(coverUpService.listPublished().map(CoverUp::toResponse))).build()
     }
 
-    @GetMapping("/api/one-piece-suits/{id}")
+    @GetMapping("/api/cover-ups/{id}")
     fun getPublished(@PathVariable id: Long): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuit: OnePieceSuitResponse)
-        val onePieceSuit = onePieceSuitService.getPublished(id) ?: return builder.notFound().build()
-        return builder.ok().data(Response(onePieceSuit.toResponse())).build()
+        data class Response(val coverUp: CoverUpResponse)
+        val coverUp = coverUpService.getPublished(id) ?: return builder.notFound().build()
+        return builder.ok().data(Response(coverUp.toResponse())).build()
     }
 
-    @GetMapping("/api/admin/one-piece-suits")
+    @GetMapping("/api/admin/cover-ups")
     fun listForAdmin(@AuthenticationPrincipal userId: Long): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuits: List<OnePieceSuitResponse>)
+        data class Response(val coverUps: List<CoverUpResponse>)
         adminAccessService.requireAdmin(userId)
-        return builder.ok().data(Response(onePieceSuitService.listForAdmin().map(OnePieceSuit::toResponse))).build()
+        return builder.ok().data(Response(coverUpService.listForAdmin().map(CoverUp::toResponse))).build()
     }
 
-    @GetMapping("/api/admin/one-piece-suits/{id}")
+    @GetMapping("/api/admin/cover-ups/{id}")
     fun getForAdmin(
         @AuthenticationPrincipal userId: Long,
         @PathVariable id: Long,
     ): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuit: OnePieceSuitResponse)
+        data class Response(val coverUp: CoverUpResponse)
         adminAccessService.requireAdmin(userId)
-        val onePieceSuit = onePieceSuitService.getForAdmin(id) ?: return builder.notFound().build()
-        return builder.ok().data(Response(onePieceSuit.toResponse())).build()
+        val coverUp = coverUpService.getForAdmin(id) ?: return builder.notFound().build()
+        return builder.ok().data(Response(coverUp.toResponse())).build()
     }
 
-    @PostMapping("/api/admin/one-piece-suits")
+    @PostMapping("/api/admin/cover-ups")
     fun create(
         @AuthenticationPrincipal userId: Long,
-        @Valid @RequestBody request: OnePieceSuitUpsertRequest,
+        @Valid @RequestBody request: CoverUpUpsertRequest,
     ): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuit: OnePieceSuitResponse)
+        data class Response(val coverUp: CoverUpResponse)
         adminAccessService.requireAdmin(userId)
-        val onePieceSuit = onePieceSuitService.create(request.onePieceSuit, request.tagIds)
-        return builder.status(HttpStatus.CREATED).data(Response(onePieceSuit.toResponse())).build()
+        val coverUp = coverUpService.create(request.coverUp, request.tagIds)
+        return builder.status(HttpStatus.CREATED).data(Response(coverUp.toResponse())).build()
     }
 
-    @PutMapping("/api/admin/one-piece-suits/{id}")
+    @PutMapping("/api/admin/cover-ups/{id}")
     fun update(
         @AuthenticationPrincipal userId: Long,
         @PathVariable id: Long,
-        @Valid @RequestBody request: OnePieceSuitUpsertRequest,
+        @Valid @RequestBody request: CoverUpUpsertRequest,
     ): ResponseEntity<ApiResponse> {
-        data class Response(val onePieceSuit: OnePieceSuitResponse)
+        data class Response(val coverUp: CoverUpResponse)
         adminAccessService.requireAdmin(userId)
-        val onePieceSuit = onePieceSuitService.update(id, request.onePieceSuit, request.tagIds)
-            ?: return builder.notFound().build()
-        return builder.ok().data(Response(onePieceSuit.toResponse())).build()
+        val coverUp = coverUpService.update(id, request.coverUp, request.tagIds) ?: return builder.notFound().build()
+        return builder.ok().data(Response(coverUp.toResponse())).build()
     }
 
-    @DeleteMapping("/api/admin/one-piece-suits/{id}")
+    @DeleteMapping("/api/admin/cover-ups/{id}")
     fun delete(
         @AuthenticationPrincipal userId: Long,
         @PathVariable id: Long,
     ): ResponseEntity<ApiResponse> {
         data class Response(val id: Long, val deleted: Boolean)
         adminAccessService.requireAdmin(userId)
-        if (!onePieceSuitService.delete(id)) return builder.notFound().build()
+        if (!coverUpService.delete(id)) return builder.notFound().build()
         return builder.ok().data(Response(id, true)).build()
     }
 }

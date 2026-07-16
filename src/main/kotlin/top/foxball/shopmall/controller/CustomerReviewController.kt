@@ -50,7 +50,7 @@ data class CustomerReviewModerationRequest(
 
 private data class CustomerReviewResponse(
     val id: Long,
-    val bikiniSuitId: Long,
+    val productId: Long,
     val rating: Int,
     val title: String?,
     val content: String,
@@ -65,7 +65,7 @@ private data class CustomerReviewResponse(
 
 private fun CustomerReview.toResponse(includeCustomerId: Boolean = false): CustomerReviewResponse = CustomerReviewResponse(
     id = requireNotNull(id),
-    bikiniSuitId = requireNotNull(bikiniSuit?.id),
+    productId = requireNotNull(product?.id),
     rating = rating,
     title = title,
     content = content,
@@ -86,10 +86,10 @@ class CustomerReviewController(
     private val adminAccessService: AdminAccessService,
     private val builder: ResponseBuilder,
 ) {
-    @GetMapping("/api/bikini-suits/{bikiniSuitId}/reviews")
-    fun listPublished(@PathVariable bikiniSuitId: Long): ResponseEntity<ApiResponse> {
+    @GetMapping("/api/products/{productId}/reviews")
+    fun listPublished(@PathVariable productId: Long): ResponseEntity<ApiResponse> {
         data class Response(val reviews: List<CustomerReviewResponse>)
-        val reviews = customerReviewService.listPublishedByBikiniSuit(bikiniSuitId).map(CustomerReview::toResponse)
+        val reviews = customerReviewService.listPublishedByProduct(productId).map(CustomerReview::toResponse)
         return builder.ok().data(Response(reviews)).build()
     }
 
@@ -100,15 +100,15 @@ class CustomerReviewController(
         return builder.ok().data(Response(review.toResponse())).build()
     }
 
-    @PostMapping("/api/bikini-suits/{bikiniSuitId}/reviews")
+    @PostMapping("/api/products/{productId}/reviews")
     fun create(
         @AuthenticationPrincipal userId: Long,
-        @PathVariable bikiniSuitId: Long,
+        @PathVariable productId: Long,
         @Valid @RequestBody request: CustomerReviewContentRequest,
     ): ResponseEntity<ApiResponse> {
         data class Response(val review: CustomerReviewResponse)
         adminAccessService.requireCustomer(userId)
-        val review = customerReviewService.create(userId, bikiniSuitId, request.toEntity())
+        val review = customerReviewService.create(userId, productId, request.toEntity())
             ?: return builder.notFound().build()
         return builder.status(HttpStatus.CREATED).data(Response(review.toResponse())).build()
     }

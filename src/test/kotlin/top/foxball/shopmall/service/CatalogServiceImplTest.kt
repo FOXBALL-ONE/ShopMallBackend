@@ -3,10 +3,10 @@ package top.foxball.shopmall.service
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
+import java.util.Optional
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
 import top.foxball.shopmall.entity.jdbc.BikiniSuit
 import top.foxball.shopmall.entity.jdbc.CustomerReview
 import top.foxball.shopmall.entity.jdbc.OnePieceSuit
@@ -16,13 +16,13 @@ import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.repository.BikiniSuitRepository
 import top.foxball.shopmall.repository.CustomerReviewRepository
 import top.foxball.shopmall.repository.OnePieceSuitRepository
+import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.repository.TagRepository
 import top.foxball.shopmall.service.impl.BikiniSuitServiceImpl
 import top.foxball.shopmall.service.impl.CustomerReviewServiceImpl
 import top.foxball.shopmall.service.impl.OnePieceSuitServiceImpl
 import top.foxball.shopmall.service.impl.TagServiceImpl
 import java.math.BigDecimal
-import java.util.Optional
 
 class CatalogServiceImplTest {
     @Test
@@ -31,7 +31,11 @@ class CatalogServiceImplTest {
         val tagRepository = mock(TagRepository::class.java)
         val service = BikiniSuitServiceImpl(bikiniSuitRepository, tagRepository)
         val tag = Tag(id = 7, name = "High Waist")
-        val bikiniSuit = BikiniSuit(name = "Ocean Set", color = "Blue", price = BigDecimal("89.00"))
+        val bikiniSuit = BikiniSuit().apply {
+            name = "Ocean Set"
+            color = "Blue"
+            price = BigDecimal("89.00")
+        }
 
         `when`(tagRepository.findAllById(listOf(7))).thenReturn(listOf(tag))
         `when`(bikiniSuitRepository.save(any(BikiniSuit::class.java))).thenAnswer { it.getArgument(0) }
@@ -44,8 +48,8 @@ class CatalogServiceImplTest {
     @Test
     fun `editing a review sends it back to moderation`() {
         val reviewRepository = mock(CustomerReviewRepository::class.java)
-        val bikiniSuitRepository = mock(BikiniSuitRepository::class.java)
-        val service = CustomerReviewServiceImpl(reviewRepository, bikiniSuitRepository)
+        val productRepository = mock(ProductRepository::class.java)
+        val service = CustomerReviewServiceImpl(reviewRepository, productRepository)
         val review = CustomerReview(
             customerId = 42,
             rating = 4,
@@ -72,12 +76,11 @@ class CatalogServiceImplTest {
         val tagRepository = mock(TagRepository::class.java)
         val service = OnePieceSuitServiceImpl(onePieceSuitRepository, tagRepository)
         val tag = Tag(id = 8, name = "Tummy Control")
-        val onePieceSuit = OnePieceSuit(
-            name = "Sculpting One Piece",
-            size = OnePieceSuit.Size.M,
-            color = "Black",
-            price = BigDecimal("99.00"),
-        )
+        val onePieceSuit = OnePieceSuit(size = OnePieceSuit.Size.M).apply {
+            name = "Sculpting One Piece"
+            color = "Black"
+            price = BigDecimal("99.00")
+        }
 
         `when`(tagRepository.findAllById(listOf(8))).thenReturn(listOf(tag))
         `when`(onePieceSuitRepository.save(any(OnePieceSuit::class.java))).thenAnswer { it.getArgument(0) }
@@ -88,15 +91,14 @@ class CatalogServiceImplTest {
     }
 
     @Test
-    fun `deleting a tag still assigned to a bikini suit is rejected`() {
+    fun `deleting a tag still assigned to a product is rejected`() {
         val tagRepository = mock(TagRepository::class.java)
-        val bikiniSuitRepository = mock(BikiniSuitRepository::class.java)
-        val onePieceSuitRepository = mock(OnePieceSuitRepository::class.java)
-        val service = TagServiceImpl(tagRepository, bikiniSuitRepository, onePieceSuitRepository)
+        val productRepository = mock(ProductRepository::class.java)
+        val service = TagServiceImpl(tagRepository, productRepository)
         val tag = Tag(id = 3, name = "Sculpting")
 
         `when`(tagRepository.findById(3)).thenReturn(Optional.of(tag))
-        `when`(bikiniSuitRepository.existsByTags_Id(3)).thenReturn(true)
+        `when`(productRepository.existsByTags_Id(3)).thenReturn(true)
 
         assertFailsWith<ParamErrorException> { service.delete(3) }
     }

@@ -23,14 +23,14 @@ import org.hibernate.annotations.UpdateTimestamp
 import java.time.LocalDateTime
 
 /**
- * 客户对某个泳装商品提交的评价。
- * 通过泳装实体关联商品，并以客户 ID 标识评价作者。
+ * 客户对某个商品提交的评价。
+ * 通过多态的 [Product] 关联任意品类的商品，并以客户 ID 标识评价作者。
  */
 @Entity
 @Table(
     name = "customer_reviews",
     indexes = [
-        Index(name = "idx_customer_reviews_bikini_suit_created", columnList = "bikini_suit_id, created_at"),
+        Index(name = "idx_customer_reviews_product_created", columnList = "product_id, created_at"),
         Index(name = "idx_customer_reviews_customer_created", columnList = "customer_id, created_at"),
         Index(name = "idx_customer_reviews_status_created", columnList = "status, created_at"),
     ],
@@ -41,14 +41,14 @@ class CustomerReview(
     var id: Long? = null,
 
     /**
-     * 被评价的泳装商品。
+     * 被评价的商品（任意品类）。
      * 使用延迟加载并在 JSON 响应中忽略该反向引用，避免评价列表产生循环序列化。
      */
     @get:JsonIgnore
     @field:NotNull
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "bikini_suit_id", nullable = false, updatable = false)
-    var bikiniSuit: BikiniSuit? = null,
+    @JoinColumn(name = "product_id", nullable = false, updatable = false)
+    var product: Product? = null,
 
     /** 提交评价的客户 ID。 */
     @field:Min(1)
