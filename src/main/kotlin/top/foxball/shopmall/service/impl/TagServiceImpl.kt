@@ -5,6 +5,7 @@ import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.entity.jdbc.Tag
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.repository.BikiniSuitRepository
+import top.foxball.shopmall.repository.OnePieceSuitRepository
 import top.foxball.shopmall.repository.TagRepository
 import top.foxball.shopmall.service.TagService
 
@@ -13,6 +14,7 @@ import top.foxball.shopmall.service.TagService
 class TagServiceImpl(
     private val tagRepository: TagRepository,
     private val bikiniSuitRepository: BikiniSuitRepository,
+    private val onePieceSuitRepository: OnePieceSuitRepository,
 ) : TagService {
     override fun listPublished(): List<Tag> = tagRepository.findAllByActiveTrueOrderBySortOrderAscNameAsc()
 
@@ -49,7 +51,7 @@ class TagServiceImpl(
     @Transactional
     override fun delete(id: Long): Boolean {
         val tag = tagRepository.findById(id).orElse(null) ?: return false
-        if (bikiniSuitRepository.existsByTags_Id(id)) {
+        if (bikiniSuitRepository.existsByTags_Id(id) || onePieceSuitRepository.existsByTags_Id(id)) {
             throw ParamErrorException("标签仍被商品使用，不能删除")
         }
         tagRepository.delete(tag)

@@ -9,14 +9,17 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import top.foxball.shopmall.entity.jdbc.BikiniSuit
 import top.foxball.shopmall.entity.jdbc.CustomerReview
+import top.foxball.shopmall.entity.jdbc.OnePieceSuit
 import top.foxball.shopmall.entity.jdbc.ReviewStatus
 import top.foxball.shopmall.entity.jdbc.Tag
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.repository.BikiniSuitRepository
 import top.foxball.shopmall.repository.CustomerReviewRepository
+import top.foxball.shopmall.repository.OnePieceSuitRepository
 import top.foxball.shopmall.repository.TagRepository
 import top.foxball.shopmall.service.impl.BikiniSuitServiceImpl
 import top.foxball.shopmall.service.impl.CustomerReviewServiceImpl
+import top.foxball.shopmall.service.impl.OnePieceSuitServiceImpl
 import top.foxball.shopmall.service.impl.TagServiceImpl
 import java.math.BigDecimal
 import java.util.Optional
@@ -64,10 +67,32 @@ class CatalogServiceImplTest {
     }
 
     @Test
+    fun `creating a one piece suit assigns requested persisted tags`() {
+        val onePieceSuitRepository = mock(OnePieceSuitRepository::class.java)
+        val tagRepository = mock(TagRepository::class.java)
+        val service = OnePieceSuitServiceImpl(onePieceSuitRepository, tagRepository)
+        val tag = Tag(id = 8, name = "Tummy Control")
+        val onePieceSuit = OnePieceSuit(
+            name = "Sculpting One Piece",
+            size = OnePieceSuit.Size.M,
+            color = "Black",
+            price = BigDecimal("99.00"),
+        )
+
+        `when`(tagRepository.findAllById(listOf(8))).thenReturn(listOf(tag))
+        `when`(onePieceSuitRepository.save(any(OnePieceSuit::class.java))).thenAnswer { it.getArgument(0) }
+
+        val saved = service.create(onePieceSuit, listOf(8))
+
+        assertEquals(setOf(tag), saved.tags)
+    }
+
+    @Test
     fun `deleting a tag still assigned to a bikini suit is rejected`() {
         val tagRepository = mock(TagRepository::class.java)
         val bikiniSuitRepository = mock(BikiniSuitRepository::class.java)
-        val service = TagServiceImpl(tagRepository, bikiniSuitRepository)
+        val onePieceSuitRepository = mock(OnePieceSuitRepository::class.java)
+        val service = TagServiceImpl(tagRepository, bikiniSuitRepository, onePieceSuitRepository)
         val tag = Tag(id = 3, name = "Sculpting")
 
         `when`(tagRepository.findById(3)).thenReturn(Optional.of(tag))
