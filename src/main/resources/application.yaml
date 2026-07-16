@@ -60,3 +60,7 @@ neko:
     verification:
       # 发件人地址，留空则回退到 spring.mail.username
       from: "${MAIL_FROM:}"
+
+stripe:
+  public-key: "${STRIPE_PUBLIC_KEY:}"
+  secret-key: "${STRIPE_SECRET_KEY:}"
