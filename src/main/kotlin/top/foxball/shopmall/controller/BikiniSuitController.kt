@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import top.foxball.shopmall.entity.jdbc.BikiniSuit
+import top.foxball.shopmall.entity.jdbc.BikiniSuitSizeRecommendation
 import top.foxball.shopmall.entity.jdbc.Tag
 import top.foxball.shopmall.service.AdminAccessService
 import top.foxball.shopmall.service.BikiniSuitService
@@ -34,7 +35,9 @@ private data class BikiniSuitResponse(
     val id: Long,
     val name: String,
     val topSize: BikiniSuit.Size?,
+    val topSizeRecommendation: BikiniSuitSizeRecommendation?,
     val bottomSize: BikiniSuit.Size?,
+    val bottomSizeRecommendation: BikiniSuitSizeRecommendation?,
     val color: String,
     val price: BigDecimal,
     val warehouseVolume: Int,
@@ -56,7 +59,9 @@ private fun BikiniSuit.toResponse(): BikiniSuitResponse = BikiniSuitResponse(
     id = requireNotNull(id),
     name = name,
     topSize = topSize,
+    topSizeRecommendation = topSize?.recommendation,
     bottomSize = bottomSize,
+    bottomSizeRecommendation = bottomSize?.recommendation,
     color = color,
     price = price,
     warehouseVolume = warehouseVolume,
