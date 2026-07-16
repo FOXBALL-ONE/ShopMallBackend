@@ -1,6 +1,5 @@
 package top.foxball.shopmall.entity.jdbc
 
-import jakarta.persistence.CascadeType
 import jakarta.persistence.CollectionTable
 import jakarta.persistence.Column
 import jakarta.persistence.ElementCollection
@@ -15,7 +14,6 @@ import jakarta.persistence.Index
 import jakarta.persistence.JoinColumn
 import jakarta.persistence.JoinTable
 import jakarta.persistence.ManyToMany
-import jakarta.persistence.OneToMany
 import jakarta.persistence.OrderColumn
 import jakarta.persistence.Table
 import jakarta.persistence.UniqueConstraint
@@ -24,6 +22,7 @@ import jakarta.validation.constraints.DecimalMin
 import jakarta.validation.constraints.Digits
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.NotNull
 import jakarta.validation.constraints.Size as ValidationSize
 import org.hibernate.annotations.CreationTimestamp
 import org.hibernate.annotations.UpdateTimestamp
@@ -31,18 +30,18 @@ import java.math.BigDecimal
 import java.time.LocalDateTime
 
 /**
- * 可销售的比基尼 SKU。
- * 每条记录代表一套确定的颜色和上下装尺码组合，并独立维护库存、销量和客户评价。
+ * 可销售的一件式泳衣 SKU。
+ * 每条记录代表一种确定的颜色和尺码组合，并独立维护库存、销量、版型及商品素材。
  */
 @Entity
 @Table(
-    name = "bikini_suits",
+    name = "one_piece_suits",
     indexes = [
-        Index(name = "idx_bikini_suits_status", columnList = "status"),
-        Index(name = "idx_bikini_suits_created_at", columnList = "created_at"),
+        Index(name = "idx_one_piece_suits_status", columnList = "status"),
+        Index(name = "idx_one_piece_suits_created_at", columnList = "created_at"),
     ],
 )
-class BikiniSuit(
+class OnePieceSuit(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     var id: Long? = null,
@@ -53,15 +52,11 @@ class BikiniSuit(
     @Column(nullable = false, length = 200)
     var name: String = "",
 
-    /** 比基尼上装尺码；仅销售下装或套装未拆分时可为空。 */
+    /** 此 SKU 的标准尺码；一件式泳衣使用单一尺码覆盖上下身。 */
+    @field:NotNull
     @Enumerated(EnumType.STRING)
-    @Column(name = "top_size", length = 8)
-    var topSize: Size? = null,
-
-    /** 比基尼下装尺码；仅销售上装或套装未拆分时可为空。 */
-    @Enumerated(EnumType.STRING)
-    @Column(name = "bottom_size", length = 8)
-    var bottomSize: Size? = null,
+    @Column(nullable = false, length = 8)
+    var size: Size? = null,
 
     /** 此 SKU 面向消费者展示的颜色。 */
     @field:NotBlank
@@ -85,6 +80,39 @@ class BikiniSuit(
     @Column(name = "sales_volume", nullable = false)
     var salesVolume: Int = 0,
 
+    /** 胸部支撑程度；无明显支撑结构时可为空。 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "support_level", length = 16)
+    var supportLevel: SupportLevel? = null,
+
+    /** 下装区域的覆盖程度。 */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    var coverage: Coverage? = null,
+
+    /** 躯干长度版型，用于帮助不同身高和身材比例的客户选码。 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "torso_fit", length = 16)
+    var torsoFit: TorsoFit? = null,
+
+    /** 泳衣领口设计。 */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 24)
+    var neckline: Neckline? = null,
+
+    /** 泳衣后背设计。 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "back_style", length = 24)
+    var backStyle: BackStyle? = null,
+
+    /** 是否包含腹部塑形或支撑结构。 */
+    @Column(name = "tummy_control", nullable = false)
+    var tummyControl: Boolean = false,
+
+    /** 是否配有可拆卸胸垫。 */
+    @Column(name = "removable_padding", nullable = false)
+    var removablePadding: Boolean = false,
+
     /** 商品首次持久化时由 Hibernate 自动写入。 */
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -104,11 +132,8 @@ class BikiniSuit(
     @field:ValidationSize(max = 10)
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(
-        name = "bikini_suit_highlights",
-        joinColumns = [JoinColumn(name = "bikini_suit_id", nullable = false)],
-        indexes = [
-            Index(name = "idx_bikini_suit_highlights_suit_id", columnList = "bikini_suit_id"),
-        ],
+        name = "one_piece_suit_highlights",
+        joinColumns = [JoinColumn(name = "one_piece_suit_id", nullable = false)],
     )
     @OrderColumn(name = "sort_order")
     @Column(name = "highlight", nullable = false, length = 255)
@@ -118,11 +143,8 @@ class BikiniSuit(
     @field:ValidationSize(max = 12)
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(
-        name = "bikini_suit_images",
-        joinColumns = [JoinColumn(name = "bikini_suit_id", nullable = false)],
-        indexes = [
-            Index(name = "idx_bikini_suit_images_suit_id", columnList = "bikini_suit_id"),
-        ],
+        name = "one_piece_suit_images",
+        joinColumns = [JoinColumn(name = "one_piece_suit_id", nullable = false)],
     )
     @OrderColumn(name = "sort_order")
     @Column(name = "image_url", nullable = false, length = 512)
@@ -142,11 +164,8 @@ class BikiniSuit(
     @field:ValidationSize(max = 12)
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(
-        name = "bikini_suit_design_extras",
-        joinColumns = [JoinColumn(name = "bikini_suit_id", nullable = false)],
-        indexes = [
-            Index(name = "idx_bikini_suit_design_extras_suit_id", columnList = "bikini_suit_id"),
-        ],
+        name = "one_piece_suit_design_extras",
+        joinColumns = [JoinColumn(name = "one_piece_suit_id", nullable = false)],
     )
     @OrderColumn(name = "sort_order")
     @Column(name = "detail", nullable = false, length = 255)
@@ -156,23 +175,12 @@ class BikiniSuit(
     @field:ValidationSize(max = 12)
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(
-        name = "bikini_suit_care_instructions",
-        joinColumns = [JoinColumn(name = "bikini_suit_id", nullable = false)],
-        indexes = [
-            Index(name = "idx_bikini_suit_care_suit_id", columnList = "bikini_suit_id"),
-        ],
+        name = "one_piece_suit_care_instructions",
+        joinColumns = [JoinColumn(name = "one_piece_suit_id", nullable = false)],
     )
     @OrderColumn(name = "sort_order")
     @Column(name = "instruction", nullable = false, length = 255)
     var careInstructions: MutableList<String> = mutableListOf(),
-
-    /** 商品收到的客户评价；评价持有外键，避免额外的关联表。 */
-    @OneToMany(
-        mappedBy = "bikiniSuit",
-        fetch = FetchType.LAZY,
-        cascade = [CascadeType.PERSIST, CascadeType.MERGE],
-    )
-    var customerReviews: MutableList<CustomerReview> = mutableListOf(),
 
     /** 已审核评价的平均评分；由服务层在评价变化后重新计算。 */
     @field:DecimalMin("0.0")
@@ -183,16 +191,13 @@ class BikiniSuit(
     /** 商品标签；标签由标签目录独立维护，因此不级联持久化或删除。 */
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
-        name = "bikini_suit_tags",
-        joinColumns = [JoinColumn(name = "bikini_suit_id", nullable = false)],
+        name = "one_piece_suit_tags",
+        joinColumns = [JoinColumn(name = "one_piece_suit_id", nullable = false)],
         inverseJoinColumns = [JoinColumn(name = "tag_id", nullable = false)],
-        indexes = [
-            Index(name = "idx_bikini_suit_tags_tag_id", columnList = "tag_id"),
-        ],
         uniqueConstraints = [
             UniqueConstraint(
-                name = "uk_bikini_suit_tags_bikini_suit_tag",
-                columnNames = ["bikini_suit_id", "tag_id"],
+                name = "uk_one_piece_suit_tags_suit_tag",
+                columnNames = ["one_piece_suit_id", "tag_id"],
             ),
         ],
     )
@@ -206,12 +211,14 @@ class BikiniSuit(
     }
 
     /**
-     * 上装和下装可使用的标准尺码。
-     * [recommendation] 为选码参考：上装使用胸部数据，下装使用腰围和臀围数据。
+     * 一件式泳衣可使用的标准尺码。
+     * [recommendation] 是品牌尺码表提供的选码参考，不参与数据库枚举值的持久化。
      */
     enum class Size(
         val recommendation: BikiniSuitSizeRecommendation? = null,
     ) {
+        XXS,
+        XS,
         S(
             recommendation = BikiniSuitSizeRecommendation(
                 braSizes = listOf("32D", "34B", "34C", "36A"),
@@ -228,5 +235,46 @@ class BikiniSuit(
         XXL,
         XXXL,
         XXXXL,
+        XXXXXL,
+    }
+
+    /** 胸部支撑的相对程度。 */
+    enum class SupportLevel {
+        LIGHT,
+        MEDIUM,
+        HIGH,
+    }
+
+    /** 下装区域的相对覆盖程度。 */
+    enum class Coverage {
+        CHEEKY,
+        MODERATE,
+        FULL,
+    }
+
+    /** 适配不同躯干长度的版型。 */
+    enum class TorsoFit {
+        SHORT,
+        REGULAR,
+        LONG,
+    }
+
+    /** 常见的一件式泳衣领口设计。 */
+    enum class Neckline {
+        SCOOP,
+        V_NECK,
+        HALTER,
+        BANDEAU,
+        ONE_SHOULDER,
+        HIGH_NECK,
+    }
+
+    /** 常见的一件式泳衣后背设计。 */
+    enum class BackStyle {
+        OPEN_BACK,
+        CROSS_BACK,
+        SCOOP_BACK,
+        ZIP_BACK,
+        FULL_BACK,
     }
 }

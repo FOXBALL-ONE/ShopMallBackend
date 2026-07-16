@@ -30,7 +30,7 @@ import java.time.LocalDateTime
 @Table(
     name = "customer_reviews",
     indexes = [
-        Index(name = "idx_customer_reviews_swimwear_created", columnList = "swimwear_id, created_at"),
+        Index(name = "idx_customer_reviews_bikini_suit_created", columnList = "bikini_suit_id, created_at"),
         Index(name = "idx_customer_reviews_customer_created", columnList = "customer_id, created_at"),
         Index(name = "idx_customer_reviews_status_created", columnList = "status, created_at"),
     ],
@@ -47,7 +47,7 @@ class CustomerReview(
     @get:JsonIgnore
     @field:NotNull
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "swimwear_id", nullable = false, updatable = false)
+    @JoinColumn(name = "bikini_suit_id", nullable = false, updatable = false)
     var bikiniSuit: BikiniSuit? = null,
 
     /** 提交评价的客户 ID。 */
