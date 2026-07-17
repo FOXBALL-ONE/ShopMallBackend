@@ -11,6 +11,10 @@ import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.service.CustomerReviewService
 import java.time.LocalDateTime
 
+/**
+ * [CustomerReviewService] 的实现：维护评价待审核→审核通过的生命周期，
+ * 在内容/状态变化或删除后按商品重算平均分（score），写回受管 Product 实体由脏检查落库。
+ */
 @Service
 @Transactional(readOnly = true)
 class CustomerReviewServiceImpl(

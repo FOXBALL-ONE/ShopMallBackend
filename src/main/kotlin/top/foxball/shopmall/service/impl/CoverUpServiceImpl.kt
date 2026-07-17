@@ -8,6 +8,10 @@ import top.foxball.shopmall.repository.CoverUpRepository
 import top.foxball.shopmall.repository.TagRepository
 import top.foxball.shopmall.service.CoverUpService
 
+/**
+ * [CoverUpService] 的实现：类级只读事务，写方法另开读写事务。
+ * 复用 [applyBaseChangesFrom] 合并公共字段、[applyTags] 替换标签关联，返回前 [hydrate] 初始化延迟集合。
+ */
 @Service
 @Transactional(readOnly = true)
 class CoverUpServiceImpl(
@@ -45,6 +49,7 @@ class CoverUpServiceImpl(
         return true
     }
 
+    /** 合并罩衫款式与面料相关的可编辑字段，随后委托 [applyBaseChangesFrom] 处理公共字段。 */
     private fun CoverUp.applyChangesFrom(source: CoverUp) {
         style = source.style
         sheerLevel = source.sheerLevel
@@ -53,5 +58,6 @@ class CoverUpServiceImpl(
         applyBaseChangesFrom(source)
     }
 
+    /** 在事务内初始化前台详情所需的延迟集合，避免控制器序列化时访问已关闭会话。 */
     private fun hydrate(coverUp: CoverUp): CoverUp = coverUp.apply { hydrateBase() }
 }

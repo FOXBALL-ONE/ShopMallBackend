@@ -4,39 +4,46 @@ import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import java.util.UUID
 
-/**
- * Provides single-record and batch CRUD operations for [User] entities.
- *
- * Batch create, query, and update operations return a [List] of affected or retrieved users.
- * Delete operations return whether the requested deletion completed successfully.
- */
+/** 用户与配送地址服务，统一处理用户资料的批量操作和地址归属关系。 */
 interface UserService {
 
+    /** 创建单个用户并返回持久化后的数据。 */
     fun createUser(user: User): User
 
+    /** 批量创建用户并返回持久化后的数据。 */
     fun createUsers(users: List<User>): List<User>
 
+    /** 按主键查询用户；不存在时返回 `null`。 */
     fun getUserById(id: Long): User?
 
+    /** 按主键集合查询用户，不保证包含所有传入主键。 */
     fun getUsersByIds(ids: List<Long>): List<User>
 
+    /** 更新单个用户；账号安全属性变化时由实现层撤销已有会话。 */
     fun updateUser(user: User): User
 
+    /** 批量更新用户；账号安全属性变化时由实现层撤销已有会话。 */
     fun updateUsers(users: List<User>): List<User>
 
+    /** 查询用户的全部配送地址；用户不存在时返回 `null`。 */
     fun getDeliveryAddresses(userId: Long): List<DeliveryAddressItem>?
 
+    /** 查询用户拥有的指定配送地址；用户或地址不存在时返回 `null`。 */
     fun getDeliveryAddress(userId: Long, addressId: UUID): DeliveryAddressItem?
 
+    /** 为指定用户新增配送地址；用户不存在时返回 `null`。 */
     fun createDeliveryAddress(userId: Long, address: DeliveryAddressItem): DeliveryAddressItem?
 
+    /** 更新用户拥有的配送地址；用户或地址不存在时返回 `null`。 */
     fun updateDeliveryAddress(userId: Long, addressId: UUID, address: DeliveryAddressItem): DeliveryAddressItem?
 
+    /** 删除用户拥有的配送地址；用户不存在时返回 `null`。 */
     fun deleteDeliveryAddress(userId: Long, addressId: UUID): Boolean?
 
+    /** 删除单个用户并撤销其会话；用户不存在时返回 `false`。 */
     fun deleteUserById(id: Long): Boolean
 
+    /** 批量删除用户并撤销相关会话。 */
     fun deleteUsersByIds(ids: List<Long>): Boolean
 }
-
 

@@ -8,6 +8,10 @@ import top.foxball.shopmall.repository.BikiniSuitRepository
 import top.foxball.shopmall.repository.TagRepository
 import top.foxball.shopmall.service.BikiniSuitService
 
+/**
+ * [BikiniSuitService] 的实现：类级只读事务，写方法另开读写事务。
+ * 复用 [applyBaseChangesFrom] 合并公共字段、[applyTags] 替换标签关联，返回前 [hydrate] 初始化延迟集合。
+ */
 @Service
 @Transactional(readOnly = true)
 class BikiniSuitServiceImpl(
@@ -45,6 +49,7 @@ class BikiniSuitServiceImpl(
         return true
     }
 
+    /** 合并比基尼上、下装专属的可编辑字段，随后委托 [applyBaseChangesFrom] 处理公共字段。 */
     private fun BikiniSuit.applyChangesFrom(source: BikiniSuit) {
         topSize = source.topSize
         bottomSize = source.bottomSize

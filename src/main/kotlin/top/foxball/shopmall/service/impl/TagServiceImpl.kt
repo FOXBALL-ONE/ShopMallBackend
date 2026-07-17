@@ -8,6 +8,10 @@ import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.repository.TagRepository
 import top.foxball.shopmall.service.TagService
 
+/**
+ * [TagService] 的实现：维护启用/停用的标签目录，强制标签名唯一，
+ * 并在标签仍被商品引用时拒绝删除。
+ */
 @Service
 @Transactional(readOnly = true)
 class TagServiceImpl(
