@@ -1,4 +1,4 @@
-﻿package top.foxball.shopmall.service
+package top.foxball.shopmall.service
 
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
@@ -7,10 +7,10 @@ import java.util.UUID
 /** 用户与配送地址服务，统一处理用户资料的批量操作和地址归属关系。 */
 interface UserService {
 
-    /** 创建单个用户并返回持久化后的数据。 */
+    /** 创建单个用户；明文密码会被加密后持久化。 */
     fun createUser(user: User): User
 
-    /** 批量创建用户并返回持久化后的数据。 */
+    /** 批量创建用户；明文密码会被加密后持久化。 */
     fun createUsers(users: List<User>): List<User>
 
     /** 按主键查询用户；不存在时返回 `null`。 */

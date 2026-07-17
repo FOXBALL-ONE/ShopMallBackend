@@ -50,6 +50,10 @@ class EmailSendFailedException(
     message: String = "验证码邮件发送失败，请稍后重试"
 ) : BusinessException(HttpStatus.SERVICE_UNAVAILABLE, message)
 
+class VerificationCodeRateLimitException(
+    message: String = "验证码发送过于频繁，请稍后再试"
+) : BusinessException(HttpStatus.TOO_MANY_REQUESTS, message)
+
 class TokenInvalidException(
     message: String = "Token 无效"
 ) : BusinessException(HttpStatus.UNAUTHORIZED, message)

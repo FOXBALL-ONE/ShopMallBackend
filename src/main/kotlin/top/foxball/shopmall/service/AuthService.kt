@@ -17,6 +17,18 @@ interface AuthService {
      */
     fun login(identifier: String, password: String, userAgent: String, clientIp: String): LoginTokenAuthentication.LoginResult
 
-    /** 校验当前密码并更新为新密码；成功后撤销该用户的全部登录会话。 */
-    fun changePassword(userId: Long, currentPassword: String, newPassword: String)
+    /**
+     * 校验当前密码并更新为新密码；成功后撤销该用户的全部登录会话。
+     *
+     * 除当前密码外，还需通过 [verificationCode] 完成邮箱验证：验证码须绑定到当前 [userId] 与发起请求的
+     * [userAgent]（由 [MailService] 校验），作为修改密码的额外因子。验证码先于密码校验，
+     * 以免密码比对成为"密码是否正确"的探测口。
+     */
+    fun changePassword(
+        userId: Long,
+        currentPassword: String,
+        newPassword: String,
+        verificationCode: String,
+        userAgent: String,
+    )
 }

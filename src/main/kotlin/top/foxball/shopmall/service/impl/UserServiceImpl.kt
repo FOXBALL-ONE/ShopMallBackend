@@ -1,5 +1,6 @@
 ﻿package top.foxball.shopmall.service.impl
 
+import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.authentication.LoginTokenAuthentication
@@ -12,19 +13,26 @@ import top.foxball.shopmall.service.UserService
 import java.time.LocalDateTime
 import java.util.UUID
 
-/** 用户资料与配送地址的业务实现，负责所有权校验和账户状态变化后的会话撤销。 */
+/** 用户资料与配送地址的业务实现，负责所有权校验、新用户密码加密和账户状态变化后的会话撤销。 */
 @Service
 @Transactional(readOnly = true)
 class UserServiceImpl(
     private val userRepository: UserRepository,
     private val loginTokenAuthentication: LoginTokenAuthentication,
+    private val passwordEncoder: PasswordEncoder,
 ) : UserService {
 
     @Transactional
-    override fun createUser(user: User): User = userRepository.save(user)
+    override fun createUser(user: User): User {
+        user.password = requireNotNull(passwordEncoder.encode(user.password)) { "密码编码失败" }
+        return userRepository.save(user)
+    }
 
     @Transactional
-    override fun createUsers(users: List<User>): List<User> = userRepository.saveAll(users).toList()
+    override fun createUsers(users: List<User>): List<User> {
+        users.forEach { it.password = requireNotNull(passwordEncoder.encode(it.password)) { "密码编码失败" } }
+        return userRepository.saveAll(users).toList()
+    }
 
     override fun getUserById(id: Long): User? = userRepository.findWithDeliveryAddressById(id)
 

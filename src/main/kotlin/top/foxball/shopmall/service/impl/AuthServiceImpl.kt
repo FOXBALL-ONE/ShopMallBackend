@@ -9,6 +9,7 @@ import top.foxball.shopmall.handler.UserDisabledException
 import top.foxball.shopmall.handler.UsernameOrPasswordErrorException
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.AuthService
+import top.foxball.shopmall.service.MailService
 
 /** 实现登录凭据校验、最近登录信息记录和密码变更后的会话撤销。 */
 @Service
@@ -16,6 +17,7 @@ class AuthServiceImpl(
     private val userRepository: UserRepository,
     private val passwordEncoder: PasswordEncoder,
     private val loginTokenAuthentication: LoginTokenAuthentication,
+    private val mailService: MailService,
 ) : AuthService {
 
     override fun login(
@@ -44,9 +46,17 @@ class AuthServiceImpl(
     }
 
     @Transactional
-    override fun changePassword(userId: Long, currentPassword: String, newPassword: String) {
+    override fun changePassword(
+        userId: Long,
+        currentPassword: String,
+        newPassword: String,
+        verificationCode: String,
+        userAgent: String,
+    ) {
         val user = userRepository.findById(userId).orElse(null)
             ?: throw UsernameOrPasswordErrorException()
+        // 先校验验证码：未通过即拒绝，避免后续密码比对成为"密码是否正确"的探测口
+        mailService.verifyCode(user.email, verificationCode, userAgent, userId)
         if (!passwordEncoder.matches(currentPassword, user.password)) {
             throw UsernameOrPasswordErrorException()
         }

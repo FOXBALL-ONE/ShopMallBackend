@@ -45,7 +45,7 @@ class SecurityConfig(
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests {
                 // 登录 / 刷新 / 注册 / 邮箱验证码 / 找回密码 / 邮箱验证登录：不要求 JWT
-                // （刷新令牌走 HttpOnly Cookie，注册走一次性邀请码+邮箱验证码，验证码/找回/邮箱登录为匿名流程）
+                // （刷新令牌走 HttpOnly Cookie，注册走邮箱验证码，验证码/找回/邮箱登录为匿名流程）
                 it.requestMatchers(
                     "/api/auth/login",
                     "/api/auth/login/email",
@@ -53,6 +53,7 @@ class SecurityConfig(
                     "/api/auth/register/manager",
                     "/api/auth/verification-code",
                     "/api/auth/reset-password",
+                    "/api/users/Register",
                     "/error",
                 ).permitAll()
                 // 公开查询（GET）：项目 / 想法的列表、详情、计数、动态、评论，匿名可访问

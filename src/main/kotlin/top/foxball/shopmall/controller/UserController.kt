@@ -1,6 +1,9 @@
 package top.foxball.shopmall.controller
 
 import jakarta.validation.Valid
+import jakarta.validation.constraints.Email
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Size
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
@@ -8,6 +11,7 @@ import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.Role
 import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.User
+import top.foxball.shopmall.service.MailService
 import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.math.BigDecimal
@@ -88,17 +92,61 @@ private fun User.toProfileResponse(): UserProfileResponse =
 @RequestMapping("/api/users")
 class UserController(
     private val userService: UserService,
+    private val mailService: MailService,
     private val builder: ResponseBuilder,
 ) {
 
+    /** 注册：校验邮箱验证码后创建用户；请求体仅含注册可填字段，权限与凭证由服务端控制。 */
     @PostMapping("/Register")
     fun createUser(
-        @Valid @RequestBody user: User,
+        @RequestHeader(value = "User-Agent", required = false) userAgent: String?,
+        @Valid @RequestBody request: RegisterRequest,
     ): ResponseEntity<ApiResponse> {
-        val user = userService.createUser(user)
-        val rs = user.toProfileResponse()
+        mailService.verifyCode(request.email, request.verificationCode, userAgent.orEmpty(), null)
+        val saved = userService.createUser(request.toUser())
+        val rs = saved.toProfileResponse()
 
         return builder.ok().data(rs).build()
+    }
+
+    /**
+     * 注册请求；仅暴露注册可填字段。账号角色、状态、邮箱验证标记等由服务端默认值控制，
+     * 避免 [User] 实体其余字段被批量赋值（如越权注册为管理员）。
+     */
+    data class RegisterRequest(
+        @field:NotBlank
+        @field:Email
+        val email: String,
+
+        @field:NotBlank
+        @field:Size(min = 3, max = 50)
+        val username: String,
+
+        /** 明文密码，由 UserService 加密后持久化；长度限制与 Argon2 输入一致。 */
+        @field:NotBlank
+        @field:Size(min = 8, max = 72)
+        val password: String,
+
+        @field:NotBlank
+        val verificationCode: String,
+
+        @field:Size(max = 50)
+        val firstName: String? = null,
+
+        @field:Size(max = 50)
+        val lastName: String? = null,
+
+        val marketingConsent: Boolean = false,
+    ) {
+        /** 映射为待持久化的 [User]；未出现的字段沿用实体安全默认值（CUSTOMER/ACTIVE/未验证等）。 */
+        fun toUser(): User = User(
+            email = email,
+            username = username,
+            password = password,
+            firstName = firstName ?: "",
+            lastName = lastName ?: "",
+            marketingConsent = marketingConsent,
+        )
     }
 
     @PostMapping("/Register/Batch")
