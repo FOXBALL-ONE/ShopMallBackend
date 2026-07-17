@@ -10,9 +10,6 @@ interface UserService {
     /** 创建单个用户；明文密码会被加密后持久化。 */
     fun createUser(user: User): User
 
-    /** 批量创建用户；明文密码会被加密后持久化。 */
-    fun createUsers(users: List<User>): List<User>
-
     /** 按主键查询用户；不存在时返回 `null`。 */
     fun getUserById(id: Long): User?
 

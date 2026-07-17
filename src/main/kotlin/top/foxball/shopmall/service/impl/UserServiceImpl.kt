@@ -28,12 +28,6 @@ class UserServiceImpl(
         return userRepository.save(user)
     }
 
-    @Transactional
-    override fun createUsers(users: List<User>): List<User> {
-        users.forEach { it.password = requireNotNull(passwordEncoder.encode(it.password)) { "密码编码失败" } }
-        return userRepository.saveAll(users).toList()
-    }
-
     override fun getUserById(id: Long): User? = userRepository.findWithDeliveryAddressById(id)
 
     override fun getUsersByIds(ids: List<Long>): List<User> =

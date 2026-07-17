@@ -149,22 +149,6 @@ class UserController(
         )
     }
 
-    @PostMapping("/Register/Batch")
-    fun createUsers(
-        @RequestBody users: List<@Valid User>,
-    ): ResponseEntity<ApiResponse> {
-        data class Response(
-            val users: List<UserProfileResponse>,
-        )
-
-        val users = userService.createUsers(users)
-        val rs = Response(
-            users = users.map { it.toProfileResponse() },
-        )
-
-        return builder.ok().data(rs).build()
-    }
-
     @GetMapping("/me/delivery-addresses")
     fun getMyDeliveryAddresses(
         @AuthenticationPrincipal userId: Long,
