@@ -2,8 +2,8 @@ package top.foxball.shopmall.config
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 
-/** 文件上传/下载配置（neko.file.*）。 */
-@ConfigurationProperties(prefix = "neko.file")
+/** 文件上传/下载配置（shopmall.file.*）。 */
+@ConfigurationProperties(prefix = "shopmall.file")
 data class FileProperties(
     val storagePath: String = "./storage",
     val baseUrl: String = "http://localhost:8080",

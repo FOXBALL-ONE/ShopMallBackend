@@ -24,7 +24,7 @@ class SecurityEncoderConfig(
 }
 
 /** Argon2 参数；调整时须兼顾登录延迟、内存预算与已有密码哈希的兼容性。 */
-@ConfigurationProperties(prefix = "neko.security.password.argon2")
+@ConfigurationProperties(prefix = "shopmall.security.password.argon2")
 data class Argon2PasswordEncoderProperties(
     val saltLength: Int = 16,
     val hashLength: Int = 32,

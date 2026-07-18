@@ -43,12 +43,28 @@ server:
 redis:
   clear-on-startup: "${REDIS_CLEAR_ON_STARTUP:true}"
 
-neko:
+shopmall:
   security:
     jwt:
       # 生产环境务必通过 .env 覆盖为足够长的随机串
       secret: "${JWT_SECRET:dev-secret-do-not-use-in-prod-please-override-via-JWT_SECRET}"
       ttl-seconds: "${JWT_TTL_SECONDS:259200}"
+      # 开发环境固定 JWT 令牌：开启后可用一张固定 token 免登录调试（仅本地！生产切勿置 true）
+      dev:
+        # 固定令牌：开启会同时落库下面的默认管理员，并把令牌绑定到该管理员
+        fixed-token:
+          # 是否启用固定令牌旁路（默认关闭）
+          enabled: "${DEV_FIXED_TOKEN_ENABLED:false}"
+          # 固定令牌的 jti；生成端与识别端必须一致，轮换时改它即可（合法 UUID）
+          jti: "${DEV_FIXED_TOKEN_JTI:00000000-0000-0000-0000-000000000000}"
+          # 有效期（秒），默认 10 年，避免频繁重发
+          ttl-seconds: "${DEV_FIXED_TOKEN_TTL_SECONDS:315360000}"
+        # 默认管理员：开启固定令牌时每次启动确保存在，令牌即绑定到该管理员（仅本地！）
+        default-admin:
+          username: "${DEV_ADMIN_USERNAME:admin}"
+          # 明文密码，存储前会哈希；仅用于本地默认账号
+          password: "${DEV_ADMIN_PASSWORD:admin}"
+          email: "${DEV_ADMIN_EMAIL:admin}"
   file:
     storage-path: "${FILE_STORAGE_PATH:./storage}"
     base-url: "${FILE_BASE_URL:http://localhost:8080}"

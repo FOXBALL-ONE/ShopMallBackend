@@ -47,13 +47,20 @@ class JwtService(secret: String) {
         val expiresAt: LocalDateTime,
     )
 
-    /** 签发一张有效期 [ttlSeconds] 秒、绑定 [userId] 的 JWT。 */
-    fun issue(userId: Long, ttlSeconds: Long): IssuedToken {
+    /** 签发一张有效期 [ttlSeconds] 秒、绑定 [userId] 的 JWT（随机 jti，业务登录会话用）。 */
+    fun issue(userId: Long, ttlSeconds: Long): IssuedToken =
+        issue(userId, UUID.randomUUID().toString(), ttlSeconds)
+
+    /**
+     * 签发一张使用指定 [jti] 的 JWT；供需要确定性令牌的场景（如开发环境固定令牌）使用。
+     * 业务登录会话应调用 [issue] 走随机 jti，避免令牌可重放。
+     */
+    fun issue(userId: Long, jti: String, ttlSeconds: Long): IssuedToken {
         require(ttlSeconds > 0) { "JWT 有效期必须大于 0" }
+        require(runCatching { UUID.fromString(jti) }.isSuccess) { "jti 必须是合法 UUID" }
         // iat/exp 约定为秒级，统一截断到秒，使签发与回读的时间戳严格相等；以 UTC 表达以匹配 JWT 纪元定义
         val now = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS)
         val exp = now.plusSeconds(ttlSeconds)
-        val jti = UUID.randomUUID().toString()
         val payload = buildPayload(userId, jti, now, exp)
         val payloadSegment = base64UrlEncode(payload.toByteArray(StandardCharsets.UTF_8))
         val signingInput = "$headerSegment.$payloadSegment"

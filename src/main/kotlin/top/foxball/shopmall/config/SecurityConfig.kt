@@ -15,6 +15,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource
 import top.foxball.shopmall.authentication.JwtAuthenticationFilter
 import top.foxball.shopmall.authentication.JwtService
 import top.foxball.shopmall.authentication.LoginTokenAuthentication
+import top.foxball.shopmall.config.DevTokenManager
 
 /**
  * Spring Security 配置：无状态 JWT。
@@ -35,6 +36,7 @@ import top.foxball.shopmall.authentication.LoginTokenAuthentication
 class SecurityConfig(
     private val jwtService: JwtService,
     private val loginTokenAuthentication: LoginTokenAuthentication,
+    private val devTokenManager: DevTokenManager,
 ) {
 
     @Bean
@@ -97,7 +99,7 @@ class SecurityConfig(
             }
             // 在标准账号密码过滤器前插入 JWT 过滤器：解析 Bearer 令牌并写入 SecurityContext
             .addFilterBefore(
-                JwtAuthenticationFilter(jwtService, loginTokenAuthentication),
+                JwtAuthenticationFilter(jwtService, loginTokenAuthentication, devTokenManager),
                 UsernamePasswordAuthenticationFilter::class.java,
             )
         return http.build()
