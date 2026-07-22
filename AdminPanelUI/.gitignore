@@ -6,6 +6,9 @@
 .cache
 dist
 
+# Auto-generated component type declarations (unplugin-vue-components)
+components.d.ts
+
 # Node dependencies
 node_modules
 
