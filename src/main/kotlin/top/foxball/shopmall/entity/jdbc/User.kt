@@ -313,7 +313,16 @@ enum class Status {
 
 /** 账号角色。 */
 enum class Role {
-    CUSTOMER, ADMIN
+    CUSTOMER, ADMIN;
+
+    companion object {
+        /**
+         * 把角色名（如 `ROLE_ADMIN` 去前缀后的 `ADMIN`）转为 [Role]；未知返回 null。
+         * 供 [top.foxball.shopmall.authentication.SecurityContextUser] 从 SecurityContext 的
+         * `GrantedAuthority` 反解预设角色，不查 DB。
+         */
+        fun fromAuthority(roleName: String): Role? = entries.firstOrNull { it.name == roleName }
+    }
 }
 
 /** 身体长度与围度单位。 */

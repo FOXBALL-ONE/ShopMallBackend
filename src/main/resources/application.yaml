@@ -46,9 +46,30 @@ redis:
 shopmall:
   security:
     jwt:
-      # 生产环境务必通过 .env 覆盖为足够长的随机串
+      # 生产环境务必通过 .env 覆盖为足够长的随机串；access 与 refresh 共用同一密钥，以 typ claim 区分
       secret: "${JWT_SECRET:dev-secret-do-not-use-in-prod-please-override-via-JWT_SECRET}"
-      ttl-seconds: "${JWT_TTL_SECONDS:259200}"
+      # 访问令牌：短有效期（秒），默认 30min，无状态、仅验签名+过期+类型，泄漏窗口收敛
+      access:
+        ttl-seconds: "${JWT_ACCESS_TTL_SECONDS:1800}"
+      # 刷新令牌：长有效期（秒），默认 7d；落 Redis，原子轮换 + grace 重试 + 复用检测
+      refresh:
+        ttl-seconds: "${JWT_REFRESH_TTL_SECONDS:604800}"
+        # true=每次刷新签发新 refresh 并作废旧 token（推荐）；false=刷新只换 access（复用检测失效）
+        rotate: "${JWT_REFRESH_ROTATE:true}"
+        # true=超 grace / 跨 UA 的 USED 再现即撤销整族（推荐）
+        reuse-detect: "${JWT_REFRESH_REUSE_DETECT:true}"
+        # USED token 在此窗口内再现视为合法重试（响应丢失重发 / 并发第二方），窗口外才判被盗
+        grace-seconds: "${JWT_REFRESH_GRACE_SECONDS:30}"
+        cookie:
+          name: "${JWT_REFRESH_COOKIE_NAME:refresh_token}"
+          # 留空=不写 domain（浏览器用当前 host）；同注册域多子域可配 .shopmall.com
+          domain: "${JWT_REFRESH_COOKIE_DOMAIN:}"
+          path: "${JWT_REFRESH_COOKIE_PATH:/api/auth}"
+          # 生产只走 HTTPS；本地 http 调试必须设 false，否则浏览器不回传 cookie
+          secure: "${JWT_REFRESH_COOKIE_SECURE:true}"
+          http-only: "${JWT_REFRESH_COOKIE_HTTP_ONLY:true}"
+          # 同注册域=Lax；跨注册域（不同 eTLD+1）必须 None 且 secure=true。详见 docs/dual-token-auth-design.md §6.2
+          same-site: "${JWT_REFRESH_COOKIE_SAME_SITE:Lax}"
       # 开发环境固定 JWT 令牌：开启后可用一张固定 token 免登录调试（仅本地！生产切勿置 true）
       dev:
         # 固定令牌：开启会同时落库下面的默认管理员，并把令牌绑定到该管理员

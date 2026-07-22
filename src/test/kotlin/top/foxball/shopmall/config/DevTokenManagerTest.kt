@@ -11,6 +11,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import top.foxball.shopmall.authentication.JwtService
+import top.foxball.shopmall.authentication.TokenType
 import top.foxball.shopmall.entity.jdbc.Role
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.repository.UserRepository
@@ -26,8 +27,9 @@ class DevTokenManagerTest {
     )
     private val adminProperties = DefaultAdminProperties(username = "admin", password = "admin", email = "admin")
 
-    /** 签发一张指定 userId/jti 的令牌字符串，供 verify 回读为 claims。 */
-    private fun tokenFor(userId: Long, jti: String): String = jwtService.issue(userId, jti, 60).token
+    /** 签发一张指定 userId/jti 的 access 令牌字符串（固定令牌是 access 语义 + ADMIN role），供 verify 回读为 claims。 */
+    private fun tokenFor(userId: Long, jti: String): String =
+        jwtService.issue(userId, TokenType.ACCESS, 60, role = Role.ADMIN.name, jti = jti).token
 
     @Test
     fun `provision 创建默认管理员并把令牌绑定到其解析后的 id`() {
@@ -43,12 +45,12 @@ class DevTokenManagerTest {
         manager.provision()
 
         // sub=42 + 配置 jti 的令牌应被识别并返回该管理员 id
-        val claims = assertNotNull(jwtService.verify(tokenFor(42, properties.jti)))
+        val claims = assertNotNull(jwtService.verify(tokenFor(42, properties.jti), TokenType.ACCESS))
         assertEquals(42, manager.fixedTokenUserId(claims))
         // jti 或 sub 任一不匹配都不应放行（避免误命中）
-        val wrongJti = assertNotNull(jwtService.verify(tokenFor(42, "11111111-1111-1111-1111-111111111111")))
+        val wrongJti = assertNotNull(jwtService.verify(tokenFor(42, "11111111-1111-1111-1111-111111111111"), TokenType.ACCESS))
         assertNull(manager.fixedTokenUserId(wrongJti))
-        val wrongSub = assertNotNull(jwtService.verify(tokenFor(999, properties.jti)))
+        val wrongSub = assertNotNull(jwtService.verify(tokenFor(999, properties.jti), TokenType.ACCESS))
         assertNull(manager.fixedTokenUserId(wrongSub))
     }
 
@@ -73,7 +75,7 @@ class DevTokenManagerTest {
         manager.provision()
 
         verify(userRepository, never()).save(any(User::class.java))
-        val claims = assertNotNull(jwtService.verify(tokenFor(7, properties.jti)))
+        val claims = assertNotNull(jwtService.verify(tokenFor(7, properties.jti), TokenType.ACCESS))
         assertEquals(7, manager.fixedTokenUserId(claims))
     }
 }

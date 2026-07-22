@@ -8,7 +8,15 @@ import org.springframework.data.redis.core.RedisHash
 import org.springframework.data.redis.core.TimeToLive
 import org.springframework.data.redis.core.index.Indexed
 
-/** Redis 会话白名单记录；与 JWT 验签共同决定请求是否仍处于有效登录状态。 */
+/**
+ * Redis 会话白名单记录（**已退役**，灰度回退用）。
+ *
+ * 双 Token 模型下，访问令牌改为无状态验签、刷新令牌改由 [top.foxball.shopmall.shared.RefreshTokenStore]
+ * （StringRedisTemplate + Lua）管理，本 `@RedisHash` 白名单不再被任何业务路径引用。
+ * 保留一个版本作为灰度回退，确认线上稳定后可连同 [top.foxball.shopmall.repository.LoginTokenRepository]
+ * 一并删除。详见 `docs/dual-token-auth-design.md` §八「退役」。
+ */
+@Deprecated("双 Token 改造后访问白名单已退役，刷新令牌由 RefreshTokenStore 管理；确认无引用后删除")
 @RedisHash("login_token")
 @Data
 @AllArgsConstructor

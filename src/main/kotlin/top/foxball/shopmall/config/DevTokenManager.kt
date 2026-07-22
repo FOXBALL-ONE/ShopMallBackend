@@ -6,6 +6,7 @@ import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.authentication.JwtService
+import top.foxball.shopmall.authentication.TokenType
 import top.foxball.shopmall.entity.jdbc.Role
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.repository.UserRepository
@@ -40,18 +41,24 @@ class DevTokenManager(
         val admin = ensureDefaultAdmin()
         val userId = requireNotNull(admin.id) { "默认管理员保存后未生成 id" }
         resolvedUserId = userId
-        val issued = jwtService.issue(userId, properties.jti, properties.ttlSeconds)
+        val issued = jwtService.issue(
+            userId, TokenType.ACCESS, properties.ttlSeconds,
+            role = Role.ADMIN.name, jti = properties.jti,
+        )
         println("⚠ DEV 固定 JWT 已启用，绑定管理员 '${admin.username}' (id=$userId)。切勿用于生产！")
         println("   Authorization: Bearer ${issued.token}")
     }
 
     /**
      * 若 [claims] 是当前绑定的固定令牌，返回其管理员 userId；否则 null。
-     * 过滤器据此决定是否走 dev 旁路。jti 与 sub 都必须与启动期一致，避免误命中。
+     * 过滤器据此决定是否走 dev 旁路。固定令牌现在带 typ=access + role=ADMIN，
+     * 过滤器用 verify(token, ACCESS) 校验，故这里必须断言类型为 ACCESS 再放行；
+     * jti 与 sub 都必须与启动期一致，避免误命中。
      */
     fun fixedTokenUserId(claims: JwtService.Claims?): Long? {
         val target = resolvedUserId ?: return null
         if (claims == null || !properties.enabled) return null
+        if (claims.type != TokenType.ACCESS) return null      // 固定令牌必须是 access 语义
         if (claims.jti != properties.jti) return null
         return if (claims.userId == target) target else null
     }
