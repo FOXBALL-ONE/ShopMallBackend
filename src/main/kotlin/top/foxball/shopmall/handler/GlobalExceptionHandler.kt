@@ -3,6 +3,7 @@ package top.foxball.shopmall.handler
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
 import org.springframework.core.annotation.Order
+import org.springframework.dao.DataAccessException
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.security.access.AccessDeniedException
@@ -101,6 +102,16 @@ class GlobalExceptionHandler {
         log.warn("Illegal argument access happened: ", ex)
         return builder.badRequest()
             .message(ex?.message ?: "Invalid argument.")
+            .build()
+    }
+    
+    @ExceptionHandler(DataAccessException::class)
+    fun onDataAccessException(ex: DataAccessException): ResponseEntity<Response> {
+        // 高并发扣减/状态机推进触发锁等待超时、死锁等并发异常时，映射为可重试的 503 而非被 catch-all 吞成 500
+        log.warn("Data access error (likely lock contention): {}", ex.message)
+        return builder.serviceUnavailable()
+            .retryAfter(1)
+            .message("系统繁忙，请稍后重试")
             .build()
     }
 

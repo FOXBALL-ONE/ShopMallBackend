@@ -1,39 +1,13 @@
 package top.foxball.shopmall.entity.jdbc
 
 import com.fasterxml.jackson.annotation.JsonIgnore
-import jakarta.persistence.CascadeType
-import jakarta.persistence.CollectionTable
-import jakarta.persistence.Column
-import jakarta.persistence.DiscriminatorColumn
-import jakarta.persistence.DiscriminatorType
-import jakarta.persistence.ElementCollection
-import jakarta.persistence.Entity
-import jakarta.persistence.EnumType
-import jakarta.persistence.Enumerated
-import jakarta.persistence.FetchType
-import jakarta.persistence.GeneratedValue
-import jakarta.persistence.GenerationType
-import jakarta.persistence.Id
-import jakarta.persistence.Index
-import jakarta.persistence.Inheritance
-import jakarta.persistence.InheritanceType
-import jakarta.persistence.JoinColumn
-import jakarta.persistence.JoinTable
-import jakarta.persistence.ManyToMany
-import jakarta.persistence.OneToMany
-import jakarta.persistence.OrderColumn
-import jakarta.persistence.Table
-import jakarta.persistence.UniqueConstraint
-import jakarta.validation.constraints.DecimalMax
-import jakarta.validation.constraints.DecimalMin
-import jakarta.validation.constraints.Digits
-import jakarta.validation.constraints.Min
-import jakarta.validation.constraints.NotBlank
-import jakarta.validation.constraints.Size as ValidationSize
+import jakarta.persistence.*
+import jakarta.validation.constraints.*
 import org.hibernate.annotations.CreationTimestamp
 import org.hibernate.annotations.UpdateTimestamp
 import java.math.BigDecimal
 import java.time.LocalDateTime
+import jakarta.validation.constraints.Size as ValidationSize
 
 /**
  * 所有可销售商品的抽象基类。
@@ -58,7 +32,7 @@ import java.time.LocalDateTime
 abstract class Product(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    val id: Long? = null,
+    var id: Long? = null,
 
     /** 面向消费者展示的商品名称。 */
     @field:NotBlank
@@ -91,12 +65,12 @@ abstract class Product(
     /** 商品首次持久化时由 Hibernate 自动写入。 */
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    val createdAt: LocalDateTime? = null,
+    var createdAt: LocalDateTime? = null,
 
     /** 商品每次持久化更新后由 Hibernate 自动刷新。 */
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    val updatedAt: LocalDateTime? = null,
+    var updatedAt: LocalDateTime? = null,
 
     /** 商品在前台的销售状态。 */
     @Enumerated(EnumType.STRING)

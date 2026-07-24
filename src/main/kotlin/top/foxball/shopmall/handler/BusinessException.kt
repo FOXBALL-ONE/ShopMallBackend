@@ -65,3 +65,23 @@ class TokenExpiredException(
 class TokenForbiddenException(
     message: String = "Token 校验失败"
 ) : BusinessException(HttpStatus.FORBIDDEN, message)
+
+class InsufficientStockException(
+    message: String = "库存不足"
+) : BusinessException(HttpStatus.CONFLICT, message)
+
+class OrderNotFoundException(
+    message: String = "订单不存在"
+) : BusinessException(HttpStatus.NOT_FOUND, message)
+
+class OrderStatusException(
+    message: String = "订单状态不允许此操作"
+) : BusinessException(HttpStatus.CONFLICT, message)
+
+class PaymentFailureException(
+    message: String = "支付失败"
+) : BusinessException(HttpStatus.BAD_REQUEST, message)
+
+class EmailNotVerifiedException(
+    message: String = "邮箱未验证，暂不能下单"
+) : BusinessException(HttpStatus.FORBIDDEN, message)
