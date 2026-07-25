@@ -8,6 +8,31 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
+  flyway:
+    enabled: false
 
 redis:
   clear-on-startup: false
+
+management:
+  health:
+    redis:
+      enabled: false
+    mail:
+      enabled: false
+
+shopmall:
+  order:
+    payment-timeout-minutes: 1
+    idempotency-ttl-seconds: 60
+    stream-max-len: 100
+    outbox-max-attempts: 3
+    outbox-ack-sla-seconds: 30
+    outbox-retention-days: 1
+    max-quantity-per-line: 99
+  logistics:
+    polling-enabled: false
+
+stripe:
+  secret-key: "sk_test_placeholder"
+  webhook-secret: "whsec_test_placeholder"

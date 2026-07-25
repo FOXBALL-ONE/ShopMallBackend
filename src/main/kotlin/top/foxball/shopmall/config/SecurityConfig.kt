@@ -81,6 +81,9 @@ class SecurityConfig(
                 // 【顺序敏感】项目方自服务：凭 controlPassword 鉴权（非 JWT），必须在 /api/admin/** hasRole 之前放行，
                 // 否则 hasRole('ADMIN') 会把它误拦（现状即此 permitAll）。
                 it.requestMatchers("/api/admin/project/**").permitAll()
+                it.requestMatchers(HttpMethod.POST, "/api/orders/webhook").permitAll()
+                it.requestMatchers(HttpMethod.POST, "/api/logistics/webhook/**").permitAll()
+                it.requestMatchers(HttpMethod.GET, "/api/orders/*/shipments/**").authenticated()
                 // 其余管理端：凭角色（access 的 role claim 映射为 ROLE_ADMIN）
                 it.requestMatchers("/api/admin/**").hasRole("ADMIN")
                 // 仅带签名的下载 URL 可匿名访问，其余文件接口均要求 JWT。
@@ -123,7 +126,13 @@ class SecurityConfig(
             // 方法 / 请求头必须显式列举：allowCredentials=true 时，浏览器不接受通配 *，
             // 否则 preflight 会以 "field content-type is not allowed by Access-Control-Allow-Headers" 拦截
             allowedMethods = listOf("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-            allowedHeaders = listOf("Authorization", "Content-Type", "Accept", "X-Requested-With")
+            allowedHeaders = listOf(
+                "Authorization",
+                "Content-Type",
+                "Accept",
+                "X-Requested-With",
+                "Idempotency-Key",
+            )
             allowCredentials = true
             maxAge = 3600
         }

@@ -4,6 +4,8 @@ import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
 import org.springframework.core.annotation.Order
 import org.springframework.dao.DataAccessException
+import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.dao.TransientDataAccessException
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.security.access.AccessDeniedException
@@ -31,6 +33,14 @@ class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException::class)
     fun onBusinessException(ex: BusinessException): ResponseEntity<Response> {
         return builder.status(ex.status)
+            .message(ex.message)
+            .build()
+    }
+
+    @ExceptionHandler(OrderProcessingException::class)
+    fun onOrderProcessingException(ex: OrderProcessingException): ResponseEntity<Response> {
+        return builder.status(ex.status)
+            .retryAfter(1)
             .message(ex.message)
             .build()
     }
@@ -105,14 +115,38 @@ class GlobalExceptionHandler {
             .build()
     }
     
-    @ExceptionHandler(DataAccessException::class)
-    fun onDataAccessException(ex: DataAccessException): ResponseEntity<Response> {
-        // 高并发扣减/状态机推进触发锁等待超时、死锁等并发异常时，映射为可重试的 503 而非被 catch-all 吞成 500
-        log.warn("Data access error (likely lock contention): {}", ex.message)
+    @ExceptionHandler(TransientDataAccessException::class)
+    fun onTransientDataAccessException(ex: TransientDataAccessException): ResponseEntity<Response> {
+        log.warn("Transient data access error: {}", ex.message)
         return builder.serviceUnavailable()
             .retryAfter(1)
             .message("系统繁忙，请稍后重试")
             .build()
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException::class)
+    fun onDataIntegrityViolationException(ex: DataIntegrityViolationException): ResponseEntity<Response> {
+        val detail = generateSequence<Throwable>(ex) { it.cause }
+            .mapNotNull { it.message }
+            .joinToString(" ")
+            .lowercase()
+        val message = when {
+            "uk_shipment_item_active" in detail -> "商品已分配给其他有效运单"
+            "uk_shipment_carrier_tracking" in detail -> "承运商追踪号已绑定其他运单"
+            "uk_logistics_idempotency" in detail -> "幂等键冲突，请重试查询原结果"
+            else -> null
+        }
+        if (message != null) {
+            return builder.status(org.springframework.http.HttpStatus.CONFLICT).message(message).build()
+        }
+        log.error("Unhandled data integrity violation", ex)
+        return builder.exception().build()
+    }
+
+    @ExceptionHandler(DataAccessException::class)
+    fun onDataAccessException(ex: DataAccessException): ResponseEntity<Response> {
+        log.error("Non-transient data access error", ex)
+        return builder.exception().build()
     }
 
     @ExceptionHandler(Exception::class)

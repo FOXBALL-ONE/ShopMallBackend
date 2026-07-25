@@ -78,6 +78,10 @@ class OrderStatusException(
     message: String = "订单状态不允许此操作"
 ) : BusinessException(HttpStatus.CONFLICT, message)
 
+class OrderProcessingException(
+    message: String = "上一次下单请求仍在处理中，请稍后重试",
+) : BusinessException(HttpStatus.CONFLICT, message)
+
 class PaymentFailureException(
     message: String = "支付失败"
 ) : BusinessException(HttpStatus.BAD_REQUEST, message)
@@ -85,3 +89,35 @@ class PaymentFailureException(
 class EmailNotVerifiedException(
     message: String = "邮箱未验证，暂不能下单"
 ) : BusinessException(HttpStatus.FORBIDDEN, message)
+
+class ShipmentNotFoundException(
+    message: String = "运单不存在",
+) : BusinessException(HttpStatus.NOT_FOUND, message)
+
+class ShipmentStatusException(
+    message: String = "运单状态不允许此操作",
+) : BusinessException(HttpStatus.CONFLICT, message)
+
+class ShipmentAllocationConflictException(
+    message: String = "商品已分配给其他有效运单",
+) : BusinessException(HttpStatus.CONFLICT, message)
+
+class TrackingNumberConflictException(
+    message: String = "承运商追踪号已绑定其他运单",
+) : BusinessException(HttpStatus.CONFLICT, message)
+
+class IdempotencyConflictException(
+    message: String = "幂等键已用于不同请求",
+) : BusinessException(HttpStatus.CONFLICT, message)
+
+class CarrierException(
+    message: String = "承运商服务异常",
+) : BusinessException(HttpStatus.BAD_GATEWAY, message)
+
+class CarrierSignatureException(
+    message: String = "承运商回调验签失败",
+) : BusinessException(HttpStatus.UNAUTHORIZED, message)
+
+class WebhookPayloadTooLargeException(
+    message: String = "Webhook 请求体过大",
+) : BusinessException(HttpStatus.PAYLOAD_TOO_LARGE, message)

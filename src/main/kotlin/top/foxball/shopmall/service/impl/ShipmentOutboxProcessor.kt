@@ -1,0 +1,170 @@
+package top.foxball.shopmall.service.impl
+
+import org.springframework.stereotype.Service
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
+import top.foxball.shopmall.entity.jdbc.CarrierCode
+import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
+import top.foxball.shopmall.entity.jdbc.ShipmentStatus
+import top.foxball.shopmall.handler.CarrierException
+import top.foxball.shopmall.handler.ShipmentNotFoundException
+import top.foxball.shopmall.handler.ShipmentStatusException
+import top.foxball.shopmall.logistics.CancelLabelRequest
+import top.foxball.shopmall.logistics.CancelLabelResult
+import top.foxball.shopmall.logistics.CarrierRegistry
+import top.foxball.shopmall.logistics.LabelRequest
+import top.foxball.shopmall.logistics.ShipmentItemSnapshot
+import top.foxball.shopmall.repository.OrderRepository
+import top.foxball.shopmall.repository.ShipmentItemRepository
+import top.foxball.shopmall.repository.ShipmentRepository
+import top.foxball.shopmall.service.DomainEventPublisher
+import java.time.Clock
+
+@Service
+class ShipmentOutboxProcessor(
+    private val orderRepository: OrderRepository,
+    private val shipmentRepository: ShipmentRepository,
+    private val shipmentItemRepository: ShipmentItemRepository,
+    private val carrierRegistry: CarrierRegistry,
+    private val eventPublisher: DomainEventPublisher,
+    transactionManager: PlatformTransactionManager,
+    private val clock: Clock,
+) {
+    private val transactions = TransactionTemplate(transactionManager)
+
+    fun handle(shipmentId: Long, eventType: String) {
+        when (eventType) {
+            "SHIPMENT_LABEL_REQUESTED" -> createRemoteLabel(shipmentId)
+            "SHIPMENT_CANCEL_REQUESTED" -> cancelRemoteLabel(shipmentId)
+        }
+    }
+
+    private fun createRemoteLabel(shipmentId: Long) {
+        val task = transactions.execute {
+            val shipment = shipmentRepository.findById(shipmentId).orElse(null) ?: return@execute null
+            if (shipment.status in setOf(ShipmentStatus.LABEL_CREATED, ShipmentStatus.CANCELLED)) {
+                return@execute null
+            }
+            if (shipment.status !in setOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.CANCEL_PENDING)) {
+                throw ShipmentStatusException("当前运单不可创建远程面单")
+            }
+            val carrier = carrierRegistry.require(shipment.carrierCode)
+            if (!carrier.capabilities.remoteLabel) {
+                throw CarrierException("该承运商不支持远程面单")
+            }
+            LabelTask(
+                shipmentNo = shipment.shipmentNo,
+                carrierCode = shipment.carrierCode,
+                requestedTrackingNo = shipment.trackingNo,
+                shippingAddress = shipment.shippingAddress.copySnapshot(),
+                items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId).map {
+                    ShipmentItemSnapshot(it.orderItemId, it.orderItemSnapshot, it.quantity)
+                },
+            )
+        } ?: return
+
+        val carrier = carrierRegistry.require(task.carrierCode)
+        val response = carrier.createLabel(
+            LabelRequest(
+                shipmentNo = task.shipmentNo,
+                requestedTrackingNo = task.requestedTrackingNo,
+                shippingAddress = task.shippingAddress,
+                items = task.items,
+            ),
+        )
+        val trackingNo = response.trackingNo.trim().takeIf(String::isNotEmpty)
+            ?: throw CarrierException("承运商返回了空 trackingNo")
+
+        transactions.executeWithoutResult {
+            val identity = shipmentRepository.findById(shipmentId).orElse(null) ?: return@executeWithoutResult
+            orderRepository.lockById(identity.orderId) ?: throw ShipmentNotFoundException()
+            val shipment = shipmentRepository.findByIdForUpdate(shipmentId) ?: throw ShipmentNotFoundException()
+            if (shipment.status in setOf(ShipmentStatus.LABEL_CREATED, ShipmentStatus.CANCELLED)) {
+                return@executeWithoutResult
+            }
+            if (shipment.status !in setOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.CANCEL_PENDING)) {
+                throw ShipmentStatusException("远程面单结果与当前运单状态冲突")
+            }
+            shipment.trackingNo = trackingNo
+            shipment.trackingNoNormalized = carrier.normalizeTrackingNo(trackingNo)
+            shipment.carrierLabelUrl = response.labelUrl
+            shipment.trackingUrl = carrier.trackingUrl(trackingNo)
+            if (shipment.status == ShipmentStatus.LABEL_PENDING) {
+                shipment.status = ShipmentStatus.LABEL_CREATED
+                eventPublisher.publishInTx(
+                    "SHIPMENT",
+                    shipmentId,
+                    "SHIPMENT_LABEL_CREATED",
+                    "{\"shipmentId\":$shipmentId}",
+                )
+            }
+        }
+    }
+
+    private fun cancelRemoteLabel(shipmentId: Long) {
+        val task = transactions.execute {
+            val shipment = shipmentRepository.findById(shipmentId).orElse(null) ?: return@execute null
+            if (shipment.status == ShipmentStatus.CANCELLED) return@execute null
+            if (shipment.status != ShipmentStatus.CANCEL_PENDING) {
+                throw ShipmentStatusException("当前运单不在远程取消状态")
+            }
+            val carrier = carrierRegistry.require(shipment.carrierCode)
+            if (!carrier.capabilities.remoteLabel) {
+                throw CarrierException("该承运商不支持远程面单取消")
+            }
+            CancelTask(shipment.shipmentNo, shipment.carrierCode, shipment.trackingNo)
+        } ?: return
+
+        val carrier = carrierRegistry.require(task.carrierCode)
+        when (
+            carrier.cancelLabel(
+                CancelLabelRequest(
+                    shipmentNo = task.shipmentNo,
+                    trackingNo = task.trackingNo,
+                ),
+            )
+        ) {
+            CancelLabelResult.RETRYABLE_FAILURE -> throw CarrierException("承运商暂时无法取消面单")
+            CancelLabelResult.CANCELLED_OR_NOT_FOUND -> Unit
+        }
+
+        transactions.executeWithoutResult {
+            val identity = shipmentRepository.findById(shipmentId).orElse(null) ?: return@executeWithoutResult
+            orderRepository.lockById(identity.orderId) ?: throw ShipmentNotFoundException()
+            val shipment = shipmentRepository.findByIdForUpdate(shipmentId) ?: throw ShipmentNotFoundException()
+            if (shipment.status == ShipmentStatus.CANCELLED) return@executeWithoutResult
+            if (shipment.status != ShipmentStatus.CANCEL_PENDING) {
+                throw ShipmentStatusException("远程取消结果与当前运单状态冲突")
+            }
+            shipment.status = ShipmentStatus.CANCELLED
+            val released = shipmentItemRepository.releaseAllocatedByShipmentId(
+                shipmentId,
+                clock.instant(),
+                shipment.cancelReason ?: "REMOTE_LABEL_CANCELLED",
+            )
+            if (released == 0) {
+                throw ShipmentStatusException("远程取消未释放任何运单商品")
+            }
+            eventPublisher.publishInTx(
+                "SHIPMENT",
+                shipmentId,
+                "SHIPMENT_CANCELLED",
+                "{\"shipmentId\":$shipmentId}",
+            )
+        }
+    }
+
+    private data class LabelTask(
+        val shipmentNo: String,
+        val carrierCode: CarrierCode,
+        val requestedTrackingNo: String?,
+        val shippingAddress: OrderShippingAddress,
+        val items: List<ShipmentItemSnapshot>,
+    )
+
+    private data class CancelTask(
+        val shipmentNo: String,
+        val carrierCode: CarrierCode,
+        val trackingNo: String?,
+    )
+}
