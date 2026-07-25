@@ -15,6 +15,7 @@ data class FileProperties(
     val maxBatchSize: Int = 20,
     /** 单文件字节上限，与 Spring Multipart 限制共同生效。 */
     val maxFileSizeBytes: Long = 104_857_600L,
+    val signing: SigningProperties = SigningProperties(),
 ) {
     init {
         require(signingSecret.length >= MIN_SIGNING_SECRET_LENGTH) {
@@ -23,6 +24,21 @@ data class FileProperties(
         require(downloadTokenTtlSeconds > 0) { "File download link TTL must be positive." }
         require(maxBatchSize > 0) { "File batch size must be positive." }
         require(maxFileSizeBytes > 0) { "File size limit must be positive." }
+        signing.validate()
+    }
+
+    data class SigningProperties(
+        val publicTtlSeconds: Long = 60,
+        val userTtlSeconds: Long = 300,
+        val adminTtlSeconds: Long = 180,
+        val orderTtlSeconds: Long = 300,
+    ) {
+        fun validate() {
+            require(publicTtlSeconds > 0) { "Public file link TTL must be positive." }
+            require(userTtlSeconds > 0) { "User file link TTL must be positive." }
+            require(adminTtlSeconds > 0) { "Admin file link TTL must be positive." }
+            require(orderTtlSeconds > 0) { "Order file link TTL must be positive." }
+        }
     }
 
     private companion object {

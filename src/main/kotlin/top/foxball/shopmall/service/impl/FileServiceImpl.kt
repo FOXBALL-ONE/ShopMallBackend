@@ -1,13 +1,14 @@
 package top.foxball.shopmall.service.impl
 
 import org.springframework.stereotype.Service
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.web.multipart.MultipartFile
 import org.springframework.web.util.UriComponentsBuilder
 import top.foxball.shopmall.config.FileProperties
 import top.foxball.shopmall.entity.jdbc.StoredFile
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.ResourceNotFoundException
-import top.foxball.shopmall.handler.TokenInvalidException
 import top.foxball.shopmall.repository.StoredFileRepository
 import top.foxball.shopmall.service.DownloadableFile
 import top.foxball.shopmall.service.FileLinkSigner
@@ -21,6 +22,7 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.util.HexFormat
 import java.util.Locale
@@ -56,30 +58,37 @@ class FileServiceImpl(
         }
     }
 
-    override fun list(ownerId: Long): List<FileMetadataResponse> =
-        fileRepository.findAllByOwnerIdOrderByCreatedAtDesc(ownerId).map { toResponse(it) }
+    override fun list(ownerId: Long, pageable: Pageable): Page<FileMetadataResponse> =
+        fileRepository.findAllByOwnerIdOrderByCreatedAtDesc(ownerId, pageable).map { toResponse(it) }
 
-    override fun createDownloadLinks(ownerId: Long, fileIds: List<UUID>): List<FileMetadataResponse> {
+    override fun createDownloadLinks(
+        ownerId: Long,
+        fileIds: List<UUID>,
+        scope: String?,
+    ): List<FileMetadataResponse> {
         validateFileIds(fileIds)
         val filesById = findOwnedFiles(ownerId, fileIds).associateBy { it.id }
-        return fileIds.map { toResponse(filesById.getValue(it)) }
+        val resolvedScope = resolveIssuableScope(ownerId, scope)
+        return fileIds.map { toResponse(filesById.getValue(it), resolvedScope) }
     }
 
     override fun openSignedDownload(
         fileId: UUID,
-        userId: Long,
+        scope: String,
         expiresAtEpochSeconds: Long,
+        nonce: String,
         signature: String,
+        authenticatedUserId: Long?,
+        authenticatedAdmin: Boolean,
     ): DownloadableFile {
-        if (!linkSigner.isValid(fileId, userId, expiresAtEpochSeconds, signature)) {
-            throw TokenInvalidException("File download link is invalid or expired.")
+        if (!linkSigner.isValid(fileId, scope, expiresAtEpochSeconds, nonce, signature)) {
+            throw fileNotFound()
         }
-        val stored = fileRepository.findByIdAndOwnerId(fileId, userId)
-            ?: throw ResourceNotFoundException("File does not exist or is no longer available.")
+        val stored = fileRepository.findById(fileId).orElseThrow(::fileNotFound)
+        if (!scopeAllows(stored, scope, authenticatedUserId, authenticatedAdmin)) throw fileNotFound()
+        if (stored.storage != LOCAL_STORAGE) throw fileNotFound()
         val path = resolveStoredPath(stored.relativePath)
-        if (!Files.isRegularFile(path)) {
-            throw ResourceNotFoundException("File content does not exist or is no longer available.")
-        }
+        if (!Files.isRegularFile(path)) throw fileNotFound()
         return DownloadableFile(
             path = path,
             originalFilename = stored.originalFilename,
@@ -176,12 +185,14 @@ class FileServiceImpl(
         return HexFormat.of().formatHex(digest.digest())
     }
 
-    private fun toResponse(stored: StoredFile): FileMetadataResponse {
-        val signedLink = linkSigner.sign(stored.id, stored.ownerId, properties.downloadTokenTtlSeconds)
+    private fun toResponse(stored: StoredFile, requestedScope: String? = null): FileMetadataResponse {
+        val scope = requestedScope ?: "user:${stored.ownerId}"
+        val signedLink = linkSigner.sign(stored.id, scope, ttlFor(scope))
         val url = UriComponentsBuilder.fromUriString(properties.baseUrl.trimEnd('/'))
             .pathSegment("api", "files", stored.id.toString(), "download")
-            .queryParam("userId", signedLink.userId)
+            .queryParam("scope", signedLink.scope)
             .queryParam("expires", signedLink.expiresAt.epochSecond)
+            .queryParam("nonce", signedLink.nonce)
             .queryParam("signature", signedLink.signature)
             .build()
             .toUriString()
@@ -193,9 +204,39 @@ class FileServiceImpl(
             sha256 = stored.sha256,
             createdAt = stored.createdAt,
             signedDownloadUrl = url,
-            downloadExpiresAt = signedLink.expiresAt,
+            downloadExpiresAt = LocalDateTime.ofInstant(signedLink.expiresAt, ZoneOffset.UTC),
+            scope = signedLink.scope,
+            storage = stored.storage,
         )
     }
+
+    private fun resolveIssuableScope(ownerId: Long, requestedScope: String?): String {
+        val scope = requestedScope?.trim()?.takeIf(String::isNotEmpty) ?: "user:$ownerId"
+        if (scope == "public" || scope == "user:$ownerId") return scope
+        throw ParamErrorException("Only public or the current user's file scope may be issued.")
+    }
+
+    private fun ttlFor(scope: String): Long = when {
+        scope == "public" -> properties.signing.publicTtlSeconds
+        scope.startsWith("user:") -> properties.signing.userTtlSeconds
+        scope == "role:admin" -> properties.signing.adminTtlSeconds
+        scope.startsWith("order:") -> properties.signing.orderTtlSeconds
+        else -> properties.downloadTokenTtlSeconds
+    }
+
+    private fun scopeAllows(
+        stored: StoredFile,
+        scope: String,
+        authenticatedUserId: Long?,
+        authenticatedAdmin: Boolean,
+    ): Boolean = when {
+        scope == "public" -> true
+        scope == "user:${stored.ownerId}" -> true
+        scope == "role:admin" -> authenticatedUserId != null && authenticatedAdmin
+        else -> false
+    }
+
+    private fun fileNotFound() = ResourceNotFoundException("File does not exist or is no longer available.")
 
     private fun deleteStoredFiles(files: List<StoredFile>) {
         // 先移动而非直接删除：元数据事务/flush 失败时可将内容恢复到原路径。
@@ -293,6 +334,7 @@ class FileServiceImpl(
         const val MIN_PRINTABLE_CHARACTER = 32
         const val DELETE_CHARACTER = 127
         const val DELETION_STAGING_DIRECTORY = ".deleting"
+        const val LOCAL_STORAGE = "local"
         val EXTENSION_PATTERN = Regex("[A-Za-z0-9]{1,10}")
     }
 }

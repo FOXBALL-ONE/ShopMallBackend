@@ -8,7 +8,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
 
-/** 文件签名的有效性、用户绑定、文件绑定与到期边界测试。 */
+/** 文件签名的有效性、scope/nonce 绑定、文件绑定与到期边界测试。 */
 class FileLinkSignerTest {
     private val now = Instant.parse("2026-07-15T00:00:00Z")
     private val signer = FileLinkSigner(
@@ -17,21 +17,24 @@ class FileLinkSignerTest {
     )
 
     @Test
-    fun `accepts an unexpired signature for the original file and user`() {
+    fun `accepts an unexpired signature for the original file scope and nonce`() {
         val fileId = UUID.randomUUID()
-        val link = signer.sign(fileId, userId = 42, ttlSeconds = 300)
+        val link = signer.sign(fileId, scope = "user:42", ttlSeconds = 300)
 
-        assertTrue(signer.isValid(fileId, 42, link.expiresAt.epochSecond, link.signature))
+        assertTrue(
+            signer.isValid(fileId, link.scope, link.expiresAt.epochSecond, link.nonce, link.signature),
+        )
     }
 
     @Test
-    fun `rejects a signature when the user, file, signature or expiration changes`() {
+    fun `rejects a signature when scope nonce file signature or expiration changes`() {
         val fileId = UUID.randomUUID()
-        val link = signer.sign(fileId, userId = 42, ttlSeconds = 300)
+        val link = signer.sign(fileId, scope = "user:42", ttlSeconds = 300)
 
-        assertFalse(signer.isValid(fileId, 43, link.expiresAt.epochSecond, link.signature))
-        assertFalse(signer.isValid(UUID.randomUUID(), 42, link.expiresAt.epochSecond, link.signature))
-        assertFalse(signer.isValid(fileId, 42, link.expiresAt.epochSecond, "${link.signature}x"))
-        assertFalse(signer.isValid(fileId, 42, now.epochSecond, link.signature))
+        assertFalse(signer.isValid(fileId, "user:43", link.expiresAt.epochSecond, link.nonce, link.signature))
+        assertFalse(signer.isValid(fileId, link.scope, link.expiresAt.epochSecond, UUID.randomUUID().toString(), link.signature))
+        assertFalse(signer.isValid(UUID.randomUUID(), link.scope, link.expiresAt.epochSecond, link.nonce, link.signature))
+        assertFalse(signer.isValid(fileId, link.scope, link.expiresAt.epochSecond, link.nonce, "${link.signature}x"))
+        assertFalse(signer.isValid(fileId, link.scope, now.epochSecond, link.nonce, link.signature))
     }
 }

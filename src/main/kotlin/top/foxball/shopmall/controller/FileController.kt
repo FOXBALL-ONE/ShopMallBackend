@@ -4,11 +4,14 @@ import jakarta.validation.Valid
 import jakarta.validation.constraints.NotEmpty
 import org.springframework.core.io.FileSystemResource
 import org.springframework.core.io.Resource
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.PageRequest
 import org.springframework.http.ContentDisposition
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
+import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -20,6 +23,10 @@ import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
 import top.foxball.shopmall.service.FileService
+import top.foxball.shopmall.service.FileMetadataResponse
+import top.foxball.shopmall.service.DownloadableFile
+import top.foxball.shopmall.handler.ParamErrorException
+import top.foxball.shopmall.handler.ResourceNotFoundException
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -29,6 +36,23 @@ import top.foxball.shopmall.shared.Response as ApiResponse
 data class FileIdBatchRequest(
     @field:NotEmpty
     val ids: List<UUID> = emptyList(),
+    val scope: String? = null,
+)
+
+data class FilePageResponse(
+    val files: List<FileMetadataResponse>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int,
+)
+
+private fun Page<FileMetadataResponse>.toResponse() = FilePageResponse(
+    files = content,
+    page = number,
+    size = size,
+    totalElements = totalElements,
+    totalPages = totalPages,
 )
 
 /**
@@ -58,9 +82,15 @@ class FileController(
     @GetMapping("/mine")
     fun listMine(
         @AuthenticationPrincipal userId: Long,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int,
     ): ResponseEntity<ApiResponse> {
-        data class Response(val files: List<top.foxball.shopmall.service.FileMetadataResponse>)
-        return builder.ok().data(Response(fileService.list(userId))).build()
+        if (page < 0 || size !in 1..MAX_PAGE_SIZE) {
+            throw ParamErrorException("Page must be non-negative and size must be between 1 and $MAX_PAGE_SIZE.")
+        }
+        return builder.ok()
+            .data(fileService.list(userId, PageRequest.of(page, size)).toResponse())
+            .build()
     }
 
     /** 批量刷新当前用户指定文件的短期下载链接。 */
@@ -70,18 +100,50 @@ class FileController(
         @Valid @RequestBody request: FileIdBatchRequest,
     ): ResponseEntity<ApiResponse> {
         data class Response(val files: List<top.foxball.shopmall.service.FileMetadataResponse>)
-        return builder.ok().data(Response(fileService.createDownloadLinks(userId, request.ids))).build()
+        return builder.ok()
+            .data(Response(fileService.createDownloadLinks(userId, request.ids, request.scope)))
+            .build()
     }
 
     /** 校验 URL 签名后以附件形式输出文件，避免浏览器按不可信 MIME 类型内联执行。 */
     @GetMapping("/{fileId}/download")
     fun download(
         @PathVariable fileId: UUID,
-        @RequestParam userId: Long,
+        @RequestParam scope: String,
         @RequestParam expires: Long,
+        @RequestParam nonce: String,
         @RequestParam signature: String,
     ): ResponseEntity<Resource> {
-        val downloadable = fileService.openSignedDownload(fileId, userId, expires, signature)
+        if (scope != "public" && !scope.startsWith("user:")) throw ResourceNotFoundException()
+        val downloadable = fileService.openSignedDownload(fileId, scope, expires, nonce, signature)
+        return downloadResponse(downloadable)
+    }
+
+    /** JWT 与签名双重校验的下载入口；当前支持 role:admin，order scope 保留扩展点。 */
+    @GetMapping("/{fileId}/secure-download")
+    fun secureDownload(
+        @AuthenticationPrincipal userId: Long,
+        authentication: Authentication,
+        @PathVariable fileId: UUID,
+        @RequestParam scope: String,
+        @RequestParam expires: Long,
+        @RequestParam nonce: String,
+        @RequestParam signature: String,
+    ): ResponseEntity<Resource> {
+        if (!scope.startsWith("role:") && !scope.startsWith("order:")) throw ResourceNotFoundException()
+        val downloadable = fileService.openSignedDownload(
+            fileId = fileId,
+            scope = scope,
+            expiresAtEpochSeconds = expires,
+            nonce = nonce,
+            signature = signature,
+            authenticatedUserId = userId,
+            authenticatedAdmin = authentication.authorities.any { it.authority == "ROLE_ADMIN" },
+        )
+        return downloadResponse(downloadable)
+    }
+
+    private fun downloadResponse(downloadable: DownloadableFile): ResponseEntity<Resource> {
         val contentType = downloadable.contentType
             ?.let { runCatching { MediaType.parseMediaType(it) }.getOrNull() }
             ?: MediaType.APPLICATION_OCTET_STREAM
@@ -116,5 +178,9 @@ class FileController(
         data class Response(val ids: List<UUID>, val deleted: Boolean)
         fileService.deleteBatch(userId, request.ids)
         return builder.ok().data(Response(request.ids, true)).build()
+    }
+
+    private companion object {
+        const val MAX_PAGE_SIZE = 100
     }
 }
