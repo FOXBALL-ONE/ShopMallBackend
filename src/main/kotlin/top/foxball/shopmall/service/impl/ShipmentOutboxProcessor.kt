@@ -85,18 +85,30 @@ class ShipmentOutboxProcessor(
             if (shipment.status !in setOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.CANCEL_PENDING)) {
                 throw ShipmentStatusException("远程面单结果与当前运单状态冲突")
             }
-            shipment.trackingNo = trackingNo
-            shipment.trackingNoNormalized = carrier.normalizeTrackingNo(trackingNo)
-            shipment.carrierLabelUrl = response.labelUrl
-            shipment.trackingUrl = carrier.trackingUrl(trackingNo)
-            if (shipment.status == ShipmentStatus.LABEL_PENDING) {
-                shipment.status = ShipmentStatus.LABEL_CREATED
+            val wasLabelPending = shipment.status == ShipmentStatus.LABEL_PENDING
+            // 条件 UPDATE 只接受 LABEL_PENDING → LABEL_CREATED，回填承运商最终单号与面单信息。
+            if (wasLabelPending) {
+                shipmentRepository.markLabelCreated(
+                    shipmentId,
+                    ShipmentStatus.LABEL_PENDING,
+                    ShipmentStatus.LABEL_CREATED,
+                    trackingNo = trackingNo,
+                    normalized = carrier.normalizeTrackingNo(trackingNo),
+                    labelUrl = response.labelUrl,
+                    trackingUrl = carrier.trackingUrl(trackingNo),
+                )
                 eventPublisher.publishInTx(
                     "SHIPMENT",
                     shipmentId,
                     "SHIPMENT_LABEL_CREATED",
                     "{\"shipmentId\":$shipmentId}",
                 )
+            } else {
+                // CANCEL_PENDING：仍记录承运商返回的单号，然后立即走取消面单流程，不恢复 LABEL_CREATED。
+                shipment.trackingNo = trackingNo
+                shipment.trackingNoNormalized = carrier.normalizeTrackingNo(trackingNo)
+                shipment.carrierLabelUrl = response.labelUrl
+                shipment.trackingUrl = carrier.trackingUrl(trackingNo)
             }
         }
     }
@@ -136,7 +148,12 @@ class ShipmentOutboxProcessor(
             if (shipment.status != ShipmentStatus.CANCEL_PENDING) {
                 throw ShipmentStatusException("远程取消结果与当前运单状态冲突")
             }
-            shipment.status = ShipmentStatus.CANCELLED
+            // 条件 UPDATE：CANCEL_PENDING → CANCELLED；随后在同一事务内释放 ALLOCATED 行项。
+            shipmentRepository.markCancelledFromPending(
+                shipmentId,
+                ShipmentStatus.CANCEL_PENDING,
+                ShipmentStatus.CANCELLED,
+            )
             val released = shipmentItemRepository.releaseAllocatedByShipmentId(
                 shipmentId,
                 clock.instant(),

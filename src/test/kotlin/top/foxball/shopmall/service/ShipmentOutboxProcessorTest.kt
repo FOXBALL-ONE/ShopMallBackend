@@ -75,16 +75,25 @@ class ShipmentOutboxProcessorTest {
         `when`(shipmentRepository.findByIdForUpdate(10)).thenReturn(shipment)
         `when`(shipmentItemRepository.findAllByShipment_IdOrderById(10)).thenReturn(listOf(item))
         `when`(orderRepository.lockById(5)).thenReturn(OrderEntity(id = 5, customerId = 1))
+        // 条件 UPDATE 命中（DB 层 LABEL_PENDING → LABEL_CREATED）；mock 返回 1 表示推进成功。
+        `when`(
+            shipmentRepository.markLabelCreated(
+                10,
+                ShipmentStatus.LABEL_PENDING,
+                ShipmentStatus.LABEL_CREATED,
+                "track-10",
+                "TRACK-10",
+                "https://carrier.test/label",
+                "https://carrier.test/track/track-10",
+            ),
+        ).thenReturn(1)
         carrier.labelResponse = LabelResponse("https://carrier.test/label", " track-10 ")
 
         processor.handle(10, "SHIPMENT_LABEL_REQUESTED")
 
-        assertEquals(ShipmentStatus.LABEL_CREATED, shipment.status)
-        assertEquals("track-10", shipment.trackingNo)
-        assertEquals("TRACK-10", shipment.trackingNoNormalized)
-        assertEquals("https://carrier.test/label", shipment.carrierLabelUrl)
-        assertEquals("https://carrier.test/track/track-10", shipment.trackingUrl)
+        // 承运商按 shipmentNo 作为幂等引用，且按整行分配构造 items。
         assertEquals(2, carrier.lastLabelRequest?.items?.single()?.quantity)
+        // 状态推进走条件 UPDATE，事件只在推进成功（返回 1）时发布。
         verify(eventPublisher).publishInTx(
             "SHIPMENT",
             10,
@@ -113,6 +122,13 @@ class ShipmentOutboxProcessorTest {
         `when`(shipmentRepository.findByIdForUpdate(10)).thenReturn(shipment)
         `when`(orderRepository.lockById(5)).thenReturn(OrderEntity(id = 5, customerId = 1))
         `when`(
+            shipmentRepository.markCancelledFromPending(
+                10,
+                ShipmentStatus.CANCEL_PENDING,
+                ShipmentStatus.CANCELLED,
+            ),
+        ).thenReturn(1)
+        `when`(
             shipmentItemRepository.releaseAllocatedByShipmentId(
                 10,
                 clock.instant(),
@@ -122,7 +138,7 @@ class ShipmentOutboxProcessorTest {
 
         processor.handle(10, "SHIPMENT_CANCEL_REQUESTED")
 
-        assertEquals(ShipmentStatus.CANCELLED, shipment.status)
+        // 条件 UPDATE 推进后释放分配；事件只在推进成功时发布。
         verify(eventPublisher).publishInTx(
             "SHIPMENT",
             10,

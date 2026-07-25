@@ -226,30 +226,39 @@ class ShipmentServiceImpl(
         }
         val carrier = carrierRegistry.require(shipment.carrierCode)
         val now = clock.instant()
-        shipment.cancelReason = request.reason
+        val shipmentId = requireNotNull(shipment.id)
         if (carrier.capabilities.remoteLabel) {
-            shipment.status = ShipmentStatus.CANCEL_PENDING
+            shipmentRepository.markCancelPending(
+                shipmentId,
+                listOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.LABEL_CREATED),
+                ShipmentStatus.CANCEL_PENDING,
+                request.reason,
+            )
             eventPublisher.publishInTx(
                 "SHIPMENT",
-                requireNotNull(shipment.id),
+                shipmentId,
                 "SHIPMENT_CANCEL_REQUESTED",
-                "{\"shipmentId\":${shipment.id}}",
+                "{\"shipmentId\":$shipmentId}",
             )
         } else {
-            shipment.status = ShipmentStatus.CANCELLED
+            shipmentRepository.markCancelledImmediate(
+                shipmentId,
+                listOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.LABEL_CREATED),
+                ShipmentStatus.CANCELLED,
+                request.reason,
+            )
             shipmentItemRepository.releaseAllocatedByShipmentId(
-                requireNotNull(shipment.id),
+                shipmentId,
                 now,
                 request.reason,
             )
             eventPublisher.publishInTx(
                 "SHIPMENT",
-                requireNotNull(shipment.id),
+                shipmentId,
                 "SHIPMENT_CANCELLED",
-                "{\"shipmentId\":${shipment.id}}",
+                "{\"shipmentId\":$shipmentId}",
             )
         }
-        val shipmentId = requireNotNull(shipment.id)
         idempotencyService.record(adminId, CANCEL_SHIPMENT, idempotencyKey, requestHash, shipmentId)
         entityManager.flush()
         return adminResponse(shipmentId, order.orderNo)
@@ -336,12 +345,16 @@ class ShipmentServiceImpl(
         val shipmentId = requireNotNull(shipment.id)
         val inserted = shipmentTrackRepository.insertOnConflictDoNothing(shipmentId, event, source)
         if (!inserted) return
-        if (isNewerSummary(shipment, event)) {
-            shipment.lastTrackStatus = event.statusCode
-            shipment.lastTrackAt = event.occurredAt
-            shipment.lastTrackEventId = event.carrierEventId
-            shipment.lastTrackLocation = event.location
-        }
+        // 摘要覆盖走条件 UPDATE，避免乱序旧事件回退 lastTrackAt/status。
+        shipmentRepository.updateLastTrackIfNewer(
+            shipmentId,
+            event.statusCode,
+            event.occurredAt,
+            event.carrierEventId,
+            event.location,
+        )
+
+        // CANCEL_PENDING/CANCELLED 是终态，后到轨迹只留痕告警，不复活。
         if (shipment.status in setOf(ShipmentStatus.CANCEL_PENDING, ShipmentStatus.CANCELLED)) {
             logger.warn(
                 "Tracking event {} arrived for shipment {} in terminal cancellation state {}",
@@ -355,16 +368,22 @@ class ShipmentServiceImpl(
         when (event.normalizedStatus) {
             NormalizedTrackingStatus.IN_TRANSIT -> ensureDispatchedLocked(order, shipment, event.occurredAt)
             NormalizedTrackingStatus.OUT_FOR_DELIVERY -> {
-                val managedShipment = ensureDispatchedLocked(order, shipment, event.occurredAt)
-                if (managedShipment.status == ShipmentStatus.IN_TRANSIT) {
-                    managedShipment.status = ShipmentStatus.OUT_FOR_DELIVERY
-                }
+                ensureDispatchedLocked(order, shipment, event.occurredAt)
+                shipmentRepository.markOutForDelivery(
+                    shipmentId,
+                    ShipmentStatus.IN_TRANSIT,
+                    ShipmentStatus.OUT_FOR_DELIVERY,
+                )
             }
             NormalizedTrackingStatus.DELIVERED -> {
-                val managedShipment = ensureDispatchedLocked(order, shipment, event.occurredAt)
-                if (managedShipment.status in setOf(ShipmentStatus.IN_TRANSIT, ShipmentStatus.OUT_FOR_DELIVERY)) {
-                    managedShipment.status = ShipmentStatus.DELIVERED
-                    managedShipment.deliveredAt = event.occurredAt
+                ensureDispatchedLocked(order, shipment, event.occurredAt)
+                val changed = shipmentRepository.markDelivered(
+                    shipmentId,
+                    listOf(ShipmentStatus.IN_TRANSIT, ShipmentStatus.OUT_FOR_DELIVERY),
+                    ShipmentStatus.DELIVERED,
+                    at = event.occurredAt,
+                )
+                if (changed == 1) {
                     eventPublisher.publishInTx(
                         "SHIPMENT",
                         shipmentId,
@@ -372,6 +391,7 @@ class ShipmentServiceImpl(
                         "{\"shipmentId\":$shipmentId}",
                     )
                 }
+                // 即使运单此前已 DELIVERED，也要执行聚合，修复历史事务在整单推进前失败的情况。
                 reconcileOrderDeliveryLocked(order)
             }
             NormalizedTrackingStatus.EXCEPTION,
@@ -382,13 +402,18 @@ class ShipmentServiceImpl(
 
     private fun ensureDispatchedLocked(order: OrderEntity, shipment: Shipment, occurredAt: Instant): Shipment {
         val shipmentId = requireNotNull(shipment.id)
-        when (shipment.status) {
-            ShipmentStatus.LABEL_CREATED -> {
-                shipment.status = ShipmentStatus.IN_TRANSIT
-                shipment.shippedAt = occurredAt
+        if (shipment.status == ShipmentStatus.LABEL_CREATED) {
+            // 条件 UPDATE 只接受 LABEL_CREATED → IN_TRANSIT，重复在途事件返回 0 行。
+            val changed = shipmentRepository.markInTransit(
+                shipmentId,
+                ShipmentStatus.LABEL_CREATED,
+                ShipmentStatus.IN_TRANSIT,
+                occurredAt,
+            )
+            if (changed == 1) {
                 val carrier = carrierRegistry.require(shipment.carrierCode)
                 if (carrier.capabilities.polling) {
-                    shipment.nextTrackPollAt = clock.instant().plusSeconds(900)
+                    shipmentRepository.scheduleNextPoll(shipmentId, clock.instant().plusSeconds(900))
                 }
                 eventPublisher.publishInTx(
                     "SHIPMENT",
@@ -397,11 +422,13 @@ class ShipmentServiceImpl(
                     "{\"shipmentId\":$shipmentId}",
                 )
             }
-            ShipmentStatus.IN_TRANSIT,
-            ShipmentStatus.OUT_FOR_DELIVERY,
-            ShipmentStatus.DELIVERED,
-            -> Unit
-            else -> throw ShipmentStatusException("当前运单不可发出")
+        } else if (shipment.status !in setOf(
+                ShipmentStatus.IN_TRANSIT,
+                ShipmentStatus.OUT_FOR_DELIVERY,
+                ShipmentStatus.DELIVERED,
+            )
+        ) {
+            throw ShipmentStatusException("当前运单不可发出")
         }
 
         // OrderRepository.markShipped uses clearAutomatically=true. Flush the shipment first,
@@ -455,12 +482,6 @@ class ShipmentServiceImpl(
         ) {
             eventPublisher.publishInTx("ORDER", orderId, "DELIVERED", "{\"orderId\":$orderId}")
         }
-    }
-
-    private fun isNewerSummary(shipment: Shipment, event: TrackingEvent): Boolean {
-        val previousAt = shipment.lastTrackAt ?: return true
-        if (event.occurredAt != previousAt) return event.occurredAt.isAfter(previousAt)
-        return event.carrierEventId > (shipment.lastTrackEventId ?: "")
     }
 
     private fun replay(

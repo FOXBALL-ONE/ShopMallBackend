@@ -97,6 +97,11 @@ shopmall:
     download-token-ttl-seconds: "${FILE_DOWNLOAD_LINK_TTL_SECONDS:300}"
     max-batch-size: "${FILE_MAX_BATCH_SIZE:20}"
     max-file-size-bytes: "${FILE_MAX_FILE_SIZE_BYTES:104857600}"
+    signing:
+      public-ttl-seconds: "${FILE_SIGN_PUBLIC_TTL:60}"
+      user-ttl-seconds: "${FILE_SIGN_USER_TTL:300}"
+      admin-ttl-seconds: "${FILE_SIGN_ADMIN_TTL:180}"
+      order-ttl-seconds: "${FILE_SIGN_ORDER_TTL:300}"
   mail:
     verification:
       # 发件人地址，留空则回退到 spring.mail.username
@@ -111,6 +116,8 @@ shopmall:
     max-quantity-per-line: "${ORDER_SINGLE_SKU_LIMIT:99}"
   logistics:
     webhook-max-body-bytes: "${LOGISTICS_WEBHOOK_MAX_BODY_BYTES:1048576}"
+    # 轮询调度总开关；首期默认 true 以驱动 MANUAL 之外的轮询适配器
+    polling-enabled: "${LOGISTICS_POLLING_ENABLED:true}"
     poll-initial-delay-seconds: "${LOGISTICS_POLL_INITIAL_DELAY:900}"
     poll-max-delay-seconds: "${LOGISTICS_POLL_MAX_DELAY:21600}"
     poll-lease-seconds: "${LOGISTICS_POLL_LEASE_SECONDS:120}"

@@ -518,14 +518,18 @@ private fun reconcileOrderDeliveryLocked(order: OrderEntity) {
 Repository 至少提供以下原子操作：
 
 - `OrderRepository.lockById/lockByOrderNo`：`PESSIMISTIC_WRITE`。
-- `ShipmentRepository.markLabelCreated`：仅 `LABEL_PENDING → LABEL_CREATED`；取消竞态下不覆盖 `CANCEL_PENDING`。
-- `markInTransit`：仅 `LABEL_CREATED → IN_TRANSIT`。
+- `ShipmentRepository.markLabelCreated`：仅 `LABEL_PENDING → LABEL_CREATED`；取消竞态下不覆盖 `CANCEL_PENDING`，回填最终 trackingNo/规范化单号/面单与查询 URL。
+- `markInTransit`：仅 `LABEL_CREATED → IN_TRANSIT`，写 `shippedAt`。
 - `markOutForDelivery`：仅 `IN_TRANSIT → OUT_FOR_DELIVERY`。
-- `markDelivered`：仅 `IN_TRANSIT/OUT_FOR_DELIVERY → DELIVERED`。
-- `markCancelPending`：仅 `LABEL_PENDING/LABEL_CREATED → CANCEL_PENDING`。
-- `markCancelled`：仅 `CANCEL_PENDING → CANCELLED`；MANUAL 可用独立条件 UPDATE 从 `LABEL_CREATED → CANCELLED`。
+- `markDelivered`：仅 `IN_TRANSIT/OUT_FOR_DELIVERY → DELIVERED`，写 `deliveredAt`。
+- `markCancelPending`：仅 `LABEL_PENDING/LABEL_CREATED → CANCEL_PENDING`，写 `cancelReason`。
+- `markCancelledFromPending`：仅 `CANCEL_PENDING → CANCELLED`；`markCancelledImmediate` 为 MANUAL 直达 `LABEL_PENDING/LABEL_CREATED → CANCELLED`。
+- `updateLastTrackIfNewer`：摘要条件 UPDATE（`lastTrackAt IS NULL OR lastTrackAt < :at OR (lastTrackAt = :at AND lastTrackEventId < :eventId)`），防乱序回退。
+- `scheduleNextPoll`：发出时登记 `nextTrackPollAt`（仅 polling 适配器）。
 - `ShipmentTrackRepository.insertOnConflictDoNothing`：返回是否新插入。
 - `ShipmentItemRepository.releaseAllocatedByShipmentId`：只把 `ALLOCATED → RELEASED`。
+
+> 上述 `mark*` 方法均为 `@Modifying(flushAutomatically=true, clearAutomatically=true)` 条件 UPDATE，调用方依据返回行数（1=推进、0=重复/不满足条件）决定是否发布事件。源/目标状态作为**显式参数**传入（与 `OrderRepository.markShipped` 一致），不在 Kotlin 接口上设默认值——Kotlin 接口默认值对调用方不可见，会导致位置参数错位。
 
 通用 outbox 不能继续假设 `aggregateId` 永远是 orderId。订单模块落地时将契约定义为：
 
@@ -644,6 +648,7 @@ it.requestMatchers(HttpMethod.GET, "/api/orders/*/shipments/**").authenticated()
 shopmall:
   logistics:
     webhook-max-body-bytes: "${LOGISTICS_WEBHOOK_MAX_BODY_BYTES:1048576}"
+    polling-enabled: "${LOGISTICS_POLLING_ENABLED:true}"  # 轮询调度总开关；false=禁用 ShipmentTrackingScheduler
     poll-initial-delay-seconds: "${LOGISTICS_POLL_INITIAL_DELAY:900}"
     poll-max-delay-seconds: "${LOGISTICS_POLL_MAX_DELAY:21600}"
     poll-lease-seconds: "${LOGISTICS_POLL_LEASE_SECONDS:120}"
@@ -725,8 +730,8 @@ data class AdminShipmentResponse(
 | 订单模块要素 | 物流模块联动 |
 |---|---|
 | `OrderRepository.lockById/lockByOrderNo` | 所有履约写入口先取得订单 `PESSIMISTIC_WRITE` 锁；订单模块必须新增此契约 |
-| `OrderEntity.markShipped(PAID→SHIPPED, Instant)` | 首个 Shipment 真正进入 IN_TRANSIT 时调用；创建运单/面单不调用 |
-| `OrderEntity.markDelivered(SHIPPED→DELIVERED, Instant)` | 行项覆盖完整且全部有效运单签收时由 `reconcileOrderDelivery` 调用 |
+| `OrderRepository.markShipped(PAID→SHIPPED, Instant)` | 首个 Shipment 真正进入 IN_TRANSIT 时调用；创建运单/面单不调用。实现为 `@Modifying` 条件 UPDATE（非实体方法），`clearAutomatically=true` |
+| `OrderRepository.markDelivered(SHIPPED→DELIVERED, Instant)` | 行项覆盖完整且全部有效运单签收时由 `reconcileOrderDelivery` 调用。同为条件 UPDATE |
 | `OrderItemRepository` | 批量按 orderId 查询行项，并参与覆盖汇总；不得逐行 N+1 查询 |
 | `OrderEntity.shippingAddress`(@Embedded 快照) | `Shipment.shippingAddress` 深拷贝自它，二次冻结 |
 | 通用 `domain_outbox` | 新增 `aggregateType`，支持 ORDER/SHIPMENT；物流事件的 aggregateId 使用 Long 实体 id |
@@ -754,7 +759,7 @@ data class AdminShipmentResponse(
 - `shared/ShipmentNoGenerator.kt`、`LogisticsIdempotencyService.kt`
 - `controller/ShipmentController.kt`、`LogisticsWebhookController.kt`、`ShipmentResponses.kt`
 - `config/LogisticsProperties.kt`、`LogisticsSchedulingConfig.kt`
-- `db/migration/V*_create_logistics.sql`、`V*_generalize_outbox.sql`
+- `db/migration/V1__create_order_logistics.sql`（含订单、通用 `domain_outbox`（`aggregate_type`）、物流全表、部分唯一索引与约束；`V*_generalize_outbox.sql` 已并入 V1，未单列版本）
 - 本文 §6.7 列出的物流异常子类
 
 **修改**：
@@ -826,4 +831,4 @@ testImplementation("org.testcontainers:postgresql")
 4. **并发契约**：订单模块需新增 `lockById/lockByOrderNo`，同订单履约写操作在订单行锁内串行化。
 5. **outbox 契约**：`aggregateId: Long` 保留，但增加 `aggregateType`；Shipment 事件传 shipmentId，订单事件传 orderId，禁止传 orderNo 字符串。
 6. **时间契约**：物流和订单履约时间统一使用 `Instant` / `TIMESTAMPTZ`。若订单文档仍写 `LocalDateTime`，实施前必须同步修订。
-7. **实施状态**：当前源码尚未实现订单/outbox，本附录列出的是需要同时兑现的前置契约，不代表这些类已经存在。
+7. **实施状态**：订单核心契约、通用 outbox（`domain_outbox` + `aggregateType`）、订单行锁与 `markShipped/markDelivered` 条件 UPDATE 均已落地于 `V1__create_order_logistics.sql`，物流模块实现与本文对齐。

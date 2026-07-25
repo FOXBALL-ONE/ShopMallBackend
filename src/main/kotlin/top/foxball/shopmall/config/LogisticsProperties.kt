@@ -16,6 +16,8 @@ class LogisticsProperties {
     var rawTrackRetentionDays: Long = 30
     var pollSchedulerDelayMs: Long = 60_000
     var reconciliationDelayMs: Long = 60_000
+    // ShipmentTrackingScheduler 的显式开关；true=轮询启用（默认），false=禁用轮询调度。
+    var pollingEnabled: Boolean = true
     var carriers: MutableMap<String, CarrierProperties> = mutableMapOf()
 
     @PostConstruct
