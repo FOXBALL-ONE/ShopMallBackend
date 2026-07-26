@@ -6,11 +6,33 @@ const menuOptions: MenuOption[] = [
   { label: '商品管理', key: 'products' },
   { label: '订单管理', key: 'orders' },
 ]
+
+// NMenu 选中回调：按 key 跳转对应路由。订单管理路由暂未实现，点击无效（跳 '#'）。
+function handleMenuSelect(key: string) {
+  if (key === 'dashboard') {
+    navigateTo('/')
+  } else if (key === 'products') {
+    navigateTo('/products')
+  }
+  // 'orders' 暂无页面，忽略
+}
+
+// 退出登录：清登录态并跳登录页（复用 useHttp 的 clearAuth）
+const { clearAuth } = useHttp()
+function handleLogout() {
+  clearAuth()
+  navigateTo('/login')
+}
 </script>
 
 <template>
   <NConfigProvider>
-    <NLayout has-sider style="height: 100vh">
+    <!-- useMessage / useDialog / useNotification 依赖各自的 Provider，
+         需在 NConfigProvider 内、内容区外包裹，供所有页面调用。 -->
+    <NMessageProvider>
+      <NDialogProvider>
+        <NNotificationProvider>
+          <NLayout has-sider style="height: 100vh">
       <!-- 侧边导航 -->
       <NLayoutSider
         bordered
@@ -22,7 +44,7 @@ const menuOptions: MenuOption[] = [
         <div class="logo">
           <span>ShopMall</span>
         </div>
-        <NMenu :options="menuOptions" :collapsed-width="64" :collapsed-icon-size="22" />
+        <NMenu :options="menuOptions" :collapsed-width="64" :collapsed-icon-size="22" @update:value="handleMenuSelect" />
       </NLayoutSider>
 
       <NLayout>
@@ -30,8 +52,8 @@ const menuOptions: MenuOption[] = [
         <NLayoutHeader bordered class="header">
           <div class="header-title">管理后台</div>
           <NSpace>
-            <NButton>刷新</NButton>
-            <NButton type="primary" tertiary>退出登录</NButton>
+            <NButton @click="$router.go(0)">刷新</NButton>
+            <NButton type="primary" tertiary @click="handleLogout">退出登录</NButton>
           </NSpace>
         </NLayoutHeader>
 
@@ -40,7 +62,10 @@ const menuOptions: MenuOption[] = [
           <slot />
         </NLayoutContent>
       </NLayout>
-    </NLayout>
+      </NLayout>
+        </NNotificationProvider>
+      </NDialogProvider>
+    </NMessageProvider>
   </NConfigProvider>
 </template>
 
