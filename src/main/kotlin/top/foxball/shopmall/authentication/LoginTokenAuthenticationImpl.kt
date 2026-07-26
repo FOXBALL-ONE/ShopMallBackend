@@ -9,7 +9,6 @@ import top.foxball.shopmall.handler.UserDisabledException
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.shared.RefreshTokenStore
 import top.foxball.shopmall.shared.RefreshTokenStore.RotationVerdict
-import java.math.BigDecimal
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
@@ -54,8 +53,19 @@ class LoginTokenAuthenticationImpl(
             ttlSeconds(refresh.expiresAt),
         )
         return LoginTokenAuthentication.LoginResult(
-            state = LoginTokenAuthentication.LoginResult.State.SUCCESS,
-            response = buildResponse(user, access.token, jwtProperties.access.ttlSeconds),
+            accessToken = access.token,
+            expiresIn = jwtProperties.access.ttlSeconds,
+            userId = userId,
+            userInfo = LoginTokenAuthentication.LoginResult.UserInfo(
+                username = user.username,
+                email = user.email,
+                firstName = user.firstName,
+                lastName = user.lastName,
+                avatar = user.avatar,
+                role = user.role.name,
+                locale = user.locale,
+                currency = user.currency,
+            ),
             refreshJwt = refresh.token,
         )
     }
@@ -199,35 +209,6 @@ class LoginTokenAuthenticationImpl(
         )
     }
 
-    private fun buildResponse(
-        user: User,
-        accessToken: String,
-        expiresIn: Long,
-    ): LoginTokenAuthentication.LoginResult.Response =
-        LoginTokenAuthentication.LoginResult.Response(
-            accessToken = accessToken,
-            expiresIn = expiresIn,
-            userId = user.id!!,
-            // TODO: frp_token / group / traffic / tunnel 配额待对应模块落地后接入真实数据
-            frpToken = "",
-            userInfo = LoginTokenAuthentication.LoginResult.Response.UserInfo(
-                username = user.username,
-                email = user.email,
-                limit = LoginTokenAuthentication.LoginResult.Response.Limit(
-                    tunnel = null,
-                    inbound = DEFAULT_TRAFFIC_LIMIT,
-                    outbound = DEFAULT_TRAFFIC_LIMIT,
-                ),
-                avatar = "",
-                traffic = BigDecimal.ZERO,
-                registerTime = user.createdAt!!,
-                group = LoginTokenAuthentication.LoginResult.Response.Group(
-                    id = DEFAULT_GROUP_ID,
-                    name = DEFAULT_GROUP_NAME,
-                ),
-            ),
-        )
-
     /** refresh 剩余有效期（秒），至少 1s；供 store 落 TTL。 */
     private fun ttlSeconds(refreshExpiresAt: LocalDateTime): Long =
         ChronoUnit.SECONDS.between(LocalDateTime.now(ZoneOffset.UTC), refreshExpiresAt)
@@ -237,9 +218,6 @@ class LoginTokenAuthenticationImpl(
 
     private companion object {
         val log = LoggerFactory.getLogger(LoginTokenAuthenticationImpl::class.java)
-        const val DEFAULT_TRAFFIC_LIMIT = 0L
-        const val DEFAULT_GROUP_ID = 0L
-        const val DEFAULT_GROUP_NAME = "default"
         // grace 链下钻的最大跳数，防异常长链
         const val MAX_CHAIN_HOPS = 8
     }

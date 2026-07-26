@@ -10,27 +10,25 @@ export interface ApiResult<T> {
 }
 
 /**
- * 登录成功响应（落在 ApiResult.data 内），对齐后端
- * top.foxball.shopmall.authentication.LoginTokenAuthentication.LoginResult.Response。
- * 字段名为 @JsonProperty 指定的 snake_case（user_id / frp_token / user_info / register_time）。
+ * 登录成功响应（落在 ApiResult.data 内）。
+ * refresh token 由 HttpOnly Cookie 携带，不包含在响应体中。
  */
 export interface LoginResponse {
-    token: string;
+    access_token: string;
+    expires_in: number;
     user_id: number;
-    frp_token: string;
     user_info: UserInfo;
 }
+
+export type UserRole = "CUSTOMER" | "ADMIN";
 
 export interface UserInfo {
     username: string;
     email: string;
-    avatar: string;
-    traffic: string;
-    register_time: string;
-    group: { id: number; name: string };
-    limit: {
-        tunnel: number | null;
-        inbound: number;
-        outbound: number;
-    };
+    first_name: string;
+    last_name: string;
+    avatar: string | null;
+    role: UserRole;
+    locale: string | null;
+    currency: string | null;
 }

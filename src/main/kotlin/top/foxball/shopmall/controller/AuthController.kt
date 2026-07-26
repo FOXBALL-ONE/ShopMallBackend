@@ -21,8 +21,6 @@ import top.foxball.shopmall.service.MailService
 import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
-import java.math.BigDecimal
-import java.time.LocalDateTime
 
 /**
  * @folder 认证
@@ -51,26 +49,17 @@ class AuthController(
         request: HttpServletRequest,
         response: HttpServletResponse,
     ): ResponseEntity<Response> {
-        data class LimitData(
-            val tunnel: Long?,
-            val inbound: Long,
-            val outbound: Long,
-        )
-
-        data class GroupData(
-            val id: Long,
-            val name: String,
-        )
-
         data class UserData(
             val username: String,
             val email: String,
-            val limit: LimitData,
-            val avatar: String,
-            val traffic: BigDecimal,
-            @param:JsonProperty("register_time")
-            val registerTime: LocalDateTime,
-            val group: GroupData,
+            @param:JsonProperty("first_name")
+            val firstName: String,
+            @param:JsonProperty("last_name")
+            val lastName: String,
+            val avatar: String?,
+            val locale: String?,
+            val currency: String?,
+            val role: String,
         )
 
         data class Response(
@@ -80,33 +69,27 @@ class AuthController(
             val expiresIn: Long,
             @param:JsonProperty("user_id")
             val userId: Long,
-            @param:JsonProperty("frp_token")
-            val frpToken: String,
             @param:JsonProperty("user_info")
             val userInfo: UserData,
         )
 
         val result = authService.login(identifier, password, userAgent.orEmpty(), clientIp(request))
-        val loginResponse = result.response
-        if (result.state != LoginTokenAuthentication.LoginResult.State.SUCCESS || loginResponse == null) {
-            return builder.forbidden().message("登录被拒绝").build()
-        }
-        result.refreshJwt?.let { refreshCookieService.attachRefresh(response, it) }
+        refreshCookieService.attachRefresh(response, result.refreshJwt)
 
-        val userInfo = loginResponse.userInfo
+        val userInfo = result.userInfo
         val rs = Response(
-            accessToken = loginResponse.accessToken,
-            expiresIn = loginResponse.expiresIn,
-            userId = loginResponse.userId,
-            frpToken = loginResponse.frpToken,
+            accessToken = result.accessToken,
+            expiresIn = result.expiresIn,
+            userId = result.userId,
             userInfo = UserData(
                 username = userInfo.username,
                 email = userInfo.email,
-                limit = LimitData(userInfo.limit.tunnel, userInfo.limit.inbound, userInfo.limit.outbound),
+                firstName = userInfo.firstName,
+                lastName = userInfo.lastName,
                 avatar = userInfo.avatar,
-                traffic = userInfo.traffic,
-                registerTime = userInfo.registerTime,
-                group = GroupData(userInfo.group.id, userInfo.group.name),
+                locale = userInfo.locale,
+                currency = userInfo.currency,
+                role = userInfo.role,
             ),
         )
         return builder.ok().data(rs).build()

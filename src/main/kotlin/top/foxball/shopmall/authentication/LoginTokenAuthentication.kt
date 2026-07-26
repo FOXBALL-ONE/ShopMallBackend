@@ -1,11 +1,8 @@
 package top.foxball.shopmall.authentication
 
-import com.fasterxml.jackson.annotation.JsonProperty
 import org.springframework.stereotype.Service
 import top.foxball.shopmall.authentication.annotation.AuthenticationService
 import top.foxball.shopmall.entity.jdbc.User
-import java.math.BigDecimal
-import java.time.LocalDateTime
 
 /**
  * 登录会话与令牌生命周期服务：双 Token（Access + Refresh）模型的签发、轮换、撤销与登录响应组装。
@@ -41,57 +38,28 @@ interface LoginTokenAuthentication {
     fun revokeAll(userId: Long)
 
     data class LoginResult(
-        val state: State,
-        val response: Response? = null,
+        val accessToken: String,
+        val expiresIn: Long,
+        val userId: Long,
+        val userInfo: UserInfo,
         /** 内部：登录签发的 refresh JWT，供控制器写 HttpOnly Cookie，不进响应体。 */
-        val refreshJwt: String? = null,
+        val refreshJwt: String,
     ) {
-        enum class State {
-            SUCCESS,
-            GROUP_NOT_ALLOWED,
-        }
-
-        data class Response(
-            @get:JsonProperty("access_token")
-            val accessToken: String,
-            @get:JsonProperty("expires_in")
-            val expiresIn: Long,
-            @get:JsonProperty("user_id")
-            val userId: Long,
-            @get:JsonProperty("frp_token")
-            val frpToken: String,
-            @get:JsonProperty("user_info")
-            val userInfo: UserInfo,
-        ) {
-            data class Limit(
-                val tunnel: Long?,
-                val inbound: Long,
-                val outbound: Long
-            )
-
-            data class Group(
-                val id: Long,
-                val name: String,
-            )
-
-            data class UserInfo(
-                val username: String,
-                val email: String,
-                val limit: Limit,
-                val avatar: String,
-                val traffic: BigDecimal,
-                @get:JsonProperty("register_time")
-                val registerTime: LocalDateTime,
-                val group: Group,
-            )
-        }
+        data class UserInfo(
+            val username: String,
+            val email: String,
+            val firstName: String,
+            val lastName: String,
+            val avatar: String?,
+            val role: String,
+            val locale: String?,
+            val currency: String?,
+        )
     }
 
     /** 续期结果：新 access（进响应体）+ 新 refresh（写 cookie，滚动）。 */
     data class RefreshResult(
-        @get:JsonProperty("access_token")
         val accessToken: String,
-        @get:JsonProperty("expires_in")
         val expiresIn: Long,
         /** 内部：滚动后的新 refresh JWT，供控制器写 Cookie，不进响应体。 */
         val refreshJwt: String,
