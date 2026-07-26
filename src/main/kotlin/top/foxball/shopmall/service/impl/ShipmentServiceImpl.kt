@@ -5,15 +5,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import top.foxball.shopmall.controller.AdminShipmentResponse
-import top.foxball.shopmall.controller.CancelShipmentRequest
-import top.foxball.shopmall.controller.CreateShipmentRequest
-import top.foxball.shopmall.controller.CustomerShipmentResponse
-import top.foxball.shopmall.controller.DispatchShipmentRequest
-import top.foxball.shopmall.controller.ManualDeliveredRequest
-import top.foxball.shopmall.controller.ShipmentItemResponse
-import top.foxball.shopmall.controller.ShipmentTrackResponse
-import top.foxball.shopmall.entity.jdbc.AllocationStatus
 import top.foxball.shopmall.entity.jdbc.CarrierCode
 import top.foxball.shopmall.entity.jdbc.NormalizedTrackingStatus
 import top.foxball.shopmall.entity.jdbc.OrderEntity
@@ -40,6 +31,7 @@ import top.foxball.shopmall.repository.ShipmentRepository
 import top.foxball.shopmall.repository.ShipmentTrackRepository
 import top.foxball.shopmall.service.AdminAccessService
 import top.foxball.shopmall.service.DomainEventPublisher
+import top.foxball.shopmall.service.ShipmentDetails
 import top.foxball.shopmall.service.ShipmentService
 import top.foxball.shopmall.shared.LogisticsIdempotencyService
 import top.foxball.shopmall.shared.ShipmentNoGenerator
@@ -69,25 +61,52 @@ class ShipmentServiceImpl(
     @Transactional
     override fun createShipment(
         orderNo: String,
-        request: CreateShipmentRequest,
+        carrierCode: CarrierCode,
+        trackingNo: String?,
+        orderItemIds: List<Long>,
+        quantities: List<Int>,
+        note: String?,
         adminId: Long,
         idempotencyKey: String,
-    ): AdminShipmentResponse {
+    ): ShipmentDetails {
         adminAccessService.requireAdmin(adminId)
         // 幂等哈希必须对 items 顺序不敏感：客户端重试时若调换行项顺序（语义等价），
         // 原始 toString 会让 hash 变化 → 误判为「同 key+不同请求」返回 409。
         // 故按 orderItemId 稳定排序后再拼接。
-        val normalizedRequest = request.copy(items = request.items.sortedBy { it.orderItemId })
-        val requestHash = idempotencyService.requestHash("$orderNo|$normalizedRequest")
+        if (orderItemIds.isEmpty() || orderItemIds.size > 50) {
+            throw ParamErrorException("运单商品行数量必须在 1 到 50 之间")
+        }
+        if (orderItemIds.size != quantities.size) {
+            throw ParamErrorException("订单商品行与数量必须一一对应")
+        }
+        if (orderItemIds.any { it < 1 } || quantities.any { it < 1 }) {
+            throw ParamErrorException("订单商品行 ID 和数量必须大于 0")
+        }
+        if (trackingNo != null && trackingNo.length > 64) {
+            throw ParamErrorException("物流追踪号不能超过 64 个字符")
+        }
+        if (note != null && note.length > 200) {
+            throw ParamErrorException("运单备注不能超过 200 个字符")
+        }
+        val normalizedItems = orderItemIds.zip(quantities).sortedBy { it.first }
+        val requestHash = idempotencyService.requestHash(
+            "$orderNo|$carrierCode|${trackingNo.orEmpty()}|$normalizedItems|${note.orEmpty()}",
+        )
         val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
         replay(adminId, CREATE_SHIPMENT, idempotencyKey, requestHash)?.let {
-            return adminResponse(it, order.orderNo)
+            val shipment = shipmentRepository.findById(it).orElse(null) ?: throw ShipmentNotFoundException()
+            return ShipmentDetails(
+                shipment = shipment,
+                orderNo = order.orderNo,
+                items = shipmentItemRepository.findAllByShipment_IdOrderById(it),
+                tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(it),
+            )
         }
         if (order.status !in setOf(OrderStatus.PAID, OrderStatus.SHIPPED)) {
             throw OrderStatusException("当前订单不可创建运单")
         }
         val orderId = requireNotNull(order.id)
-        val requestIds = request.items.map { it.orderItemId }
+        val requestIds = orderItemIds
         if (requestIds.distinct().size != requestIds.size) {
             throw ParamErrorException("运单商品行不能重复")
         }
@@ -95,42 +114,42 @@ class ShipmentServiceImpl(
         if (orderItems.size != requestIds.size) {
             throw ParamErrorException("运单包含不属于该订单的商品行")
         }
-        val quantities = request.items.associate { it.orderItemId to it.quantity }
-        if (orderItems.any { quantities[it.id] != it.quantity }) {
+        val requestedQuantities = orderItemIds.zip(quantities).toMap()
+        if (orderItems.any { requestedQuantities[it.id] != it.quantity }) {
             throw ParamErrorException("本期仅支持完整分配订单行数量")
         }
         if (shipmentItemRepository.countActiveAllocations(requestIds) > 0) {
             throw ShipmentAllocationConflictException()
         }
 
-        val carrier = carrierRegistry.find(request.carrierCode)
+        val carrier = carrierRegistry.find(carrierCode)
             ?: throw ParamErrorException("承运商未启用或尚未接入")
-        val trackingNo = request.trackingNo?.trim()?.takeIf { it.isNotEmpty() }
-        if (!carrier.capabilities.remoteLabel && trackingNo == null) {
+        val normalizedTrackingNo = trackingNo?.trim()?.takeIf { it.isNotEmpty() }
+        if (!carrier.capabilities.remoteLabel && normalizedTrackingNo == null) {
             throw ParamErrorException("该承运商创建运单时必须提供 trackingNo")
         }
         // remoteLabel 运单的最终 trackingNo 必须由承运商 createLabel 返回，禁止客户端预填：
         // 否则 LABEL_PENDING 运单会带 trackingNoNormalized，使 webhook 能按单号反查到它，
         // 在 outbox 尚未创建面单时就命中 IN_TRANSIT/DELIVERED 轨迹（缺陷3 的竞态入口）。
-        if (carrier.capabilities.remoteLabel && trackingNo != null) {
+        if (carrier.capabilities.remoteLabel && normalizedTrackingNo != null) {
             throw ParamErrorException("远程面单承运商的 trackingNo 由系统在面单生成后回填，不可预填")
         }
         val shipment = shipmentRepository.saveAndFlush(
             Shipment(
                 shipmentNo = shipmentNoGenerator.next(),
                 orderId = orderId,
-                carrierCode = request.carrierCode,
-                trackingNo = trackingNo,
-                trackingNoNormalized = trackingNo?.let(carrier::normalizeTrackingNo),
+                carrierCode = carrierCode,
+                trackingNo = normalizedTrackingNo,
+                trackingNoNormalized = normalizedTrackingNo?.let(carrier::normalizeTrackingNo),
                 status = if (carrier.capabilities.remoteLabel) {
                     ShipmentStatus.LABEL_PENDING
                 } else {
                     ShipmentStatus.LABEL_CREATED
                 },
                 shippingAddress = order.shippingAddress.copySnapshot(),
-                trackingUrl = trackingNo?.let(carrier::trackingUrl),
+                trackingUrl = normalizedTrackingNo?.let(carrier::trackingUrl),
                 createdBy = adminId,
-                note = request.note,
+                note = note,
             ),
         )
         shipmentItemRepository.saveAllAndFlush(
@@ -163,7 +182,15 @@ class ShipmentServiceImpl(
             try {
                 val prior = replay(adminId, CREATE_SHIPMENT, idempotencyKey, requestHash)
                 if (prior != null) {
-                    return adminResponse(prior, order.orderNo)
+                    val priorShipment = shipmentRepository.findById(prior).orElse(null)
+                        ?: throw ShipmentNotFoundException()
+                    return ShipmentDetails(
+                        shipment = priorShipment,
+                        orderNo = order.orderNo,
+                        items = shipmentItemRepository.findAllByShipment_IdOrderById(prior),
+                        tracks = shipmentTrackRepository
+                            .findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(prior),
+                    )
                 }
             } catch (conflict: IdempotencyConflictException) {
                 throw conflict
@@ -171,35 +198,65 @@ class ShipmentServiceImpl(
             throw e
         }
         entityManager.flush()
-        return adminResponse(shipmentId)
+        val created = shipmentRepository.findById(shipmentId).orElse(null) ?: throw ShipmentNotFoundException()
+        return ShipmentDetails(
+            shipment = created,
+            orderNo = order.orderNo,
+            items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+            tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+        )
     }
 
-    override fun listAdmin(orderNo: String, adminId: Long): List<AdminShipmentResponse> {
+    override fun listAdmin(orderNo: String, adminId: Long): List<ShipmentDetails> {
         adminAccessService.requireAdmin(adminId)
         val order = orderRepository.findByOrderNo(orderNo) ?: throw OrderNotFoundException()
         return shipmentRepository.findAllByOrderIdOrderByCreatedAtAsc(requireNotNull(order.id))
-            .map { adminResponse(requireNotNull(it.id), order.orderNo) }
+            .map { shipment ->
+                val shipmentId = requireNotNull(shipment.id)
+                ShipmentDetails(
+                    shipment = shipment,
+                    orderNo = order.orderNo,
+                    items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+                    tracks = shipmentTrackRepository
+                        .findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+                )
+            }
     }
 
-    override fun listCustomer(orderNo: String, userId: Long): List<CustomerShipmentResponse> {
+    override fun listCustomer(orderNo: String, userId: Long): List<ShipmentDetails> {
         val order = orderRepository.findByOrderNoAndCustomerId(orderNo, userId) ?: throw OrderNotFoundException()
         return shipmentRepository.findAllByOrderIdOrderByCreatedAtAsc(requireNotNull(order.id))
-            .map { customerResponse(requireNotNull(it.id), order.orderNo) }
+            .map { shipment ->
+                val shipmentId = requireNotNull(shipment.id)
+                ShipmentDetails(
+                    shipment = shipment,
+                    orderNo = order.orderNo,
+                    items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+                    tracks = shipmentTrackRepository
+                        .findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+                )
+            }
     }
 
-    override fun getCustomer(orderNo: String, shipmentNo: String, userId: Long): CustomerShipmentResponse {
+    override fun getCustomer(orderNo: String, shipmentNo: String, userId: Long): ShipmentDetails {
         val order = orderRepository.findByOrderNoAndCustomerId(orderNo, userId) ?: throw OrderNotFoundException()
         val shipment = shipmentRepository.findByShipmentNo(shipmentNo)
             ?.takeIf { it.orderId == order.id }
             ?: throw ShipmentNotFoundException()
-        return customerResponse(requireNotNull(shipment.id), order.orderNo)
+        val shipmentId = requireNotNull(shipment.id)
+        return ShipmentDetails(
+            shipment = shipment,
+            orderNo = order.orderNo,
+            items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+            tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+        )
     }
 
     override fun trackByTrackingNumber(
         carrierCode: CarrierCode,
         trackingNo: String,
         userId: Long,
-    ): CustomerShipmentResponse {
+    ): ShipmentDetails {
         val carrier = carrierRegistry.find(carrierCode) ?: throw ShipmentNotFoundException()
         val shipment = shipmentRepository.findByCarrierCodeAndTrackingNoNormalized(
             carrierCode,
@@ -209,45 +266,75 @@ class ShipmentServiceImpl(
         if (order.customerId != userId && !adminAccessService.isAdmin(userId)) {
             throw ShipmentNotFoundException()
         }
-        return customerResponse(requireNotNull(shipment.id), order.orderNo)
+        val shipmentId = requireNotNull(shipment.id)
+        return ShipmentDetails(
+            shipment = shipment,
+            orderNo = order.orderNo,
+            items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+            tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+        )
     }
 
     @Transactional
     override fun dispatchShipment(
         shipmentNo: String,
-        request: DispatchShipmentRequest,
+        note: String?,
         adminId: Long,
         idempotencyKey: String,
-    ): AdminShipmentResponse {
+    ): ShipmentDetails {
         adminAccessService.requireAdmin(adminId)
-        val requestHash = idempotencyService.requestHash("$shipmentNo|$request")
+        if (note != null && note.length > 200) {
+            throw ParamErrorException("运单备注不能超过 200 个字符")
+        }
+        val requestHash = idempotencyService.requestHash("$shipmentNo|${note.orEmpty()}")
         val identity = shipmentRepository.findByShipmentNo(shipmentNo) ?: throw ShipmentNotFoundException()
         val order = orderRepository.lockById(identity.orderId) ?: throw OrderNotFoundException()
         replay(adminId, DISPATCH_SHIPMENT, idempotencyKey, requestHash)?.let {
-            return adminResponse(it, order.orderNo)
+            val replayed = shipmentRepository.findById(it).orElse(null) ?: throw ShipmentNotFoundException()
+            return ShipmentDetails(
+                shipment = replayed,
+                orderNo = order.orderNo,
+                items = shipmentItemRepository.findAllByShipment_IdOrderById(it),
+                tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(it),
+            )
         }
         val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id)) ?: throw ShipmentNotFoundException()
-        request.note?.let { shipment.note = it }
+        note?.let { shipment.note = it }
         ensureDispatchedLocked(order, shipment, clock.instant())
         val shipmentId = requireNotNull(shipment.id)
         idempotencyService.record(adminId, DISPATCH_SHIPMENT, idempotencyKey, requestHash, shipmentId)
         entityManager.flush()
-        return adminResponse(shipmentId, order.orderNo)
+        val dispatched = shipmentRepository.findById(shipmentId).orElse(null) ?: throw ShipmentNotFoundException()
+        return ShipmentDetails(
+            shipment = dispatched,
+            orderNo = order.orderNo,
+            items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+            tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+        )
     }
 
     @Transactional
     override fun cancelShipment(
         shipmentNo: String,
-        request: CancelShipmentRequest,
+        reason: String,
         adminId: Long,
         idempotencyKey: String,
-    ): AdminShipmentResponse {
+    ): ShipmentDetails {
         adminAccessService.requireAdmin(adminId)
-        val requestHash = idempotencyService.requestHash("$shipmentNo|$request")
+        if (reason.isBlank() || reason.length > 200) {
+            throw ParamErrorException("取消原因不能为空且不能超过 200 个字符")
+        }
+        val requestHash = idempotencyService.requestHash("$shipmentNo|$reason")
         val identity = shipmentRepository.findByShipmentNo(shipmentNo) ?: throw ShipmentNotFoundException()
         val order = orderRepository.lockById(identity.orderId) ?: throw OrderNotFoundException()
         replay(adminId, CANCEL_SHIPMENT, idempotencyKey, requestHash)?.let {
-            return adminResponse(it, order.orderNo)
+            val replayed = shipmentRepository.findById(it).orElse(null) ?: throw ShipmentNotFoundException()
+            return ShipmentDetails(
+                shipment = replayed,
+                orderNo = order.orderNo,
+                items = shipmentItemRepository.findAllByShipment_IdOrderById(it),
+                tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(it),
+            )
         }
         val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id)) ?: throw ShipmentNotFoundException()
         if (shipment.status !in setOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.LABEL_CREATED)) {
@@ -261,7 +348,7 @@ class ShipmentServiceImpl(
                 shipmentId,
                 listOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.LABEL_CREATED),
                 ShipmentStatus.CANCEL_PENDING,
-                request.reason,
+                reason,
             )
             eventPublisher.publishInTx(
                 "SHIPMENT",
@@ -274,12 +361,12 @@ class ShipmentServiceImpl(
                 shipmentId,
                 listOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.LABEL_CREATED),
                 ShipmentStatus.CANCELLED,
-                request.reason,
+                reason,
             )
             shipmentItemRepository.releaseAllocatedByShipmentId(
                 shipmentId,
                 now,
-                request.reason,
+                reason,
             )
             eventPublisher.publishInTx(
                 "SHIPMENT",
@@ -290,22 +377,38 @@ class ShipmentServiceImpl(
         }
         idempotencyService.record(adminId, CANCEL_SHIPMENT, idempotencyKey, requestHash, shipmentId)
         entityManager.flush()
-        return adminResponse(shipmentId, order.orderNo)
+        val cancelled = shipmentRepository.findById(shipmentId).orElse(null) ?: throw ShipmentNotFoundException()
+        return ShipmentDetails(
+            shipment = cancelled,
+            orderNo = order.orderNo,
+            items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+            tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+        )
     }
 
     @Transactional
     override fun markManualDelivered(
         shipmentNo: String,
-        request: ManualDeliveredRequest,
+        occurredAt: Instant?,
+        reason: String,
         adminId: Long,
         idempotencyKey: String,
-    ): AdminShipmentResponse {
+    ): ShipmentDetails {
         adminAccessService.requireAdmin(adminId)
-        val requestHash = idempotencyService.requestHash("$shipmentNo|$request")
+        if (reason.isBlank() || reason.length > 200) {
+            throw ParamErrorException("签收原因不能为空且不能超过 200 个字符")
+        }
+        val requestHash = idempotencyService.requestHash("$shipmentNo|${occurredAt ?: ""}|$reason")
         val identity = shipmentRepository.findByShipmentNo(shipmentNo) ?: throw ShipmentNotFoundException()
         val order = orderRepository.lockById(identity.orderId) ?: throw OrderNotFoundException()
         replay(adminId, DELIVER_SHIPMENT, idempotencyKey, requestHash)?.let {
-            return adminResponse(it, order.orderNo)
+            val replayed = shipmentRepository.findById(it).orElse(null) ?: throw ShipmentNotFoundException()
+            return ShipmentDetails(
+                shipment = replayed,
+                orderNo = order.orderNo,
+                items = shipmentItemRepository.findAllByShipment_IdOrderById(it),
+                tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(it),
+            )
         }
         val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id)) ?: throw ShipmentNotFoundException()
         if (shipment.carrierCode != CarrierCode.MANUAL) {
@@ -319,14 +422,14 @@ class ShipmentServiceImpl(
             ShipmentStatus.CANCELLED -> throw ShipmentStatusException("运单已取消，不可签收")
             else -> Unit
         }
-        val occurredAt = request.occurredAt ?: clock.instant()
-        if (occurredAt.isAfter(clock.instant().plusSeconds(300))) {
+        val deliveredAt = occurredAt ?: clock.instant()
+        if (deliveredAt.isAfter(clock.instant().plusSeconds(300))) {
             throw ParamErrorException("签收时间不能晚于当前时间")
         }
         // 下界校验：签收时间不得早于运单发出时间，防止伪造历史时间注入。
         // 正常流程 applyTrackingEventLocked 会先 ensureDispatchedLocked 写 shippedAt，
         // 理论上此处 shippedAt 必非空；若因异常路径缺失则不阻塞签收。
-        if (shipment.shippedAt != null && occurredAt.isBefore(shipment.shippedAt)) {
+        if (shipment.shippedAt != null && deliveredAt.isBefore(shipment.shippedAt)) {
             throw ParamErrorException("签收时间不能早于运单发出时间")
         }
         val event = TrackingEvent(
@@ -335,15 +438,21 @@ class ShipmentServiceImpl(
             statusCode = "MANUAL_DELIVERED",
             normalizedStatus = NormalizedTrackingStatus.DELIVERED,
             location = null,
-            description = request.reason,
-            occurredAt = occurredAt,
+            description = reason,
+            occurredAt = deliveredAt,
             raw = null,
         )
         applyTrackingEventLocked(order, shipment, event, TrackSource.MANUAL)
         val shipmentId = requireNotNull(shipment.id)
         idempotencyService.record(adminId, DELIVER_SHIPMENT, idempotencyKey, requestHash, shipmentId)
         entityManager.flush()
-        return adminResponse(shipmentId, order.orderNo)
+        val delivered = shipmentRepository.findById(shipmentId).orElse(null) ?: throw ShipmentNotFoundException()
+        return ShipmentDetails(
+            shipment = delivered,
+            orderNo = order.orderNo,
+            items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+            tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+        )
     }
 
     @Transactional
@@ -551,66 +660,6 @@ class ShipmentServiceImpl(
         key: String,
         requestHash: String,
     ): Long? = idempotencyService.replayShipmentId(actorId, operation, key, requestHash)
-
-    private fun adminResponse(shipmentId: Long, knownOrderNo: String? = null): AdminShipmentResponse {
-        val shipment = shipmentRepository.findById(shipmentId).orElse(null) ?: throw ShipmentNotFoundException()
-        return AdminShipmentResponse(
-            shipment = customerResponse(shipment, knownOrderNo),
-            carrierLabelUrl = shipment.carrierLabelUrl,
-            createdBy = shipment.createdBy,
-            note = shipment.note,
-            cancelReason = shipment.cancelReason,
-            consecutiveTrackFailures = shipment.consecutiveTrackFailures,
-            lastTrackError = shipment.lastTrackError,
-        )
-    }
-
-    private fun customerResponse(shipmentId: Long, knownOrderNo: String? = null): CustomerShipmentResponse {
-        val shipment = shipmentRepository.findById(shipmentId).orElse(null) ?: throw ShipmentNotFoundException()
-        return customerResponse(shipment, knownOrderNo)
-    }
-
-    private fun customerResponse(shipment: Shipment, knownOrderNo: String? = null): CustomerShipmentResponse {
-        val shipmentId = requireNotNull(shipment.id)
-        val orderNo = knownOrderNo ?: orderRepository.findOrderNoById(shipment.orderId) ?: throw OrderNotFoundException()
-        val items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId).map {
-            ShipmentItemResponse(
-                orderItemId = it.orderItemId,
-                productSnapshot = it.orderItemSnapshot,
-                quantity = it.quantity,
-                allocationStatus = it.allocationStatus,
-            )
-        }
-        val tracks = shipmentTrackRepository
-            .findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId)
-            .map {
-                ShipmentTrackResponse(
-                    carrierEventId = it.carrierEventId,
-                    statusCode = it.statusCode,
-                    normalizedStatus = it.normalizedStatus.name,
-                    source = it.source.name,
-                    location = it.location,
-                    description = it.description,
-                    occurredAt = it.occurredAt,
-                    receivedAt = it.receivedAt,
-                )
-            }
-        return CustomerShipmentResponse(
-            shipmentNo = shipment.shipmentNo,
-            orderNo = orderNo,
-            carrier = shipment.carrierCode.pathValue,
-            trackingNo = shipment.trackingNo,
-            trackingUrl = shipment.trackingUrl,
-            status = shipment.status.name,
-            shippedAt = shipment.shippedAt,
-            deliveredAt = shipment.deliveredAt,
-            lastTrackStatus = shipment.lastTrackStatus,
-            lastTrackLocation = shipment.lastTrackLocation,
-            lastTrackAt = shipment.lastTrackAt,
-            items = items,
-            tracks = tracks,
-        )
-    }
 
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray(StandardCharsets.UTF_8))

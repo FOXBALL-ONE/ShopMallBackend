@@ -7,16 +7,13 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.transaction.annotation.Transactional
-import top.foxball.shopmall.controller.CancelShipmentRequest
-import top.foxball.shopmall.controller.CreateShipmentRequest
-import top.foxball.shopmall.controller.DispatchShipmentRequest
-import top.foxball.shopmall.controller.ShipmentItemRequest
 import top.foxball.shopmall.entity.jdbc.CarrierCode
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.entity.jdbc.Role
+import top.foxball.shopmall.entity.jdbc.ShipmentStatus
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
@@ -44,29 +41,36 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
     @Test
     fun `manual shipment is replayed idempotently and dispatches the order`() {
         val fixture = createFixture("dispatch")
-        val request = createRequest(fixture.orderItemId, "TRACK-DISPATCH")
 
         val first = shipmentService.createShipment(
-            fixture.orderNo,
-            request,
-            fixture.adminId,
-            "create-dispatch",
+            orderNo = fixture.orderNo,
+            carrierCode = CarrierCode.MANUAL,
+            trackingNo = "TRACK-DISPATCH",
+            orderItemIds = listOf(fixture.orderItemId),
+            quantities = listOf(1),
+            note = null,
+            adminId = fixture.adminId,
+            idempotencyKey = "create-dispatch",
         )
         val replayed = shipmentService.createShipment(
-            fixture.orderNo,
-            request,
-            fixture.adminId,
-            "create-dispatch",
+            orderNo = fixture.orderNo,
+            carrierCode = CarrierCode.MANUAL,
+            trackingNo = "TRACK-DISPATCH",
+            orderItemIds = listOf(fixture.orderItemId),
+            quantities = listOf(1),
+            note = null,
+            adminId = fixture.adminId,
+            idempotencyKey = "create-dispatch",
         )
 
         assertEquals(first.shipment.shipmentNo, replayed.shipment.shipmentNo)
         assertEquals(1, shipmentRepository.findAllByOrderIdOrderByCreatedAtAsc(fixture.orderId).size)
 
         shipmentService.dispatchShipment(
-            first.shipment.shipmentNo,
-            DispatchShipmentRequest(note = "handed to carrier"),
-            fixture.adminId,
-            "dispatch-1",
+            shipmentNo = first.shipment.shipmentNo,
+            note = "handed to carrier",
+            adminId = fixture.adminId,
+            idempotencyKey = "dispatch-1",
         )
 
         assertEquals(OrderStatus.SHIPPED, orderRepository.findStatusById(fixture.orderId))
@@ -76,26 +80,34 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
     fun `cancelling manual shipment releases allocation for replacement`() {
         val fixture = createFixture("cancel")
         val first = shipmentService.createShipment(
-            fixture.orderNo,
-            createRequest(fixture.orderItemId, "TRACK-CANCEL-1"),
-            fixture.adminId,
-            "create-cancel-1",
+            orderNo = fixture.orderNo,
+            carrierCode = CarrierCode.MANUAL,
+            trackingNo = "TRACK-CANCEL-1",
+            orderItemIds = listOf(fixture.orderItemId),
+            quantities = listOf(1),
+            note = null,
+            adminId = fixture.adminId,
+            idempotencyKey = "create-cancel-1",
         )
 
         shipmentService.cancelShipment(
-            first.shipment.shipmentNo,
-            CancelShipmentRequest("replace damaged label"),
-            fixture.adminId,
-            "cancel-1",
+            shipmentNo = first.shipment.shipmentNo,
+            reason = "replace damaged label",
+            adminId = fixture.adminId,
+            idempotencyKey = "cancel-1",
         )
         val replacement = shipmentService.createShipment(
-            fixture.orderNo,
-            createRequest(fixture.orderItemId, "TRACK-CANCEL-2"),
-            fixture.adminId,
-            "create-cancel-2",
+            orderNo = fixture.orderNo,
+            carrierCode = CarrierCode.MANUAL,
+            trackingNo = "TRACK-CANCEL-2",
+            orderItemIds = listOf(fixture.orderItemId),
+            quantities = listOf(1),
+            note = null,
+            adminId = fixture.adminId,
+            idempotencyKey = "create-cancel-2",
         )
 
-        assertEquals("LABEL_CREATED", replacement.shipment.status)
+        assertEquals(ShipmentStatus.LABEL_CREATED, replacement.shipment.status)
         assertEquals(2, shipmentRepository.findAllByOrderIdOrderByCreatedAtAsc(fixture.orderId).size)
     }
 
@@ -141,12 +153,6 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
             orderItemId = requireNotNull(item.id),
         )
     }
-
-    private fun createRequest(orderItemId: Long, trackingNo: String) = CreateShipmentRequest(
-        carrierCode = CarrierCode.MANUAL,
-        trackingNo = trackingNo,
-        items = listOf(ShipmentItemRequest(orderItemId, 1)),
-    )
 
     private data class Fixture(
         val adminId: Long,

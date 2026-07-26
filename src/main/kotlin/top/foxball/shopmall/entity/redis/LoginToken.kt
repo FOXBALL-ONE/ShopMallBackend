@@ -18,8 +18,6 @@ import org.springframework.data.redis.core.index.Indexed
  */
 @Deprecated("双 Token 改造后访问白名单已退役，刷新令牌由 RefreshTokenStore 管理；确认无引用后删除")
 @RedisHash("login_token")
-@Data
-@AllArgsConstructor
 class LoginToken {
     /** JWT 的随机 jti；只保存会话标识，不保存可直接重放的原始 JWT。 */
     @Id
