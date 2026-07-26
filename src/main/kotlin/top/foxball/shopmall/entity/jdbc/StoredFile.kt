@@ -46,7 +46,7 @@ class StoredFile(
     var sha256: String = "",
 
     /** 实际内容所在的存储后端；当前实现支持 local，并为后续 S3 路由保留字段。 */
-    @Column(nullable = false, length = 16)
+    @Column(name = "storage", nullable = false, length = 16)
     var storage: String = "local",
 
     @CreationTimestamp

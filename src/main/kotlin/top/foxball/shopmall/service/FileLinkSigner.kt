@@ -38,7 +38,7 @@ class FileLinkSigner(
         )
     }
 
-    /** 仅供内部调用兼容，签发结果仍使用新的 user scope 载荷。 */
+    /** 兼容糖：按 userId 签发 user scope 链接，委托带 scope 的新签发路径（见设计文档 §3）。 */
     fun sign(fileId: UUID, userId: Long, ttlSeconds: Long): SignedLink =
         sign(fileId, "user:$userId", ttlSeconds)
 

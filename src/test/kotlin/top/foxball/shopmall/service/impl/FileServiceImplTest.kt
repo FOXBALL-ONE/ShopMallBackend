@@ -159,6 +159,32 @@ class FileServiceImplTest {
     }
 
     @Test
+    fun `user scope ttl falls back to download token ttl when user ttl is unset`() {
+        val fallbackService = FileServiceImpl(
+            fileRepository = repository,
+            properties = FileProperties(
+                storagePath = storageRoot.toString(),
+                baseUrl = "https://files.example.test/",
+                signingSecret = "test-file-signing-secret-must-be-long-enough",
+                downloadTokenTtlSeconds = 999L,
+            ),
+            linkSigner = signer,
+        )
+        val stored = storedFile()
+        Mockito.`when`(repository.findAllByIdInAndOwnerId(listOf(stored.id), 42))
+            .thenReturn(listOf(stored))
+
+        val response = fallbackService.createDownloadLinks(42, listOf(stored.id), null).single()
+        val query = UriComponentsBuilder.fromUriString(response.signedDownloadUrl).build().queryParams
+
+        assertEquals("user:42", response.scope)
+        assertEquals(
+            Instant.parse("2026-07-15T00:16:39Z").epochSecond,
+            query.getFirst("expires")!!.toLong(),
+        )
+    }
+
+    @Test
     fun `removes copied files when metadata persistence fails`() {
         Mockito.`when`(repository.saveAllAndFlush(ArgumentMatchers.anyList<StoredFile>()))
             .thenThrow(IllegalStateException("database unavailable"))

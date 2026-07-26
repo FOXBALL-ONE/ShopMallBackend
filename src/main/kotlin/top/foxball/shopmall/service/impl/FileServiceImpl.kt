@@ -218,12 +218,23 @@ class FileServiceImpl(
 
     private fun ttlFor(scope: String): Long = when {
         scope == "public" -> properties.signing.publicTtlSeconds
-        scope.startsWith("user:") -> properties.signing.userTtlSeconds
+        scope.startsWith("user:") -> properties.signing.resolvedUserTtl(properties.downloadTokenTtlSeconds)
+        // order / role:* 暂未提供签发入口（createDownloadLinks 仅签发 public/user），
+        // 此处保留 TTL 分级供 secure-download 验签扩展点对齐设计文档 §5.4。
         scope == "role:admin" -> properties.signing.adminTtlSeconds
         scope.startsWith("order:") -> properties.signing.orderTtlSeconds
-        else -> properties.downloadTokenTtlSeconds
+        else -> properties.signing.resolvedUserTtl(properties.downloadTokenTtlSeconds)
     }
 
+    /**
+     * 校验 scope 是否允许下载当前文件。
+     *
+     * download 端点为 permitAll，user: scope 仅靠 HMAC 签名绑定（签名把 scope 字符串纳入摘要，
+     * 篡改即失效），不叠加 JWT 二次校验——因此整个下载鉴权强依赖 [FileLinkSigner] 密钥保密。
+     * 密钥一旦泄漏，任何文件的 user: 链接可被批量伪造；需配套密钥轮换机制。
+     *
+     * order:* 暂无签发入口，落到 else 视为不匹配；待补齐「文件归属订单 + 购买者」校验后开放。
+     */
     private fun scopeAllows(
         stored: StoredFile,
         scope: String,
