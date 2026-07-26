@@ -1,5 +1,6 @@
 package top.foxball.shopmall.service.impl
 
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
@@ -82,11 +83,16 @@ class OrderServiceImpl(
             ?: throw ResourceNotFoundException("配送地址不存在")
         val normalizedLines = normalizeLines(command)
         val clientKey = idempotencyKey?.trim()?.takeIf(String::isNotEmpty) ?: requestHash(command)
+        // DB 兜底用的 requestHash 与 clientKey 同源：当客户端未带 Idempotency-Key 时 clientKey 即为 requestHash，
+        // 此时 DB 行的 idempotency_key 字段存的是 hash 字符串，只要本会话内一致即可保证唯一性。
+        val dbRequestHash = requestHash(command)
 
         return when (val acquisition = idempotencyService.acquire(customerId, clientKey)) {
             OrderIdempotencyService.Acquisition.Acquired -> {
+                // 关键兜底点：Redis 以为首次（key 已过期或被 flushDb），但上次下单的 DB 幂等行仍在 → 直接回放，不重复创建。
+                idempotencyService.replayOrderNo(customerId, clientKey, dbRequestHash)?.let { return getCustomer(customerId, it) }
                 try {
-                    val view = createOrder(customerId, command, normalizedLines, address)
+                    val view = createOrder(customerId, command, normalizedLines, address, clientKey, dbRequestHash)
                     completeIdempotencyAfterCommit(customerId, clientKey, view.order.orderNo)
                     view
                 } catch (ex: BusinessException) {
@@ -97,8 +103,11 @@ class OrderServiceImpl(
                     throw ex
                 }
             }
-            OrderIdempotencyService.Acquisition.Pending ->
+            OrderIdempotencyService.Acquisition.Pending -> {
+                // Redis 标记处理中。先查 DB 兜底：上次 afterCommit Redis complete 失败但 DB 已写时，这里可直接回放返回，改善体验。
+                idempotencyService.replayOrderNo(customerId, clientKey, dbRequestHash)?.let { return getCustomer(customerId, it) }
                 throw OrderProcessingException()
+            }
             is OrderIdempotencyService.Acquisition.Completed ->
                 getCustomer(customerId, acquisition.orderNo)
             is OrderIdempotencyService.Acquisition.Rejected ->
@@ -200,6 +209,8 @@ class OrderServiceImpl(
         command: PlaceOrderCommand,
         lines: List<NormalizedLine>,
         address: DeliveryAddressItem,
+        clientKey: String,
+        dbRequestHash: String,
     ): OrderView {
         val productsById = productRepository.findAllById(lines.map(NormalizedLine::productId))
             .associateBy { requireNotNull(it.id) }
@@ -244,6 +255,21 @@ class OrderServiceImpl(
         val orderId = requireNotNull(order.id)
         publishOrderEvent(orderId, "CREATED")
         publishOrderEvent(orderId, "PI_CREATE")
+        // DB 幂等行与订单同事务写入，保证 afterCommit Redis complete 失败时仍有 DB 兜底。
+        // 并发相同 (customerId, clientKey) 被外部锁串行化后，先到事务的 record 尚未提交，后到请求的 replay
+        // 在 Acquired 分支开头返回 null，两请求都执行 INSERT → 后到者撞 uk_order_idempotency 唯一约束 →
+        // DataIntegrityViolationException。设计要求「同 key+同请求=原结果」：捕获后重读 replayOrderNo，
+        // 命中同 key+同 hash → 返回已落库的订单回放；hash 不同 → replayOrderNo 内部抛 IdempotencyConflictException；
+        // 仍无记录 → 按真正冲突重新抛出。参考 ShipmentServiceImpl.createShipment 的同款模式。
+        try {
+            idempotencyService.recordOrderNo(customerId, clientKey, dbRequestHash, order.orderNo)
+        } catch (ex: DataIntegrityViolationException) {
+            val priorOrderNo = idempotencyService.replayOrderNo(customerId, clientKey, dbRequestHash)
+            if (priorOrderNo != null) {
+                return getCustomer(customerId, priorOrderNo)
+            }
+            throw ex
+        }
 
         lines.forEach { line ->
             if (productRepository.decrementStock(line.productId, line.quantity) == 0) {

@@ -49,8 +49,9 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
     @Query("select o.orderNo from OrderEntity o where o.id = :id")
     fun findOrderNoById(@Param("id") id: Long): String?
 
-    @Query("select o.id from OrderEntity o where o.status = :status order by o.id")
-    fun findIdsByStatus(@Param("status") status: OrderStatus, pageable: Pageable): List<Long>
+    // 按 id 游标推进分页扫描,避免固定 offset 漏扫超出首页的订单
+    @Query("select o.id from OrderEntity o where o.status = :status and o.id > :after order by o.id")
+    fun findIdsByStatusAfter(@Param("status") status: OrderStatus, @Param("after") after: Long, pageable: Pageable): List<Long>
 
     @Query(
         "select o.id from OrderEntity o where o.status = :status " +

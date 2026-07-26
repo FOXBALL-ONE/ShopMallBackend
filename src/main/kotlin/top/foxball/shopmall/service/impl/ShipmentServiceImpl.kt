@@ -2,6 +2,7 @@ package top.foxball.shopmall.service.impl
 
 import jakarta.persistence.EntityManager
 import org.slf4j.LoggerFactory
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.controller.AdminShipmentResponse
@@ -21,6 +22,7 @@ import top.foxball.shopmall.entity.jdbc.Shipment
 import top.foxball.shopmall.entity.jdbc.ShipmentItem
 import top.foxball.shopmall.entity.jdbc.ShipmentStatus
 import top.foxball.shopmall.entity.jdbc.TrackSource
+import top.foxball.shopmall.handler.IdempotencyConflictException
 import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.handler.ParamErrorException
@@ -72,7 +74,11 @@ class ShipmentServiceImpl(
         idempotencyKey: String,
     ): AdminShipmentResponse {
         adminAccessService.requireAdmin(adminId)
-        val requestHash = idempotencyService.requestHash("$orderNo|$request")
+        // 幂等哈希必须对 items 顺序不敏感：客户端重试时若调换行项顺序（语义等价），
+        // 原始 toString 会让 hash 变化 → 误判为「同 key+不同请求」返回 409。
+        // 故按 orderItemId 稳定排序后再拼接。
+        val normalizedRequest = request.copy(items = request.items.sortedBy { it.orderItemId })
+        val requestHash = idempotencyService.requestHash("$orderNo|$normalizedRequest")
         val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
         replay(adminId, CREATE_SHIPMENT, idempotencyKey, requestHash)?.let {
             return adminResponse(it, order.orderNo)
@@ -102,6 +108,12 @@ class ShipmentServiceImpl(
         val trackingNo = request.trackingNo?.trim()?.takeIf { it.isNotEmpty() }
         if (!carrier.capabilities.remoteLabel && trackingNo == null) {
             throw ParamErrorException("该承运商创建运单时必须提供 trackingNo")
+        }
+        // remoteLabel 运单的最终 trackingNo 必须由承运商 createLabel 返回，禁止客户端预填：
+        // 否则 LABEL_PENDING 运单会带 trackingNoNormalized，使 webhook 能按单号反查到它，
+        // 在 outbox 尚未创建面单时就命中 IN_TRANSIT/DELIVERED 轨迹（缺陷3 的竞态入口）。
+        if (carrier.capabilities.remoteLabel && trackingNo != null) {
+            throw ParamErrorException("远程面单承运商的 trackingNo 由系统在面单生成后回填，不可预填")
         }
         val shipment = shipmentRepository.saveAndFlush(
             Shipment(
@@ -140,7 +152,24 @@ class ShipmentServiceImpl(
                 "{\"shipmentId\":$shipmentId}",
             )
         }
-        idempotencyService.record(adminId, CREATE_SHIPMENT, idempotencyKey, requestHash, shipmentId)
+        // 并发相同 Idempotency-Key 处理：两个请求被订单行锁串行化后，先到事务的 record 尚未
+        // 提交，后到请求的 replay 仍返回 null，两请求都执行 INSERT → 后到者撞 uk_logistics_idempotency
+        // 唯一约束 → DataIntegrityViolationException。设计要求「同 key+同请求=原结果」。
+        // 在此捕获后重读：若 replay 命中同 key+同 hash 的已落库记录，返回原结果；若 hash 不同
+        // (replay 内部抛 IdempotencyConflictException) 或仍无记录，则按真正冲突重新抛出。
+        try {
+            idempotencyService.record(adminId, CREATE_SHIPMENT, idempotencyKey, requestHash, shipmentId)
+        } catch (e: DataIntegrityViolationException) {
+            try {
+                val prior = replay(adminId, CREATE_SHIPMENT, idempotencyKey, requestHash)
+                if (prior != null) {
+                    return adminResponse(prior, order.orderNo)
+                }
+            } catch (conflict: IdempotencyConflictException) {
+                throw conflict
+            }
+            throw e
+        }
         entityManager.flush()
         return adminResponse(shipmentId)
     }
@@ -282,9 +311,23 @@ class ShipmentServiceImpl(
         if (shipment.carrierCode != CarrierCode.MANUAL) {
             throw ShipmentStatusException("该入口仅支持 MANUAL 运单签收")
         }
+        // 终态校验：MANUAL 运单已签收/取消/取消中时拒绝重入，避免不同 Idempotency-Key 再次调
+        // delivered 时因 carrierEventId 不同而插入重复 MANUAL_DELIVERED 轨迹并触发整单重放。
+        when (shipment.status) {
+            ShipmentStatus.DELIVERED -> throw ShipmentStatusException("运单已签收，不可重复签收")
+            ShipmentStatus.CANCEL_PENDING -> throw ShipmentStatusException("运单取消中，不可签收")
+            ShipmentStatus.CANCELLED -> throw ShipmentStatusException("运单已取消，不可签收")
+            else -> Unit
+        }
         val occurredAt = request.occurredAt ?: clock.instant()
         if (occurredAt.isAfter(clock.instant().plusSeconds(300))) {
             throw ParamErrorException("签收时间不能晚于当前时间")
+        }
+        // 下界校验：签收时间不得早于运单发出时间，防止伪造历史时间注入。
+        // 正常流程 applyTrackingEventLocked 会先 ensureDispatchedLocked 写 shippedAt，
+        // 理论上此处 shippedAt 必非空；若因异常路径缺失则不阻塞签收。
+        if (shipment.shippedAt != null && occurredAt.isBefore(shipment.shippedAt)) {
+            throw ParamErrorException("签收时间不能早于运单发出时间")
         }
         val event = TrackingEvent(
             trackingNo = requireNotNull(shipment.trackingNo),
@@ -422,6 +465,24 @@ class ShipmentServiceImpl(
                     "{\"shipmentId\":$shipmentId}",
                 )
             }
+        } else if (shipment.status == ShipmentStatus.LABEL_PENDING) {
+            // 设计文档 §3.4 要求承运商在远程面单 outbox 尚未处理(LABEL_PENDING)时直接回传
+            // IN_TRANSIT/OUT_FOR_DELIVERY/DELIVERED 轨迹应先补做 LABEL_CREATED → IN_TRANSIT。
+            // 但实际面单创建(承运商下单、回填 final trackingNo/carrierLabelUrl、发布
+            // SHIPMENT_LABEL_CREATED)的权威幂等点是 ShipmentOutboxProcessor.createRemoteLabel，
+            // 此处无法干净地复制其全部副作用(labelUrl 缺失、承运商下单 API 未调用、outbox 仍会
+            // 触发但 wasLabelPending 已为 false → 永远拿不到真实面单)。
+            //
+            // 命中分析：webhook 反查依赖 findByCarrierCodeAndTrackingNoNormalized，要求运单
+            // trackingNoNormalized 非空；remoteLabel 运单创建时 trackingNo 可由客户端提供
+            // (createShipment 未禁止 remoteLabel + 客户端 trackingNo)，故 trackingNoNormalized
+            // 可非空 → webhook 路径理论上可命中 LABEL_PENDING。POLL 路径仅轮询已 IN_TRANSIT
+            // 运单(scheduleNextPoll 只在 LABEL_CREATED → IN_TRANSIT 后登记)，不会命中
+            // LABEL_PENDING。即本分支主要出现在「remoteLabel 运单携带客户端 trackingNo + 承运商
+            // 在 outbox 处理前先回传轨迹」的竞态。对此场景静默推进会丢面单语义，故给出明确错误，
+            // 让 webhook 事务回滚、轨迹依赖 (carrierEventId 唯一) 由后续 outbox 推进到 LABEL_CREATED
+            // 后的事件重放兜底，而非在此伪造状态。
+            throw ShipmentStatusException("运单尚在 LABEL_PENDING 状态，等待面单生成后再接收在途/签收轨迹")
         } else if (shipment.status !in setOf(
                 ShipmentStatus.IN_TRANSIT,
                 ShipmentStatus.OUT_FOR_DELIVERY,

@@ -1,5 +1,6 @@
 package top.foxball.shopmall.service.impl
 
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.config.LogisticsProperties
@@ -25,6 +26,8 @@ class ShipmentPollingCoordinator(
     private val properties: LogisticsProperties,
     private val clock: Clock,
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
+
     fun claim(owner: String): List<Long> {
         val now = clock.instant()
         return pollingRepository.claimDue(
@@ -69,6 +72,17 @@ class ShipmentPollingCoordinator(
         shipment.consecutiveTrackFailures += 1
         shipment.lastTrackError = error.javaClass.simpleName.take(500)
         shipment.nextTrackPollAt = clock.instant().plus(failureDelay(shipment.consecutiveTrackFailures))
+        // 达到阈值只告警一次并延长退避，不永久停止；超过阈值后继续退避重试。
+        if (shipment.consecutiveTrackFailures == properties.trackMaxConsecutiveFailures) {
+            log.warn(
+                "Shipment {} (shipmentId={}, trackingNo={}) consecutiveTrackFailures={} reached threshold {}, backing off",
+                shipment.shipmentNo,
+                id,
+                shipment.trackingNo,
+                shipment.consecutiveTrackFailures,
+                properties.trackMaxConsecutiveFailures,
+            )
+        }
         releaseLease(shipment)
     }
 

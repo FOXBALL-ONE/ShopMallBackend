@@ -6,6 +6,7 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import top.foxball.shopmall.entity.jdbc.TrackSource
 import top.foxball.shopmall.config.LogisticsProperties
+import top.foxball.shopmall.handler.CarrierException
 import top.foxball.shopmall.logistics.CarrierRegistry
 import top.foxball.shopmall.service.ShipmentService
 import java.time.Clock
@@ -57,8 +58,25 @@ class ShipmentTrackingScheduler(
                         shipment.shipmentNo,
                         ex::class.simpleName ?: "TrackingException",
                     )
-                    pollingCoordinator.completeFailure(shipmentId, owner, ex)
+                    if (isTrackingNoInvalid(ex)) {
+                        // 单号无效/不存在等不可恢复错误：停止该运单轮询，避免污染退避队列。
+                        pollingCoordinator.disable(shipmentId, owner, "TRACKING_NO_INVALID: ${ex.message}")
+                    } else {
+                        // 临时故障（CarrierException 服务异常或未知异常）继续退避重试。
+                        pollingCoordinator.completeFailure(shipmentId, owner, ex)
+                    }
                 }
         }
+    }
+
+    // 不可恢复判定：仅 CarrierException 且 message 命中「单号无效/不存在」关键词；其余异常按临时故障处理。
+    private fun isTrackingNoInvalid(ex: Throwable): Boolean {
+        if (ex !is CarrierException) return false
+        val msg = ex.message?.lowercase() ?: return false
+        return INVALID_TRACKING_NO_KEYWORDS.any { msg.contains(it) }
+    }
+
+    private companion object {
+        val INVALID_TRACKING_NO_KEYWORDS = listOf("not found", "invalid", "不存在", "单号无效")
     }
 }

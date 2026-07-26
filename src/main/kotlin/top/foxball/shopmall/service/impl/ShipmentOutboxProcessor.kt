@@ -104,11 +104,19 @@ class ShipmentOutboxProcessor(
                     "{\"shipmentId\":$shipmentId}",
                 )
             } else {
-                // CANCEL_PENDING：仍记录承运商返回的单号，然后立即走取消面单流程，不恢复 LABEL_CREATED。
+                // CANCEL_PENDING：面单已成功创建但运单已进入取消流程，仍记录承运商返回的单号，然后立即走取消面单流程，不恢复 LABEL_CREATED。
                 shipment.trackingNo = trackingNo
                 shipment.trackingNoNormalized = carrier.normalizeTrackingNo(trackingNo)
                 shipment.carrierLabelUrl = response.labelUrl
                 shipment.trackingUrl = carrier.trackingUrl(trackingNo)
+                // 面单回填后补发取消事件，确保即使原 SHIPMENT_CANCEL_REQUESTED 已被 ACK，cancelRemoteLabel 仍会被驱动去作废承运商侧面单并释放行项。
+                // cancelRemoteLabel 幂等：仅当 status==CANCEL_PENDING 才推进，重复触发安全。
+                eventPublisher.publishInTx(
+                    "SHIPMENT",
+                    shipmentId,
+                    "SHIPMENT_CANCEL_REQUESTED",
+                    "{\"shipmentId\":$shipmentId}",
+                )
             }
         }
     }

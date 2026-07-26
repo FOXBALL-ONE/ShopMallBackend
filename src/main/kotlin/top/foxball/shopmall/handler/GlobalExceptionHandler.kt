@@ -134,6 +134,7 @@ class GlobalExceptionHandler {
             "uk_shipment_item_active" in detail -> "商品已分配给其他有效运单"
             "uk_shipment_carrier_tracking" in detail -> "承运商追踪号已绑定其他运单"
             "uk_logistics_idempotency" in detail -> "幂等键冲突，请重试查询原结果"
+            "uk_order_idempotency" in detail -> "下单幂等键冲突，请重试查询原订单"
             else -> null
         }
         if (message != null) {

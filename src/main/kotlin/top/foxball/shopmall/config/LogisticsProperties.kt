@@ -27,6 +27,9 @@ class LogisticsProperties {
         require(pollMaxDelaySeconds >= pollInitialDelaySeconds) {
             "shopmall.logistics.poll-max-delay-seconds must be >= poll-initial-delay-seconds"
         }
+        require(trackMaxConsecutiveFailures > 0) {
+            "shopmall.logistics.track-max-consecutive-failures must be positive"
+        }
         carriers.filterValues { it.enabled }.forEach { (carrier, properties) ->
             require(properties.webhookSecret.isNotBlank()) {
                 "Enabled carrier $carrier requires webhook-secret"
