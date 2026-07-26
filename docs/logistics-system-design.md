@@ -380,31 +380,40 @@ class ManualCarrier : Carrier {
 
 ```kotlin
 @Transactional
-fun createShipment(orderNo: String, request: CreateShipmentRequest, adminId: Long, key: String): ShipmentResponse {
-    idempotencyService.replayOrReserve(adminId, "CREATE_SHIPMENT", key, hash(request))?.let { return it }
+fun createShipment(
+    orderNo: String,
+    carrierCode: CarrierCode,
+    trackingNo: String?,
+    orderItemIds: List<Long>,
+    quantities: List<Int>,
+    note: String?,
+    adminId: Long,
+    key: String,
+): ShipmentDetails {
+    idempotencyService.replayOrReserve(adminId, "CREATE_SHIPMENT", key, hashRequest())?.let { return it }
     val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
     require(order.status == PAID || order.status == SHIPPED) { "当前订单不可创建运单" }
 
-    val lines = orderItemRepository.findAllByIdForOrder(request.items.map { it.orderItemId }, order.id!!)
-    validateDistinctAndWholeLineQuantity(request.items, lines)
+    val lines = orderItemRepository.findAllByIdForOrder(orderItemIds, order.id!!)
+    validateDistinctAndWholeLineQuantity(orderItemIds, quantities, lines)
     validateNoActiveAllocation(lines.mapNotNull { it.id })
 
-    val carrier = carrierRegistry.require(request.carrierCode)
-    validateTrackingInput(carrier.capabilities, request.trackingNo)
+    val carrier = carrierRegistry.require(carrierCode)
+    validateTrackingInput(carrier.capabilities, trackingNo)
     val initialStatus = if (carrier.capabilities.remoteLabel) LABEL_PENDING else LABEL_CREATED
-    val normalized = request.trackingNo?.let(carrier::normalizeTrackingNo)
+    val normalized = trackingNo?.let(carrier::normalizeTrackingNo)
 
     val shipment = shipmentRepository.save(
         Shipment(
             shipmentNo = shipmentNoGenerator.next(),
             orderId = order.id!!,
-            carrierCode = request.carrierCode,
-            trackingNo = request.trackingNo,
+            carrierCode = carrierCode,
+            trackingNo = trackingNo,
             trackingNoNormalized = normalized,
             status = initialStatus,
             shippingAddress = deepCopy(order.shippingAddress),
             createdBy = adminId,
-            note = request.note,
+            note = note,
         )
     )
     shipmentItemRepository.saveAll(lines.map { it.toAllocatedShipmentItem(shipment) })
@@ -569,7 +578,7 @@ publishInTx(
 
 ### 6.1 端点（`controller/ShipmentController.kt`）
 
-遵循订单模块 `OrderController` 风格：`@RestController`、类级无 `@RequestMapping`、构造注入 service + `AdminAccessService` + `ResponseBuilder`、方法内 `data class Response(...)` 局部封装、`@AuthenticationPrincipal`、`@Valid @RequestBody`、`@field:` 校验。
+遵循 `CONTROLLER_CONVENTIONS.md`：`@RestController`、类级无 `@RequestMapping`、构造注入 service + `ResponseBuilder`、每个方法内定义独立的 `data class Response(...)`、`@AuthenticationPrincipal`、snake_case `@RequestParam` 和参数约束。
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|
@@ -585,36 +594,20 @@ publishInTx(
 
 > **owner 校验**：客户端点先 `orderRepository.findByOrderNoAndCustomerId(orderNo, userId)`，找不到统一 404。按 carrier + trackingNo 查询时先由复合唯一键定位 Shipment，再校验其 orderId 的 owner/admin，不能只因用户已登录就返回轨迹。
 
-### 6.2 请求体 schema
+### 6.2 请求参数
 
 ```kotlin
-data class CreateShipmentRequest(
-    @field:NotNull val carrierCode: CarrierCode,
-    @field:Size(max = 64) val trackingNo: String?,
-    @field:NotNull @field:Size(min = 1, max = 50) @field:Valid val items: List<ShipmentItemRequest>,
-    @field:Size(max = 200) val note: String? = null,
-)
+@RequestParam("carrier_code") carrierCode: CarrierCode
+@RequestParam("tracking_no", required = false) trackingNo: String?
+@RequestParam("order_item_ids") orderItemIds: List<Long>
+@RequestParam("quantities") quantities: List<Int>
+@RequestParam("note", required = false) note: String?
 
-data class ShipmentItemRequest(
-    @field:Min(1) val orderItemId: Long,
-    @field:Min(1) val quantity: Int,
-)
-
-data class DispatchShipmentRequest(
-    @field:Size(max = 200) val note: String? = null,
-)
-
-data class CancelShipmentRequest(
-    @field:NotBlank @field:Size(max = 200) val reason: String,
-)
-
-data class ManualDeliveredRequest(
-    val occurredAt: Instant? = null, // null 时取服务端 Clock.instant()
-    @field:NotBlank @field:Size(max = 200) val reason: String,
-)
+@RequestParam("reason") reason: String
+@RequestParam("occurred_at", required = false) occurredAt: Instant?
 ```
 
-服务层执行跨字段校验：`remoteLabel=false`（包括 MANUAL 和仅追踪型适配器）时 `trackingNo` 必填；`remoteLabel=true` 时允许为空。`items.orderItemId` 必须互不重复，`quantity` 必须等于订单行数量。所有命令的 `Idempotency-Key` 长度限制为 1..128，并与请求哈希绑定。
+创建接口通过下标对应的 `order_item_ids` 和 `quantities` 表达行项及数量。服务层执行跨字段校验：两个列表长度必须一致；`remoteLabel=false`（包括 MANUAL 和仅追踪型适配器）时 `tracking_no` 必填；`remoteLabel=true` 时允许为空。`order_item_ids` 必须互不重复，每个 `quantity` 必须等于订单行数量。所有命令的 `Idempotency-Key` 与请求哈希绑定。
 
 ### 6.3 承运商验签
 
@@ -672,35 +665,16 @@ shopmall:
 
 > `.env.example` 追加对应占位。未启用的适配器允许密钥为空；启用后必须完整配置并通过启动校验。
 
-### 6.6 响应模型 — `controller/ShipmentResponses.kt`
+### 6.6 响应模型
 
-沿用 `OrderResponses.kt` 的 DTO 风格，但通过 `ShipmentQueryRepository` 投影构建 `CustomerShipmentResponse` / `AdminShipmentResponse`，不从批量 UPDATE 后的旧实体直接映射。
+Service 返回不带 HTTP 语义的 `ShipmentDetails`，包含运单、订单号、行项与轨迹。Controller 的每个接口在方法体内独立声明 `ItemData`、`TrackData`、`ShipmentData` 和局部 `Response`，完成 snake_case 序列化映射；禁止 Service 依赖 controller 包中的请求或响应类型。
 
 ```kotlin
-data class CustomerShipmentResponse(
-    val shipmentNo: String,
+data class ShipmentDetails(
+    val shipment: Shipment,
     val orderNo: String,
-    val carrier: String,
-    val trackingNo: String?,
-    val trackingUrl: String?,
-    val status: String,
-    val shippedAt: Instant?,
-    val deliveredAt: Instant?,
-    val lastTrackStatus: String?,
-    val lastTrackLocation: String?,
-    val lastTrackAt: Instant?,
-    val items: List<ShipmentItemResponse>,
-    val tracks: List<ShipmentTrackResponse>,
-)
-
-data class AdminShipmentResponse(
-    val shipment: CustomerShipmentResponse,
-    val carrierLabelUrl: String?,
-    val createdBy: Long,
-    val note: String?,
-    val cancelReason: String?,
-    val consecutiveTrackFailures: Int,
-    val lastTrackError: String?,
+    val items: List<ShipmentItem>,
+    val tracks: List<ShipmentTrack>,
 )
 ```
 
@@ -737,7 +711,7 @@ data class AdminShipmentResponse(
 | 通用 `domain_outbox` | 新增 `aggregateType`，支持 ORDER/SHIPMENT；物流事件的 aggregateId 使用 Long 实体 id |
 | outbox relay + Stream | 复用投递基础设施，但增加物流事件 handler；外部调用成功后才 ACK，失败保留重试 |
 | `GlobalExceptionHandler` | 约束名明确的业务冲突 → 409；锁/连接等瞬态异常 → 503 |
-| `OrderLineRequest` 整行 quantity 约定 | `ShipmentItemRequest.quantity` 必须等于 `OrderItem.quantity`（本期不拆行项） |
+| 订单行整行 quantity 约定 | `quantities` 中对应数量必须等于 `OrderItem.quantity`（本期不拆行项） |
 
 > **订单状态枚举不变，但基础契约需要扩展**：`OrderStatus` 仍使用 `PAID → SHIPPED → DELIVERED`；carrier/trackingNo 只落 Shipment。订单模块必须补订单行锁、通用 outbox 和 `Instant` 时间契约。当前仓库尚无订单实现，因此这些是物流上线前置项，不得在代码清单中写成“既有可直接复用”。
 
@@ -751,13 +725,13 @@ data class AdminShipmentResponse(
 - `entity/jdbc/ShipmentStatus.kt`、`AllocationStatus.kt`、`CarrierCode.kt`、`NormalizedTrackingStatus.kt`、`TrackSource.kt`
 - `entity/jdbc/LogisticsIdempotency.kt`
 - `repository/ShipmentRepository.kt`、`ShipmentItemRepository.kt`、`ShipmentTrackRepository.kt`、`LogisticsIdempotencyRepository.kt`
-- `repository/FulfillmentQueryRepository.kt`、`ShipmentQueryRepository.kt`（复杂覆盖汇总和响应投影）
+- `repository/FulfillmentQueryRepository.kt`（复杂覆盖汇总）
 - `service/ShipmentService.kt`（接口）、`service/impl/ShipmentServiceImpl.kt`（`@Service @Transactional(readOnly=true)` 类级 + 写方法 `@Transactional`）
 - `service/impl/ShipmentTrackingScheduler.kt`、`OrderDeliveryReconciliationScheduler.kt`
 - `service/impl/ShipmentLabelEventHandler.kt`、`ShipmentCancellationEventHandler.kt`
 - `logistics/Carrier.kt`、`CarrierRegistry.kt`、`ManualCarrier.kt`（首期闭环实现）
 - `shared/ShipmentNoGenerator.kt`、`LogisticsIdempotencyService.kt`
-- `controller/ShipmentController.kt`、`LogisticsWebhookController.kt`、`ShipmentResponses.kt`
+- `controller/ShipmentController.kt`、`LogisticsWebhookController.kt`
 - `config/LogisticsProperties.kt`、`LogisticsSchedulingConfig.kt`
 - `db/migration/V1__create_order_logistics.sql`（含订单、通用 `domain_outbox`（`aggregate_type`）、物流全表、部分唯一索引与约束；`V*_generalize_outbox.sql` 已并入 V1，未单列版本）
 - 本文 §6.7 列出的物流异常子类
