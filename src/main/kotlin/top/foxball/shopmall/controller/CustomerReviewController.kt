@@ -1,175 +1,384 @@
 package top.foxball.shopmall.controller
 
-import jakarta.validation.Valid
+import com.fasterxml.jackson.annotation.JsonProperty
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
-import jakarta.validation.constraints.NotNull
 import jakarta.validation.constraints.Size
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
+import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
-import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import top.foxball.shopmall.entity.jdbc.CustomerReview
 import top.foxball.shopmall.entity.jdbc.ReviewStatus
 import top.foxball.shopmall.service.AdminAccessService
 import top.foxball.shopmall.service.CustomerReviewService
+import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.time.LocalDateTime
-import top.foxball.shopmall.shared.Response as ApiResponse
 
-/** 客户可编辑的评价内容；商品和客户归属均由 URL 与登录态决定。 */
-data class CustomerReviewContentRequest(
-    @field:Min(1)
-    @field:Max(5)
-    val rating: Int = 0,
-    @field:Size(max = 100)
-    val title: String? = null,
-    @field:NotBlank
-    @field:Size(max = 2_000)
-    val content: String = "",
-) {
-    fun toEntity(): CustomerReview = CustomerReview(rating = rating, title = title, content = content)
-}
-
-/** 管理员审核评价及维护商家回复的请求。 */
-data class CustomerReviewModerationRequest(
-    @field:NotNull
-    val status: ReviewStatus? = null,
-    val verifiedPurchase: Boolean? = null,
-    @field:Size(max = 1_000)
-    val merchantReply: String? = null,
-)
-
-private data class CustomerReviewResponse(
-    val id: Long,
-    val productId: Long,
-    val rating: Int,
-    val title: String?,
-    val content: String,
-    val verifiedPurchase: Boolean,
-    val status: ReviewStatus,
-    val merchantReply: String?,
-    val merchantRepliedAt: LocalDateTime?,
-    val createdAt: LocalDateTime?,
-    val updatedAt: LocalDateTime?,
-    val customerId: Long? = null,
-)
-
-private fun CustomerReview.toResponse(includeCustomerId: Boolean = false): CustomerReviewResponse = CustomerReviewResponse(
-    id = requireNotNull(id),
-    productId = requireNotNull(product?.id),
-    rating = rating,
-    title = title,
-    content = content,
-    verifiedPurchase = verifiedPurchase,
-    status = status,
-    merchantReply = merchantReply,
-    merchantRepliedAt = merchantRepliedAt,
-    createdAt = createdAt,
-    updatedAt = updatedAt,
-    customerId = customerId.takeIf { includeCustomerId },
-)
-
-/** 前台已审核评价读取、客户自有评价 CRUD 与管理员审核接口。 */
+/**
+ * @folder 商品/评价
+ */
+@Validated
 @RestController
-@RequestMapping
 class CustomerReviewController(
     private val customerReviewService: CustomerReviewService,
     private val adminAccessService: AdminAccessService,
     private val builder: ResponseBuilder,
 ) {
+    /**
+     * @api 获取商品公开评价列表
+     * @param productId 商品 ID
+     */
     @GetMapping("/api/products/{productId}/reviews")
-    fun listPublished(@PathVariable productId: Long): ResponseEntity<ApiResponse> {
-        data class Response(val reviews: List<CustomerReviewResponse>)
-        val reviews = customerReviewService.listPublishedByProduct(productId).map(CustomerReview::toResponse)
-        return builder.ok().data(Response(reviews)).build()
+    fun getPublishedReviews(
+        @PathVariable("productId") productId: Long,
+    ): ResponseEntity<Response> {
+        data class ReviewData(
+            val id: Long,
+            @param:JsonProperty("product_id")
+            val productId: Long,
+            val rating: Int,
+            val title: String?,
+            val content: String,
+            @param:JsonProperty("verified_purchase")
+            val verifiedPurchase: Boolean,
+            val status: String,
+            @param:JsonProperty("merchant_reply")
+            val merchantReply: String?,
+            @param:JsonProperty("merchant_replied_at")
+            val merchantRepliedAt: LocalDateTime?,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
+            @param:JsonProperty("updated_at")
+            val updatedAt: LocalDateTime?,
+        )
+
+        data class Response(val list: List<ReviewData>)
+
+        val list = customerReviewService.listPublishedByProduct(productId).map {
+            ReviewData(
+                id = requireNotNull(it.id),
+                productId = requireNotNull(it.product?.id),
+                rating = it.rating,
+                title = it.title,
+                content = it.content,
+                verifiedPurchase = it.verifiedPurchase,
+                status = it.status.name,
+                merchantReply = it.merchantReply,
+                merchantRepliedAt = it.merchantRepliedAt,
+                createdAt = it.createdAt,
+                updatedAt = it.updatedAt,
+            )
+        }
+        val rs = Response(list)
+        return builder.ok().data(rs).build()
     }
 
+    /**
+     * @api 获取公开评价
+     * @param id 评价 ID
+     */
     @GetMapping("/api/customer-reviews/{id}")
-    fun getPublished(@PathVariable id: Long): ResponseEntity<ApiResponse> {
-        data class Response(val review: CustomerReviewResponse)
+    fun getPublishedReview(
+        @PathVariable("id") id: Long,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            @param:JsonProperty("product_id")
+            val productId: Long,
+            val rating: Int,
+            val title: String?,
+            val content: String,
+            @param:JsonProperty("verified_purchase")
+            val verifiedPurchase: Boolean,
+            val status: String,
+            @param:JsonProperty("merchant_reply")
+            val merchantReply: String?,
+            @param:JsonProperty("merchant_replied_at")
+            val merchantRepliedAt: LocalDateTime?,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
+            @param:JsonProperty("updated_at")
+            val updatedAt: LocalDateTime?,
+        )
+
         val review = customerReviewService.getPublished(id) ?: return builder.notFound().build()
-        return builder.ok().data(Response(review.toResponse())).build()
+        val rs = Response(
+            id = requireNotNull(review.id),
+            productId = requireNotNull(review.product?.id),
+            rating = review.rating,
+            title = review.title,
+            content = review.content,
+            verifiedPurchase = review.verifiedPurchase,
+            status = review.status.name,
+            merchantReply = review.merchantReply,
+            merchantRepliedAt = review.merchantRepliedAt,
+            createdAt = review.createdAt,
+            updatedAt = review.updatedAt,
+        )
+        return builder.ok().data(rs).build()
     }
 
+    /**
+     * @api 创建商品评价
+     * @param productId 商品 ID
+     * @param rating 评分
+     * @param title 评价标题
+     * @param content 评价内容
+     */
     @PostMapping("/api/products/{productId}/reviews")
-    fun create(
+    fun createReview(
         @AuthenticationPrincipal userId: Long,
-        @PathVariable productId: Long,
-        @Valid @RequestBody request: CustomerReviewContentRequest,
-    ): ResponseEntity<ApiResponse> {
-        data class Response(val review: CustomerReviewResponse)
+        @PathVariable("productId") productId: Long,
+        @RequestParam("rating") @Min(1) @Max(5) rating: Int,
+        @RequestParam("title", required = false) @Size(max = 100) title: String?,
+        @RequestParam("content") @NotBlank @Size(max = 2000) content: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            @param:JsonProperty("product_id")
+            val productId: Long,
+            val rating: Int,
+            val title: String?,
+            val content: String,
+            val status: String,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
+        )
+
         adminAccessService.requireCustomer(userId)
-        val review = customerReviewService.create(userId, productId, request.toEntity())
-            ?: return builder.notFound().build()
-        return builder.status(HttpStatus.CREATED).data(Response(review.toResponse())).build()
+        val review = customerReviewService.create(
+            userId,
+            productId,
+            CustomerReview(rating = rating, title = title, content = content),
+        ) ?: return builder.notFound().build()
+        val rs = Response(
+            id = requireNotNull(review.id),
+            productId = requireNotNull(review.product?.id),
+            rating = review.rating,
+            title = review.title,
+            content = review.content,
+            status = review.status.name,
+            createdAt = review.createdAt,
+        )
+        return builder.status(HttpStatus.CREATED).data(rs).build()
     }
 
+    /**
+     * @api 更新自己的评价
+     * @param id 评价 ID
+     * @param rating 评分
+     * @param title 评价标题
+     * @param content 评价内容
+     */
     @PutMapping("/api/customer-reviews/{id}")
-    fun updateByCustomer(
+    fun updateReview(
         @AuthenticationPrincipal userId: Long,
-        @PathVariable id: Long,
-        @Valid @RequestBody request: CustomerReviewContentRequest,
-    ): ResponseEntity<ApiResponse> {
-        data class Response(val review: CustomerReviewResponse)
+        @PathVariable("id") id: Long,
+        @RequestParam("rating") @Min(1) @Max(5) rating: Int,
+        @RequestParam("title", required = false) @Size(max = 100) title: String?,
+        @RequestParam("content") @NotBlank @Size(max = 2000) content: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            @param:JsonProperty("product_id")
+            val productId: Long,
+            val rating: Int,
+            val title: String?,
+            val content: String,
+            val status: String,
+            @param:JsonProperty("updated_at")
+            val updatedAt: LocalDateTime?,
+        )
+
         adminAccessService.requireCustomer(userId)
-        val review = customerReviewService.updateByCustomer(id, userId, request.toEntity())
-            ?: return builder.notFound().build()
-        return builder.ok().data(Response(review.toResponse())).build()
+        val review = customerReviewService.updateByCustomer(
+            id,
+            userId,
+            CustomerReview(rating = rating, title = title, content = content),
+        ) ?: return builder.notFound().build()
+        val rs = Response(
+            id = requireNotNull(review.id),
+            productId = requireNotNull(review.product?.id),
+            rating = review.rating,
+            title = review.title,
+            content = review.content,
+            status = review.status.name,
+            updatedAt = review.updatedAt,
+        )
+        return builder.ok().data(rs).build()
     }
 
+    /**
+     * @api 删除评价
+     * @param id 评价 ID
+     */
     @DeleteMapping("/api/customer-reviews/{id}")
-    fun delete(
+    fun deleteReview(
         @AuthenticationPrincipal userId: Long,
-        @PathVariable id: Long,
-    ): ResponseEntity<ApiResponse> {
+        @PathVariable("id") id: Long,
+    ): ResponseEntity<Response> {
         data class Response(val id: Long, val deleted: Boolean)
+
         val deleted = customerReviewService.delete(id, userId, adminAccessService.isAdmin(userId))
             ?: return builder.notFound().build()
-        return builder.ok().data(Response(id, deleted)).build()
+        val rs = Response(id, deleted)
+        return builder.ok().data(rs).build()
     }
 
+    /**
+     * @api 获取管理端评价列表
+     */
     @GetMapping("/api/admin/customer-reviews")
-    fun listForAdmin(@AuthenticationPrincipal userId: Long): ResponseEntity<ApiResponse> {
-        data class Response(val reviews: List<CustomerReviewResponse>)
-        adminAccessService.requireAdmin(userId)
-        val reviews = customerReviewService.listForAdmin().map { it.toResponse(includeCustomerId = true) }
-        return builder.ok().data(Response(reviews)).build()
+    fun getAdminReviews(
+        @AuthenticationPrincipal adminId: Long,
+    ): ResponseEntity<Response> {
+        data class ReviewData(
+            val id: Long,
+            @param:JsonProperty("product_id")
+            val productId: Long,
+            @param:JsonProperty("customer_id")
+            val customerId: Long,
+            val rating: Int,
+            val title: String?,
+            val content: String,
+            @param:JsonProperty("verified_purchase")
+            val verifiedPurchase: Boolean,
+            val status: String,
+            @param:JsonProperty("merchant_reply")
+            val merchantReply: String?,
+            @param:JsonProperty("merchant_replied_at")
+            val merchantRepliedAt: LocalDateTime?,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
+            @param:JsonProperty("updated_at")
+            val updatedAt: LocalDateTime?,
+        )
+
+        data class Response(val list: List<ReviewData>)
+
+        adminAccessService.requireAdmin(adminId)
+        val list = customerReviewService.listForAdmin().map {
+            ReviewData(
+                id = requireNotNull(it.id),
+                productId = requireNotNull(it.product?.id),
+                customerId = it.customerId,
+                rating = it.rating,
+                title = it.title,
+                content = it.content,
+                verifiedPurchase = it.verifiedPurchase,
+                status = it.status.name,
+                merchantReply = it.merchantReply,
+                merchantRepliedAt = it.merchantRepliedAt,
+                createdAt = it.createdAt,
+                updatedAt = it.updatedAt,
+            )
+        }
+        val rs = Response(list)
+        return builder.ok().data(rs).build()
     }
 
+    /**
+     * @api 获取管理端评价
+     * @param id 评价 ID
+     */
     @GetMapping("/api/admin/customer-reviews/{id}")
-    fun getForAdmin(
-        @AuthenticationPrincipal userId: Long,
-        @PathVariable id: Long,
-    ): ResponseEntity<ApiResponse> {
-        data class Response(val review: CustomerReviewResponse)
-        adminAccessService.requireAdmin(userId)
+    fun getAdminReview(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("id") id: Long,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            @param:JsonProperty("product_id")
+            val productId: Long,
+            @param:JsonProperty("customer_id")
+            val customerId: Long,
+            val rating: Int,
+            val title: String?,
+            val content: String,
+            @param:JsonProperty("verified_purchase")
+            val verifiedPurchase: Boolean,
+            val status: String,
+            @param:JsonProperty("merchant_reply")
+            val merchantReply: String?,
+            @param:JsonProperty("merchant_replied_at")
+            val merchantRepliedAt: LocalDateTime?,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
+            @param:JsonProperty("updated_at")
+            val updatedAt: LocalDateTime?,
+        )
+
+        adminAccessService.requireAdmin(adminId)
         val review = customerReviewService.getForAdmin(id) ?: return builder.notFound().build()
-        return builder.ok().data(Response(review.toResponse(includeCustomerId = true))).build()
+        val rs = Response(
+            id = requireNotNull(review.id),
+            productId = requireNotNull(review.product?.id),
+            customerId = review.customerId,
+            rating = review.rating,
+            title = review.title,
+            content = review.content,
+            verifiedPurchase = review.verifiedPurchase,
+            status = review.status.name,
+            merchantReply = review.merchantReply,
+            merchantRepliedAt = review.merchantRepliedAt,
+            createdAt = review.createdAt,
+            updatedAt = review.updatedAt,
+        )
+        return builder.ok().data(rs).build()
     }
 
+    /**
+     * @api 审核评价
+     * @param id 评价 ID
+     * @param status 审核状态
+     * @param verifiedPurchase 是否已验证购买
+     * @param merchantReply 商家回复
+     */
     @PutMapping("/api/admin/customer-reviews/{id}/moderation")
-    fun moderate(
-        @AuthenticationPrincipal userId: Long,
-        @PathVariable id: Long,
-        @Valid @RequestBody request: CustomerReviewModerationRequest,
-    ): ResponseEntity<ApiResponse> {
-        data class Response(val review: CustomerReviewResponse)
-        adminAccessService.requireAdmin(userId)
-        val review = customerReviewService.moderate(
-            id,
-            requireNotNull(request.status),
-            request.verifiedPurchase,
-            request.merchantReply,
-        ) ?: return builder.notFound().build()
-        return builder.ok().data(Response(review.toResponse(includeCustomerId = true))).build()
+    fun moderateReview(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("id") id: Long,
+        @RequestParam("status") status: ReviewStatus,
+        @RequestParam("verified_purchase", required = false) verifiedPurchase: Boolean?,
+        @RequestParam("merchant_reply", required = false) @Size(max = 1000) merchantReply: String?,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            @param:JsonProperty("customer_id")
+            val customerId: Long,
+            @param:JsonProperty("verified_purchase")
+            val verifiedPurchase: Boolean,
+            val status: String,
+            @param:JsonProperty("merchant_reply")
+            val merchantReply: String?,
+            @param:JsonProperty("merchant_replied_at")
+            val merchantRepliedAt: LocalDateTime?,
+            @param:JsonProperty("updated_at")
+            val updatedAt: LocalDateTime?,
+        )
+
+        adminAccessService.requireAdmin(adminId)
+        val review = customerReviewService.moderate(id, status, verifiedPurchase, merchantReply)
+            ?: return builder.notFound().build()
+        val rs = Response(
+            id = requireNotNull(review.id),
+            customerId = review.customerId,
+            verifiedPurchase = review.verifiedPurchase,
+            status = review.status.name,
+            merchantReply = review.merchantReply,
+            merchantRepliedAt = review.merchantRepliedAt,
+            updatedAt = review.updatedAt,
+        )
+        return builder.ok().data(rs).build()
     }
 }

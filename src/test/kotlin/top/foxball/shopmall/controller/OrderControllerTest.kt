@@ -8,7 +8,6 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
-import org.springframework.http.MediaType
 import org.springframework.security.authentication.TestingAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
@@ -65,44 +64,31 @@ class OrderControllerTest {
         mockMvc.perform(
             post("/api/orders")
                 .header("Idempotency-Key", "idem-1")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    """
-                    {
-                      "items": [{"productId": 40, "quantity": 1, "unitPrice": 0.01}],
-                      "addressId": "$addressId",
-                      "clientMessage": "front door"
-                    }
-                    """.trimIndent(),
-                ),
+                .param("product_ids", "40")
+                .param("quantities", "1")
+                .param("address_id", addressId.toString())
+                .param("client_message", "front door"),
         )
             .andExpect(status().isCreated)
-            .andExpect(jsonPath("$.data.orderNo").value("ORD-API-1"))
-            .andExpect(jsonPath("$.data.items[0].unitPrice").value(29.99))
-            .andExpect(jsonPath("$.data.clientSecret").value("pi_secret"))
+            .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.items[0].unit_price").value(29.99))
+            .andExpect(jsonPath("$.data.client_secret").value("pi_secret"))
 
         verify(orderService).placeOrder(7L, expectedCommand, "idem-1")
     }
 
     @Test
-    fun `invalid order body is rejected before service invocation`() {
+    fun `invalid order parameters are rejected before service invocation`() {
         authenticate(7L)
 
         mockMvc.perform(
             post("/api/orders")
                 .header("Idempotency-Key", "idem-invalid")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    """
-                    {
-                      "items": [{"productId": 40, "quantity": 100}],
-                      "addressId": "${UUID.randomUUID()}"
-                    }
-                    """.trimIndent(),
-                ),
+                .param("product_ids", "40")
+                .param("quantities", "100")
+                .param("address_id", UUID.randomUUID().toString()),
         )
             .andExpect(status().isBadRequest)
-            .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("quantity")))
     }
 
     @Test
@@ -118,8 +104,8 @@ class OrderControllerTest {
     @Test
     fun `admin list forwards pagination and filters`() {
         authenticate(99L)
-        val page = PageImpl(listOf(orderView()), PageRequest.of(1, 5), 6)
-        val expectedQuery = AdminOrderQuery(1, 5, OrderStatus.PENDING_PAYMENT, 7, "ORD-API")
+        val page = PageImpl(listOf(orderView()), PageRequest.of(0, 5), 6)
+        val expectedQuery = AdminOrderQuery(0, 5, OrderStatus.PENDING_PAYMENT, 7, "ORD-API")
         `when`(orderService.listAdmin(99L, expectedQuery)).thenReturn(page)
 
         mockMvc.perform(
@@ -127,14 +113,12 @@ class OrderControllerTest {
                 .param("page", "1")
                 .param("size", "5")
                 .param("status", "PENDING_PAYMENT")
-                .param("customerId", "7")
-                .param("orderNo", "ORD-API"),
+                .param("customer_id", "7")
+                .param("order_no", "ORD-API"),
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.data.page").value(1))
-            .andExpect(jsonPath("$.data.size").value(5))
-            .andExpect(jsonPath("$.data.totalElements").value(6))
-            .andExpect(jsonPath("$.data.orders[0].orderNo").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.pagination.count").value(2))
+            .andExpect(jsonPath("$.data.list[0].order_no").value("ORD-API-1"))
 
         verify(orderService).listAdmin(99L, expectedQuery)
     }

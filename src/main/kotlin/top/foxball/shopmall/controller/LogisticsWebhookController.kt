@@ -16,6 +16,9 @@ import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.io.ByteArrayOutputStream
 
+/**
+ * @folder 物流/Webhook
+ */
 @RestController
 class LogisticsWebhookController(
     private val carrierRegistry: CarrierRegistry,
@@ -23,9 +26,13 @@ class LogisticsWebhookController(
     private val properties: LogisticsProperties,
     private val builder: ResponseBuilder,
 ) {
+    /**
+     * @api 接收承运商物流回调
+     * @param carrier 承运商代码
+     */
     @PostMapping("/api/logistics/webhook/{carrier}")
     fun webhook(
-        @PathVariable carrier: String,
+        @PathVariable("carrier") carrier: String,
         request: HttpServletRequest,
     ): ResponseEntity<Response> {
         val carrierCode = CarrierCode.fromPath(carrier)

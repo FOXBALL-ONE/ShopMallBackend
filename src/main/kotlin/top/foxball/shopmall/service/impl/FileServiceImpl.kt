@@ -11,8 +11,8 @@ import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.ResourceNotFoundException
 import top.foxball.shopmall.repository.StoredFileRepository
 import top.foxball.shopmall.service.DownloadableFile
+import top.foxball.shopmall.service.FileDetails
 import top.foxball.shopmall.service.FileLinkSigner
-import top.foxball.shopmall.service.FileMetadataResponse
 import top.foxball.shopmall.service.FileService
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -45,31 +45,82 @@ class FileServiceImpl(
         Files.createDirectories(storageRoot)
     }
 
-    override fun upload(ownerId: Long, files: List<MultipartFile>): List<FileMetadataResponse> {
+    override fun upload(ownerId: Long, files: List<MultipartFile>): List<FileDetails> {
         validateUploadBatch(files)
         val stored = mutableListOf<StoredUpload>()
         try {
             files.forEach { stored += storeUpload(ownerId, it) }
             val saved = fileRepository.saveAllAndFlush(stored.map { it.metadata })
-            return saved.map { toResponse(it) }
+            return saved.map { storedFile ->
+                val scope = "user:${storedFile.ownerId}"
+                val signedLink = linkSigner.sign(storedFile.id, scope, ttlFor(scope))
+                val url = UriComponentsBuilder.fromUriString(properties.baseUrl.trimEnd('/'))
+                    .pathSegment("api", "files", storedFile.id.toString(), "download")
+                    .queryParam("scope", signedLink.scope)
+                    .queryParam("expires", signedLink.expiresAt.epochSecond)
+                    .queryParam("nonce", signedLink.nonce)
+                    .queryParam("signature", signedLink.signature)
+                    .build()
+                    .toUriString()
+                FileDetails(
+                    file = storedFile,
+                    signedDownloadUrl = url,
+                    downloadExpiresAt = LocalDateTime.ofInstant(signedLink.expiresAt, ZoneOffset.UTC),
+                    scope = signedLink.scope,
+                )
+            }
         } catch (ex: Exception) {
             stored.forEach { deletePathQuietly(it.path) }
             throw ex
         }
     }
 
-    override fun list(ownerId: Long, pageable: Pageable): Page<FileMetadataResponse> =
-        fileRepository.findAllByOwnerIdOrderByCreatedAtDesc(ownerId, pageable).map { toResponse(it) }
+    override fun list(ownerId: Long, pageable: Pageable): Page<FileDetails> =
+        fileRepository.findAllByOwnerIdOrderByCreatedAtDesc(ownerId, pageable).map { storedFile ->
+            val scope = "user:${storedFile.ownerId}"
+            val signedLink = linkSigner.sign(storedFile.id, scope, ttlFor(scope))
+            val url = UriComponentsBuilder.fromUriString(properties.baseUrl.trimEnd('/'))
+                .pathSegment("api", "files", storedFile.id.toString(), "download")
+                .queryParam("scope", signedLink.scope)
+                .queryParam("expires", signedLink.expiresAt.epochSecond)
+                .queryParam("nonce", signedLink.nonce)
+                .queryParam("signature", signedLink.signature)
+                .build()
+                .toUriString()
+            FileDetails(
+                file = storedFile,
+                signedDownloadUrl = url,
+                downloadExpiresAt = LocalDateTime.ofInstant(signedLink.expiresAt, ZoneOffset.UTC),
+                scope = signedLink.scope,
+            )
+        }
 
     override fun createDownloadLinks(
         ownerId: Long,
         fileIds: List<UUID>,
         scope: String?,
-    ): List<FileMetadataResponse> {
+    ): List<FileDetails> {
         validateFileIds(fileIds)
         val filesById = findOwnedFiles(ownerId, fileIds).associateBy { it.id }
         val resolvedScope = resolveIssuableScope(ownerId, scope)
-        return fileIds.map { toResponse(filesById.getValue(it), resolvedScope) }
+        return fileIds.map { fileId ->
+            val storedFile = filesById.getValue(fileId)
+            val signedLink = linkSigner.sign(storedFile.id, resolvedScope, ttlFor(resolvedScope))
+            val url = UriComponentsBuilder.fromUriString(properties.baseUrl.trimEnd('/'))
+                .pathSegment("api", "files", storedFile.id.toString(), "download")
+                .queryParam("scope", signedLink.scope)
+                .queryParam("expires", signedLink.expiresAt.epochSecond)
+                .queryParam("nonce", signedLink.nonce)
+                .queryParam("signature", signedLink.signature)
+                .build()
+                .toUriString()
+            FileDetails(
+                file = storedFile,
+                signedDownloadUrl = url,
+                downloadExpiresAt = LocalDateTime.ofInstant(signedLink.expiresAt, ZoneOffset.UTC),
+                scope = signedLink.scope,
+            )
+        }
     }
 
     override fun openSignedDownload(
@@ -183,31 +234,6 @@ class FileServiceImpl(
             }
         }
         return HexFormat.of().formatHex(digest.digest())
-    }
-
-    private fun toResponse(stored: StoredFile, requestedScope: String? = null): FileMetadataResponse {
-        val scope = requestedScope ?: "user:${stored.ownerId}"
-        val signedLink = linkSigner.sign(stored.id, scope, ttlFor(scope))
-        val url = UriComponentsBuilder.fromUriString(properties.baseUrl.trimEnd('/'))
-            .pathSegment("api", "files", stored.id.toString(), "download")
-            .queryParam("scope", signedLink.scope)
-            .queryParam("expires", signedLink.expiresAt.epochSecond)
-            .queryParam("nonce", signedLink.nonce)
-            .queryParam("signature", signedLink.signature)
-            .build()
-            .toUriString()
-        return FileMetadataResponse(
-            id = stored.id,
-            fileName = stored.originalFilename,
-            contentType = stored.contentType,
-            sizeBytes = stored.sizeBytes,
-            sha256 = stored.sha256,
-            createdAt = stored.createdAt,
-            signedDownloadUrl = url,
-            downloadExpiresAt = LocalDateTime.ofInstant(signedLink.expiresAt, ZoneOffset.UTC),
-            scope = signedLink.scope,
-            storage = stored.storage,
-        )
     }
 
     private fun resolveIssuableScope(ownerId: Long, requestedScope: String?): String {

@@ -3,22 +3,17 @@ package top.foxball.shopmall.service
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.web.multipart.MultipartFile
+import top.foxball.shopmall.entity.jdbc.StoredFile
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.util.UUID
 
 /** 前端可展示的文件元数据，以及当前响应时新签发的下载链接。 */
-data class FileMetadataResponse(
-    val id: UUID,
-    val fileName: String,
-    val contentType: String?,
-    val sizeBytes: Long,
-    val sha256: String,
-    val createdAt: LocalDateTime?,
+data class FileDetails(
+    val file: StoredFile,
     val signedDownloadUrl: String,
     val downloadExpiresAt: LocalDateTime,
     val scope: String,
-    val storage: String,
 )
 
 /** 已完成签名和归属校验、可由控制器输出的本地文件内容描述。 */
@@ -36,17 +31,17 @@ data class DownloadableFile(
  */
 interface FileService {
     /** 保存一份或多份上传文件，并返回带短期链接的元数据。 */
-    fun upload(ownerId: Long, files: List<MultipartFile>): List<FileMetadataResponse>
+    fun upload(ownerId: Long, files: List<MultipartFile>): List<FileDetails>
 
     /** 列出当前用户的文件，并为每项重新签发链接。 */
-    fun list(ownerId: Long, pageable: Pageable): Page<FileMetadataResponse>
+    fun list(ownerId: Long, pageable: Pageable): Page<FileDetails>
 
     /** 为指定文件批量签发新的下载链接。 */
     fun createDownloadLinks(
         ownerId: Long,
         fileIds: List<UUID>,
         scope: String? = null,
-    ): List<FileMetadataResponse>
+    ): List<FileDetails>
 
     /** 校验文件、scope、到期时间与 HMAC 签名后打开本地文件。 */
     fun openSignedDownload(

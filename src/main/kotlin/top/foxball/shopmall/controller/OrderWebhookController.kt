@@ -12,6 +12,9 @@ import top.foxball.shopmall.shared.ResponseBuilder
 import top.foxball.shopmall.shared.StripeProperties
 import java.nio.charset.StandardCharsets
 
+/**
+ * @folder 订单/Webhook
+ */
 @RestController
 class OrderWebhookController(
     private val stripeClient: StripeClient,
@@ -19,6 +22,9 @@ class OrderWebhookController(
     private val paymentService: OrderPaymentService,
     private val builder: ResponseBuilder,
 ) {
+    /**
+     * @api 接收 Stripe 支付回调
+     */
     @PostMapping("/api/orders/webhook")
     fun webhook(request: HttpServletRequest): ResponseEntity<Response> {
         val signature = request.getHeader("Stripe-Signature")

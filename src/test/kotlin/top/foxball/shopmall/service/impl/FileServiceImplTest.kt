@@ -72,14 +72,14 @@ class FileServiceImplTest {
 
         val stored = persisted.single()
         val diskPath = storageRoot.resolve(stored.relativePath).normalize()
-        assertEquals("quarterly report.txt", response.fileName)
+        assertEquals("quarterly report.txt", response.file.originalFilename)
         assertTrue(diskPath.startsWith(storageRoot))
         assertEquals("payload", diskPath.readText())
         assertEquals("239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5", stored.sha256)
 
         val query = UriComponentsBuilder.fromUriString(response.signedDownloadUrl).build().queryParams
         assertEquals("user:42", response.scope)
-        assertEquals("local", response.storage)
+        assertEquals("local", response.file.storage)
         assertTrue(
             signer.isValid(
                 stored.id,
@@ -111,7 +111,7 @@ class FileServiceImplTest {
 
         assertEquals(1, result.number)
         assertEquals(45, result.totalElements)
-        assertEquals(stored.id, result.content.single().id)
+        assertEquals(stored.id, result.content.single().file.id)
     }
 
     @Test

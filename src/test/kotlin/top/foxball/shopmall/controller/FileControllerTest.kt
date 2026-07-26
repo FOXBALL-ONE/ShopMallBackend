@@ -20,8 +20,9 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPat
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import top.foxball.shopmall.handler.GlobalExceptionHandler
+import top.foxball.shopmall.entity.jdbc.StoredFile
 import top.foxball.shopmall.service.DownloadableFile
-import top.foxball.shopmall.service.FileMetadataResponse
+import top.foxball.shopmall.service.FileDetails
 import top.foxball.shopmall.service.FileService
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.nio.file.Files
@@ -53,17 +54,15 @@ class FileControllerTest {
     @Test
     fun `lists current user files with pagination metadata`() {
         authenticate(42)
-        val pageable = PageRequest.of(1, 10)
+        val pageable = PageRequest.of(0, 10)
         `when`(fileService.list(42, pageable)).thenReturn(
             PageImpl(listOf(metadata()), pageable, 25),
         )
 
-        mockMvc.perform(get("/api/files/mine?page=1&size=10"))
+        mockMvc.perform(get("/api/files/mine").param("page", "1").param("size", "10"))
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.data.page").value(1))
-            .andExpect(jsonPath("$.data.size").value(10))
-            .andExpect(jsonPath("$.data.totalElements").value(25))
-            .andExpect(jsonPath("$.data.files[0].scope").value("user:42"))
+            .andExpect(jsonPath("$.data.pagination.count").value(3))
+            .andExpect(jsonPath("$.data.list[0].scope").value("user:42"))
 
         verify(fileService).list(42, pageable)
     }
@@ -111,16 +110,21 @@ class FileControllerTest {
         SecurityContextHolder.getContext().authentication = TestingAuthenticationToken(userId, null)
     }
 
-    private fun metadata() = FileMetadataResponse(
-        id = UUID.randomUUID(),
-        fileName = "report.txt",
-        contentType = MediaType.TEXT_PLAIN_VALUE,
-        sizeBytes = 7,
-        sha256 = "hash",
-        createdAt = LocalDateTime.parse("2026-07-25T08:00:00"),
+    private fun metadata() = FileDetails(
+        file = StoredFile(
+            id = UUID.randomUUID(),
+            ownerId = 42,
+            originalFilename = "report.txt",
+            storedFilename = "stored-report.txt",
+            relativePath = "2026/07/25/stored-report.txt",
+            contentType = MediaType.TEXT_PLAIN_VALUE,
+            sizeBytes = 7,
+            sha256 = "hash",
+            storage = "local",
+            createdAt = LocalDateTime.parse("2026-07-25T08:00:00"),
+        ),
         signedDownloadUrl = "https://files.test/download",
         downloadExpiresAt = LocalDateTime.parse("2026-07-25T08:05:00"),
         scope = "user:42",
-        storage = "local",
     )
 }
