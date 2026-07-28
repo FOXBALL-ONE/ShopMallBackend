@@ -6,30 +6,26 @@ import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RestController
+import top.foxball.shopmall.handler.WebhookPayloadTooLargeException
 import top.foxball.shopmall.service.OrderPaymentService
+import top.foxball.shopmall.service.payMent.stripe.StripeProperties
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
-import top.foxball.shopmall.shared.StripeProperties
-import java.nio.charset.StandardCharsets
+import java.io.ByteArrayOutputStream
 
-/**
- * @folder 订单/Webhook
- */
+/** Stripe Checkout 回调的独立入口；不与订单业务 API 共用路由。 */
 @RestController
-class OrderWebhookController(
+class StripeWebhookController(
     private val stripeClient: StripeClient,
     private val stripeProperties: StripeProperties,
     private val paymentService: OrderPaymentService,
     private val builder: ResponseBuilder,
 ) {
-    /**
-     * @api 接收 Stripe 支付回调
-     */
-    @PostMapping("/api/orders/webhook")
+    @PostMapping(StripeProperties.WEBHOOK_PATH)
     fun webhook(request: HttpServletRequest): ResponseEntity<Response> {
         val signature = request.getHeader("Stripe-Signature")
             ?: return builder.badRequest().message("Missing Stripe signature").build()
-        val payload = request.inputStream.readBytes().toString(StandardCharsets.UTF_8)
+        val payload = readLimited(request).toString(Charsets.UTF_8)
         val event = try {
             stripeClient.constructEvent(payload, signature, stripeProperties.webhookSecret)
         } catch (_: SignatureVerificationException) {
@@ -37,5 +33,20 @@ class OrderWebhookController(
         }
         paymentService.handleWebhookEvent(event)
         return builder.ok().build()
+    }
+
+    private fun readLimited(request: HttpServletRequest): ByteArray {
+        val limit = stripeProperties.webhookMaxBodyBytes
+        val output = ByteArrayOutputStream(minOf(limit, 8192))
+        val buffer = ByteArray(8192)
+        request.inputStream.use { input ->
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                if (read > limit - output.size()) throw WebhookPayloadTooLargeException()
+                output.write(buffer, 0, read)
+            }
+        }
+        return output.toByteArray()
     }
 }

@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.service.AdminOrderQuery
+import top.foxball.shopmall.service.OrderCheckoutService
 import top.foxball.shopmall.service.OrderLineCommand
 import top.foxball.shopmall.service.OrderPageQuery
 import top.foxball.shopmall.service.OrderService
@@ -34,6 +35,7 @@ import java.util.UUID
 @RestController
 class OrderController(
     private val orderService: OrderService,
+    private val orderCheckoutService: OrderCheckoutService,
     private val builder: ResponseBuilder,
 ) {
     /**
@@ -55,7 +57,7 @@ class OrderController(
     ): ResponseEntity<Response> {
         if (productIds.size != quantities.size) {
             return builder.badRequest()
-                .message("商品与数量必须一一对应")
+                .message("商品列表与数量列表必须一一对应")
                 .build()
         }
         if (productIds.any { it < 1 } || quantities.any { it !in 1..99 }) {
@@ -116,8 +118,6 @@ class OrderController(
             val currency: String,
             @param:JsonProperty("payment_intent_id")
             val paymentIntentId: String?,
-            @param:JsonProperty("client_secret")
-            val clientSecret: String?,
             @param:JsonProperty("shipping_address")
             val shippingAddress: AddressData,
             @param:JsonProperty("client_message")
@@ -166,7 +166,6 @@ class OrderController(
             totalAmount = order.totalAmount,
             currency = order.currency,
             paymentIntentId = order.paymentIntentId,
-            clientSecret = view.clientSecret,
             shippingAddress = AddressData(
                 name = address.name,
                 phone = address.phone,
@@ -201,7 +200,7 @@ class OrderController(
                 )
             },
         )
-        return builder.status(HttpStatus.CREATED)
+        return builder.created()
             .data(rs)
             .build()
     }
@@ -269,8 +268,6 @@ class OrderController(
             val currency: String,
             @param:JsonProperty("payment_intent_id")
             val paymentIntentId: String?,
-            @param:JsonProperty("client_secret")
-            val clientSecret: String?,
             @param:JsonProperty("shipping_address")
             val shippingAddress: AddressData,
             @param:JsonProperty("client_message")
@@ -317,7 +314,6 @@ class OrderController(
                 totalAmount = order.totalAmount,
                 currency = order.currency,
                 paymentIntentId = order.paymentIntentId,
-                clientSecret = view.clientSecret,
                 shippingAddress = AddressData(
                     name = address.name,
                     phone = address.phone,
@@ -420,8 +416,6 @@ class OrderController(
             val currency: String,
             @param:JsonProperty("payment_intent_id")
             val paymentIntentId: String?,
-            @param:JsonProperty("client_secret")
-            val clientSecret: String?,
             @param:JsonProperty("shipping_address")
             val shippingAddress: AddressData,
             @param:JsonProperty("client_message")
@@ -460,7 +454,6 @@ class OrderController(
             totalAmount = order.totalAmount,
             currency = order.currency,
             paymentIntentId = order.paymentIntentId,
-            clientSecret = view.clientSecret,
             shippingAddress = AddressData(
                 name = address.name,
                 phone = address.phone,
@@ -500,8 +493,37 @@ class OrderController(
             .build()
     }
 
+    /** @api 创建或取得 Stripe Checkout 支付会话 */
+    @PostMapping("/api/orders/{orderNo}/checkout")
+    fun openCheckout(
+        @AuthenticationPrincipal userId: Long,
+        @PathVariable("orderNo") orderNo: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("order_no")
+            val orderNo: String,
+            val status: String,
+            @param:JsonProperty("checkout_url")
+            val checkoutUrl: String,
+            @param:JsonProperty("expires_at")
+            val expiresAt: Instant,
+        )
+
+        val checkout = orderCheckoutService.openCheckout(userId, orderNo)
+        return builder.ok()
+            .data(
+                Response(
+                    orderNo = checkout.orderNo,
+                    status = checkout.status.name,
+                    checkoutUrl = checkout.checkoutUrl,
+                    expiresAt = checkout.expiresAt,
+                ),
+            )
+            .build()
+    }
+
     /**
-     * @api 获取订单支付信息
+     * @api 获取订单支付状态
      * @param orderNo 订单编号
      */
     @GetMapping("/api/orders/{orderNo}/payment")
@@ -513,8 +535,8 @@ class OrderController(
             @param:JsonProperty("order_no")
             val orderNo: String,
             val status: String,
-            @param:JsonProperty("client_secret")
-            val clientSecret: String?,
+            @param:JsonProperty("checkout_session_id")
+            val checkoutSessionId: String?,
             @param:JsonProperty("expires_at")
             val expiresAt: Instant?,
         )
@@ -523,7 +545,7 @@ class OrderController(
         val rs = Response(
             orderNo = payment.orderNo,
             status = payment.status.name,
-            clientSecret = payment.clientSecret,
+            checkoutSessionId = payment.checkoutSessionId,
             expiresAt = payment.expiresAt,
         )
         return builder.ok()

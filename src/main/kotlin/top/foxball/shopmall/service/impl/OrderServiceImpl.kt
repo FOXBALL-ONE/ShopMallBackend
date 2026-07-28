@@ -122,7 +122,7 @@ class OrderServiceImpl(
 
     override fun getCustomer(customerId: Long, orderNo: String): OrderView {
         val order = orderRepository.findByOrderNoAndCustomerId(orderNo, customerId) ?: throw OrderNotFoundException()
-        return view(order, includeClientSecret = true)
+        return view(order)
     }
 
     override fun getPayment(customerId: Long, orderNo: String): OrderPaymentView {
@@ -130,7 +130,7 @@ class OrderServiceImpl(
         return OrderPaymentView(
             orderNo = order.orderNo,
             status = order.status,
-            clientSecret = paymentService.getClientSecret(order),
+            checkoutSessionId = order.stripeCheckoutSessionId,
             expiresAt = order.expiresAt,
         )
     }
@@ -152,7 +152,7 @@ class OrderServiceImpl(
         )
         if (changed == 0) {
             if (orderRepository.findStatusById(orderId) == OrderStatus.CANCELLED) {
-                return view(reload(orderId), includeClientSecret = false)
+                return view(reload(orderId))
             }
             throw OrderStatusException("只有待支付订单可以取消")
         }
@@ -160,7 +160,7 @@ class OrderServiceImpl(
         publishOrderEvent(orderId, "CANCELLED")
         restock(items)
         paymentService.cancelOrRefund(order, "customer-cancel")
-        return view(reload(orderId), includeClientSecret = false)
+        return view(reload(orderId))
     }
 
     override fun listAdmin(adminId: Long, query: AdminOrderQuery): Page<OrderView> {
@@ -192,7 +192,7 @@ class OrderServiceImpl(
         )
         if (changed == 0) {
             if (orderRepository.findStatusById(orderId) == OrderStatus.CANCELLED) {
-                return view(reload(orderId), includeClientSecret = false)
+                return view(reload(orderId))
             }
             throw OrderStatusException("只有未发货的已支付订单可以退款")
         }
@@ -201,9 +201,36 @@ class OrderServiceImpl(
         restock(items)
         decrementSales(items)
         paymentService.cancelOrRefund(order, "admin-refund")
-        return view(reload(orderId), includeClientSecret = false)
+        return view(reload(orderId))
     }
 
+    /**
+     * 根据服务端商品数据创建一张待支付订单。
+     *
+     * 本方法由带有 `@Transactional` 的 [placeOrder] 调用，自身不创建独立事务。订单主表、订单明细、
+     * `CREATED` 外盒事件、数据库幂等记录以及库存扣减必须在同一事务内提交；任一步抛出异常时，
+     * 本次下单产生的全部数据库修改都应回滚。
+     *
+     * 处理过程分为四个阶段：
+     * 1. 批量读取商品并校验商品存在、处于上架状态，价格始终以数据库数据为准；
+     * 2. 固化商品和配送地址快照，计算订单明细金额及订单总额；
+     * 3. 保存订单、明细、外盒事件和数据库幂等记录；
+     * 4. 通过带有“库存充足且商品仍上架”条件的更新语句原子扣减库存。
+     *
+     * 前面的商品查询只负责生成订单快照，不能防止并发超卖。最终是否能够下单以
+     * [ProductRepository.decrementStock] 的条件更新结果为准。
+     *
+     * @param customerId 下单客户 ID，已经在 [placeOrder] 中完成用户及邮箱状态校验。
+     * @param command 原始下单命令；本方法只使用其中的客户备注，商品行使用规范化后的 [lines]。
+     * @param lines 已完成合并、数量上限校验并按商品 ID 排序的订单商品行。
+     * @param address 已验证属于当前客户的地址簿记录，保存订单时会复制为独立快照。
+     * @param clientKey 客户端幂等键；未提供请求头时为下单命令摘要。
+     * @param dbRequestHash 下单命令的稳定摘要，用于识别同一幂等键是否被不同请求内容复用。
+     * @return 新创建的订单及其明细；命中数据库并发幂等记录时返回此前创建的订单。
+     * @throws ResourceNotFoundException 商品不存在、已下架或扣库存时发现商品状态已经变化。
+     * @throws InsufficientStockException 商品仍处于上架状态，但可用库存不足。
+     * @throws IdempotencyConflictException 同一客户和幂等键已经用于不同的下单请求。
+     */
     private fun createOrder(
         customerId: Long,
         command: PlaceOrderCommand,
@@ -212,11 +239,14 @@ class OrderServiceImpl(
         clientKey: String,
         dbRequestHash: String,
     ): OrderView {
-        val productsById = productRepository.findAllById(lines.map(NormalizedLine::productId))
-            .associateBy { requireNotNull(it.id) }
+        // 一次批量查询得到生成快照所需的商品实体列表，避免按订单行逐个查询形成 N+1。
+        val productsById = productRepository.findAllById(
+            lines.map(NormalizedLine::productId)
+        ).associateBy { requireNotNull(it.id) }
         val missingId = lines.firstOrNull { it.productId !in productsById }?.productId
         if (missingId != null) throw ResourceNotFoundException("商品不存在: $missingId")
 
+        // 使用服务端商品价格和展示数据构造订单快照；后续商品改价或修改展示信息不会影响历史订单。
         val orderItems = lines.map { line ->
             val product = productsById.getValue(line.productId)
             if (product.status != Product.Status.ACTIVE) {
@@ -232,8 +262,11 @@ class OrderServiceImpl(
                     .setScale(MONEY_SCALE, RoundingMode.UNNECESSARY),
             )
         }
+        // 当前运费、税费和优惠均为零，因此商品小计就是订单应付总额。
         val subtotal = orderItems.fold(BigDecimal.ZERO) { total, item -> total + item.lineTotal }
             .setScale(MONEY_SCALE, RoundingMode.UNNECESSARY)
+
+        // saveAndFlush 立即取得订单主键并尽早暴露订单号、金额精度等数据库约束错误。
         val order = orderRepository.saveAndFlush(
             OrderEntity(
                 orderNo = orderNoGenerator.next(),
@@ -250,11 +283,13 @@ class OrderServiceImpl(
                 expiresAt = clock.instant().plusSeconds(orderProperties.paymentTimeoutMinutes * 60),
             ),
         )
+        // OrderItem 持有订单外键，必须先保存订单主表并取得主键，再批量保存订单明细。
         orderItems.forEach { it.order = order }
         orderItemRepository.saveAllAndFlush(orderItems)
         val orderId = requireNotNull(order.id)
+
+        // 外盒事件与订单处于同一事务，只有订单成功提交后才允许异步投递 CREATED。
         publishOrderEvent(orderId, "CREATED")
-        publishOrderEvent(orderId, "PI_CREATE")
         // DB 幂等行与订单同事务写入，保证 afterCommit Redis complete 失败时仍有 DB 兜底。
         // 并发相同 (customerId, clientKey) 被外部锁串行化后，先到事务的 record 尚未提交，后到请求的 replay
         // 在 Acquired 分支开头返回 null，两请求都执行 INSERT → 后到者撞 uk_order_idempotency 唯一约束 →
@@ -271,6 +306,7 @@ class OrderServiceImpl(
             throw ex
         }
 
+        // 条件更新是库存并发控制的最终门闩；任一行失败都会使整个下单事务回滚。
         lines.forEach { line ->
             if (productRepository.decrementStock(line.productId, line.quantity) == 0) {
                 val stillActive = productRepository.findByIdAndStatus(line.productId, Product.Status.ACTIVE) != null
@@ -339,10 +375,9 @@ class OrderServiceImpl(
         return PageImpl(views, orders.pageable, orders.totalElements)
     }
 
-    private fun view(order: OrderEntity, includeClientSecret: Boolean): OrderView = OrderView(
+    private fun view(order: OrderEntity): OrderView = OrderView(
         order = order,
         items = orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(requireNotNull(order.id)),
-        clientSecret = if (includeClientSecret) paymentService.getClientSecret(order) else null,
     )
 
     private fun reload(orderId: Long): OrderEntity =

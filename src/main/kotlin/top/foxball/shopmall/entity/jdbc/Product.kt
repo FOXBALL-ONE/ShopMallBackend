@@ -30,6 +30,7 @@ import jakarta.validation.constraints.Size as ValidationSize
 @Inheritance(strategy = InheritanceType.JOINED)
 @DiscriminatorColumn(name = "product_type", discriminatorType = DiscriminatorType.STRING, length = 31)
 abstract class Product(
+    /** 商品 SKU 的数据库自增主键。 */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     var id: Long? = null,

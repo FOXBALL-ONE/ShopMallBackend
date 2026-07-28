@@ -6,6 +6,7 @@ import jakarta.persistence.CollectionTable
 import jakarta.persistence.Column
 import jakarta.persistence.ElementCollection
 import jakarta.persistence.Embeddable
+import jakarta.persistence.Embedded
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
@@ -48,6 +49,7 @@ import java.util.UUID
 @Entity
 @Table(name = "users")
 class User(
+    /** 用户的数据库自增主键。 */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     var id: Long? = null,
@@ -211,6 +213,16 @@ class User(
     )
     @OrderColumn(name = "sort_order")
     var deliveryAddress: MutableList<DeliveryAddressItem> = mutableListOf(),
+
+    /**
+     * 用户的账单地址，用于支付账单、税费计算与发票抬头；为空表示尚未保存。
+     *
+     * 账单地址是用户的一份单值资料，嵌入 `users` 表的 `billing_*` 列中，
+     * 与可保存多条且包含配送备注的 [deliveryAddress] 分开维护。
+     */
+    @field:Valid
+    @Embedded
+    var billingAddress: BillingAddress? = null,
 ) {
     /** 填写任一长度数据时必须选择 INCH 或 CM，避免持久化不可解释的数值。 */
     @get:JsonIgnore
@@ -304,6 +316,59 @@ data class DeliveryAddressItem(
     @field:Size(max = 500)
     @Column(name = "delivery_instructions", length = 500)
     var deliveryInstructions: String? = null,
+)
+
+/** 用户账单地址；国家使用 ISO 3166-1 alpha-2 代码。 */
+@Embeddable
+data class BillingAddress(
+    /** 账单收件人或付款人姓名。 */
+    @field:NotBlank
+    @field:Size(max = 100)
+    @Column(name = "billing_name", length = 100)
+    var name: String = "",
+
+    /** 公司、组织或发票抬头。 */
+    @field:Size(max = 100)
+    @Column(name = "billing_company", length = 100)
+    var company: String? = null,
+
+    /** ISO 3166-1 alpha-2 国家代码，例如 US、CN。 */
+    @field:NotBlank
+    @field:Pattern(regexp = "^[A-Z]{2}$")
+    @Column(name = "billing_country_code", length = 2)
+    var country: String = "",
+
+    /** 州、省或其他一级行政区。 */
+    @field:Size(max = 100)
+    @Column(name = "billing_state_or_province", length = 100)
+    var stateOrProvince: String? = null,
+
+    /** 城市。 */
+    @field:NotBlank
+    @field:Size(max = 100)
+    @Column(name = "billing_city", length = 100)
+    var city: String = "",
+
+    /** 区、县或其他二级行政区。 */
+    @field:Size(max = 100)
+    @Column(name = "billing_district", length = 100)
+    var district: String? = null,
+
+    /** 邮政编码；部分国家或地区没有邮编，因此允许为空。 */
+    @field:Size(max = 20)
+    @Column(name = "billing_postal_code", length = 20)
+    var postalCode: String? = null,
+
+    /** 街道、门牌号等主要账单地址信息。 */
+    @field:NotBlank
+    @field:Size(max = 255)
+    @Column(name = "billing_address_line1", length = 255)
+    var address1: String = "",
+
+    /** 公寓、楼层、套间或单元号等补充账单地址信息。 */
+    @field:Size(max = 255)
+    @Column(name = "billing_address_line2", length = 255)
+    var address2: String? = null,
 )
 
 /** 账号生命周期。 */

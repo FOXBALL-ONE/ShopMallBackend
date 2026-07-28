@@ -18,6 +18,7 @@ import java.util.UUID
     ],
 )
 class StoredFile(
+    /** 文件元数据的 UUID 主键，由应用侧生成。 */
     @Id
     var id: UUID = UUID.randomUUID(),
 
@@ -25,9 +26,11 @@ class StoredFile(
     @Column(name = "owner_id", nullable = false)
     var ownerId: Long = 0,
 
+    /** 用户上传时提供的原始文件名。 */
     @Column(name = "original_filename", nullable = false, length = 255)
     var originalFilename: String = "",
 
+    /** 存储后端使用的唯一文件名，避免同名文件互相覆盖。 */
     @Column(name = "stored_filename", nullable = false, unique = true, length = 255)
     var storedFilename: String = "",
 
@@ -35,9 +38,11 @@ class StoredFile(
     @Column(name = "relative_path", nullable = false, unique = true, length = 512)
     var relativePath: String = "",
 
+    /** 浏览器或上传客户端声明的 MIME 内容类型。 */
     @Column(name = "content_type", length = 255)
     var contentType: String? = null,
 
+    /** 文件二进制内容的大小，单位为字节。 */
     @Column(name = "byte_size", nullable = false)
     var sizeBytes: Long = 0,
 
@@ -49,6 +54,7 @@ class StoredFile(
     @Column(name = "storage", nullable = false, length = 16)
     var storage: String = "local",
 
+    /** 文件元数据创建时间，由 Hibernate 自动写入。 */
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: LocalDateTime? = null,

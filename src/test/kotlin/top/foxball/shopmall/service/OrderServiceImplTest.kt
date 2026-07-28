@@ -117,6 +117,47 @@ class OrderServiceImplTest {
     }
 
     @Test
+    fun `customer cancellation restocks once and schedules Checkout compensation`() {
+        val order = OrderEntity(
+            id = 101,
+            orderNo = "ORDER-101",
+            customerId = 5,
+            status = OrderStatus.PENDING_PAYMENT,
+            stripeCheckoutSessionId = "cs_101",
+            expiresAt = clock.instant().plusSeconds(1800),
+        )
+        val item = OrderItem(id = 201, order = order, productId = 10, quantity = 2)
+        val cancelled = OrderEntity(
+            id = 101,
+            orderNo = order.orderNo,
+            customerId = order.customerId,
+            status = OrderStatus.CANCELLED,
+            stripeCheckoutSessionId = order.stripeCheckoutSessionId,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(101)).thenReturn(listOf(item))
+        `when`(
+            orderRepository.markCancelled(
+                101,
+                OrderStatus.PENDING_PAYMENT,
+                OrderStatus.CANCELLED,
+                clock.instant(),
+                "customer request",
+            ),
+        ).thenReturn(1)
+        `when`(eventPublisher.publishInTx(anyString(), anyLong(), anyString(), anyString()))
+            .thenReturn(OutboxEvent())
+        `when`(productRepository.restock(10, 2)).thenReturn(1)
+        `when`(orderRepository.findById(101)).thenReturn(Optional.of(cancelled))
+
+        val result = service.cancel(5, order.orderNo, "customer request")
+
+        assertEquals(OrderStatus.CANCELLED, result.order.status)
+        verify(productRepository).restock(10, 2)
+        verify(paymentService).cancelOrRefund(order, "customer-cancel")
+    }
+
+    @Test
     fun `refund restores stock and sales only after paid transition succeeds`() {
         val order = OrderEntity(
             id = 100,

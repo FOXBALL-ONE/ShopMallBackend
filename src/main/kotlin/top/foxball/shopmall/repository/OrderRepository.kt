@@ -43,6 +43,8 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
 
     fun findByPaymentIntentId(paymentIntentId: String): OrderEntity?
 
+    fun findByStripeCheckoutSessionId(sessionId: String): OrderEntity?
+
     @Query("select o.status from OrderEntity o where o.id = :id")
     fun findStatusById(@Param("id") id: Long): OrderStatus?
 
@@ -65,13 +67,24 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(
-        "update OrderEntity o set o.paymentIntentId = :paymentIntentId " +
-            "where o.id = :id and o.status = :status and o.paymentIntentId is null",
+        "update OrderEntity o set o.stripeCheckoutSessionId = :sessionId, o.paymentIntentId = :paymentIntentId " +
+            "where o.id = :id and o.status = :status and o.stripeCheckoutSessionId is null",
     )
-    fun attachPaymentIntent(
+    fun attachStripeCheckoutSession(
         @Param("id") id: Long,
-        @Param("paymentIntentId") paymentIntentId: String,
+        @Param("sessionId") sessionId: String,
+        @Param("paymentIntentId") paymentIntentId: String?,
         @Param("status") status: OrderStatus = OrderStatus.PENDING_PAYMENT,
+    ): Int
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+        "update OrderEntity o set o.paymentIntentId = :paymentIntentId " +
+            "where o.stripeCheckoutSessionId = :sessionId and o.paymentIntentId is null",
+    )
+    fun attachPaymentIntentToStripeCheckoutSession(
+        @Param("sessionId") sessionId: String,
+        @Param("paymentIntentId") paymentIntentId: String,
     ): Int
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)

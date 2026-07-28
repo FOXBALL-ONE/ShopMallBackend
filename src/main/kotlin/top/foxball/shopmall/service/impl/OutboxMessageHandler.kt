@@ -30,7 +30,10 @@ class OutboxMessageHandler(
         if (!shouldHandle) return
 
         when (aggregateType) {
-            "ORDER" -> if (eventType == "PI_CREATE") paymentService.createPaymentIntent(aggregateId)
+            "ORDER" -> when (eventType) {
+                "PAYMENT_CANCEL_OR_REFUND" -> paymentService.reconcileCancellation(aggregateId)
+                "PAYMENT_CONFLICT_REFUND" -> paymentService.reconcileConflictRefund(aggregateId)
+            }
             "SHIPMENT" -> shipmentOutboxProcessor.handle(aggregateId, eventType)
         }
 

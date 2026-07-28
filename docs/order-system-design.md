@@ -62,7 +62,7 @@ OrderController ──► OrderService.placeOrder(userId, request)
 [Outbox Relay] OutboxRelayScheduler（@Scheduled）：扫 outbox 未投递/超 SLA 未确认行 → XADD
 [Stream 消费者] OrderEventConsumer：消费事件驱动后续（§5）
 [@Scheduled] OrderTimeoutScheduler：扫 expiresAt < now → 取消 + 回补 + 作废 PI（§5.3，需 @EnableScheduling）
-[Stripe Webhook] /api/orders/webhook → 原始字节验签 → 区分幂等/冲突推进状态（§6.3）
+[Stripe Webhook] /webhook → 原始字节验签 → 区分幂等/冲突推进状态（§6.3）
 ```
 
 ### 无错保证链
@@ -397,12 +397,12 @@ data class StripeProperties(
 
 ### 6.3 Webhook 验签与状态推进
 
-`controller/OrderWebhookController.kt` `POST /api/orders/webhook`（`permitAll`）。
+`controller/StripeWebhookController.kt` `POST /webhook`（`permitAll`）。
 
 **原始字节验签**：Stripe 签名是 HMAC-SHA256 over **原始请求体字节**。`@RequestBody` 会消费 InputStream 且按 charset 解码，含非 ASCII 字节（跨境姓名/地址常见）时重编码后 HMAC 恒失败。必须用 `HttpServletRequest`：
 
 ```kotlin
-@PostMapping("/api/orders/webhook")
+@PostMapping("/webhook")
 fun webhook(req: HttpServletRequest): ResponseEntity<ApiResponse> {
     val payload = req.inputStream.readBytes().toString(StandardCharsets.UTF_8)  // 原始字节
     val sigHeader = req.getHeader("Stripe-Signature")
@@ -442,7 +442,7 @@ fun webhook(req: HttpServletRequest): ResponseEntity<ApiResponse> {
 | GET | `/api/orders/{orderNo}` | authenticated | 订单详情；**非 owner 统一返回 404**（非 403），关闭存在性预言机 |
 | GET | `/api/orders/{orderNo}/payment` | authenticated | 按需获取 `clientSecret`（PI 创建滞后/重试） |
 | POST | `/api/orders/{orderNo}/cancel` | authenticated | 客户主动取消未支付单（状态机推进 + 回补 + 作废 PI） |
-| POST | `/api/orders/webhook` | permitAll | Stripe 回调（原始字节验签，§6.3） |
+| POST | `/webhook` | permitAll | Stripe 回调（原始字节验签，§6.3） |
 | GET | `/api/admin/orders` | admin | 管理端列表（分页 + 多条件过滤） |
 | POST | `/api/admin/orders/{orderNo}/refund` | admin | 退款 PAID → CANCELLED + Stripe refund + 回补库存 + 冲销销量 |
 
@@ -481,7 +481,7 @@ data class OrderLineRequest(
 ### 7.3 SecurityConfig 调整 — `config/SecurityConfig.kt`
 
 ```kotlin
-it.requestMatchers(HttpMethod.POST, "/api/orders/webhook").permitAll()
+it.requestMatchers(HttpMethod.POST, "/webhook").permitAll()
 ```
 其余订单端点走默认 `anyRequest().authenticated()`。**CORS `allowedHeaders` 追加 `Idempotency-Key`**（否则浏览器下单被预检拦截）。
 
@@ -542,7 +542,7 @@ fun onTransientDataAccess(ex: DataAccessException): ResponseEntity<Response> =
 - `service/OrderService.kt`（接口）、`service/impl/OrderServiceImpl.kt`（`@Service @Transactional(readOnly=true)` 类级 + 写方法 `@Transactional`）
 - `service/impl/OrderEventConsumer.kt`、`OrderTimeoutScheduler.kt`、`OutboxRelayScheduler.kt`
 - `shared/OrderIdempotencyService.kt`、`OrderEventPublisher.kt`、`OrderNoGenerator.kt`
-- `controller/OrderController.kt`、`OrderWebhookController.kt`、`OrderResponses.kt`
+- `controller/OrderController.kt`、`StripeWebhookController.kt`、`OrderResponses.kt`
 - `handler/BusinessException.kt` 内追加 5 个订单异常子类
 - `entity/redis/OrderEvent.kt`（可选，死信审计）
 - `db/migration/V*_create_order_core.sql`、`V*_create_domain_outbox.sql`
@@ -550,7 +550,7 @@ fun onTransientDataAccess(ex: DataAccessException): ResponseEntity<Response> =
 **修改**：
 
 - `repository/ProductRepository.kt` — 加 `decrementStock` / `restock` / `incrementSales` / `decrementSales`（`@Modifying @Query`）
-- `config/SecurityConfig.kt` — 放行 `/api/orders/webhook`，CORS 加 `Idempotency-Key`
+- `config/SecurityConfig.kt` — 放行 `/webhook`，CORS 加 `Idempotency-Key`
 - `shared/StripeClient.kt`（`StripeConfig` / `StripeProperties`）— **`StripeProperties` 加 `webhookSecret` 字段**
 - `src/main/resources/application.yaml` — `shopmall.order.*` + `stripe.webhook-secret`；**`redis.clear-on-startup` 生产置 false**
 - `src/main/resources/application-test.yaml` — 测试用短超时
@@ -588,7 +588,7 @@ fun onTransientDataAccess(ex: DataAccessException): ResponseEntity<Response> =
 3. **Testcontainers-PostgreSQL 集成测试**（必加）：`@Testcontainers` + 真实 PostgreSQL 容器，针对 `decrementStock`/`restock`/`incrementSales`/`decrementSales` 跨具体子类（`BikiniSuit`、`Dress`）断言：受影响行数、`warehouse_volume`/`sales_volume` 值、**多态 UPDATE 目标**（确认只更新根表 `products`）、JPQL 枚举参数绑定在真 PG 下的行为。H2 MODE=PostgreSQL 无法保证这些语义一致，H2 测试通过≠生产正确。
 4. **并发压测**：100 线程同抢库存=10 的 SKU，断言**成功单数 ≤ 10、无负库存、订单数 ≤ 10**。压测必须在真实 PostgreSQL（Testcontainers）上跑。
 5. **Stream / 超时 / outbox**：模拟 Redis 不可用、relay 重复 XADD、handler 事务失败后重投和消费者失败达上限。断言不使用处理前 Redis processed 标记，领域条件 UPDATE/唯一约束吸收重复，失败重投不会被吞掉；`domain_outbox` 正确进入 ACKNOWLEDGED/NEEDS_REPLAY。
-6. **Stripe**：`./gradlew test` 覆盖 webhook 原始字节验签（含非 ASCII 负载）与状态推进；本地用 Stripe CLI `stripe listen --forward-to localhost:8080/api/orders/webhook` 转发真实事件；验证金额 cents 转换。
+6. **Stripe**：`./gradlew test` 覆盖 webhook 原始字节验签（含非 ASCII 负载）与状态推进；本地用 Stripe CLI `stripe listen --forward-to localhost:8080/webhook` 转发真实事件；验证金额 cents 转换。
 7. **手工冒烟**：带 `Idempotency-Key` 调 `POST /api/orders` → `clientSecret`（或轮询 `/payment`）→ 前端确认支付 → webhook 推进 `PAID` → `GET /api/orders/{orderNo}` 状态正确；超时不付 → 自动取消 + PI 作废 + 库存回补。
 
 ---

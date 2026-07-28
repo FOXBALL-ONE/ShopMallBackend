@@ -94,8 +94,8 @@ class UserController(
         )
         val rs = Response(
             id = requireNotNull(user.id),
-            email = user.email,
-            username = user.username,
+            email = requireNotNull(user.email),
+            username = requireNotNull(user.username),
             firstName = user.firstName,
             lastName = user.lastName,
             emailVerified = user.emailVerified,

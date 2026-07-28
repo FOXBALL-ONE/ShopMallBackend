@@ -23,22 +23,28 @@ import java.time.Instant
     ],
 )
 class OrderIdempotency(
+    /** 幂等记录的数据库自增主键。 */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     var id: Long? = null,
 
+    /** 发起下单请求的客户标识。 */
     @Column(name = "customer_id", nullable = false)
     var customerId: Long = 0,
 
+    /** 调用方提供的下单幂等键。 */
     @Column(name = "idempotency_key", nullable = false, length = 128)
     var idempotencyKey: String = "",
 
+    /** 下单请求内容摘要，用于识别同一幂等键的参数冲突。 */
     @Column(name = "request_hash", nullable = false, length = 64)
     var requestHash: String = "",
 
+    /** 首次成功创建并返回给调用方的订单号。 */
     @Column(name = "order_no", nullable = false, length = 32)
     var orderNo: String = "",
 
+    /** 幂等记录创建时间，由 Hibernate 自动写入。 */
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: Instant? = null,

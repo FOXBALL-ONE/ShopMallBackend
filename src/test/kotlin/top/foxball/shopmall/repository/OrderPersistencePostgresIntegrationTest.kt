@@ -1,18 +1,34 @@
 package top.foxball.shopmall.repository
 
+import com.stripe.model.Event
+import com.stripe.model.EventDataObjectDeserializer
+import com.stripe.model.StripeObject
+import com.stripe.model.checkout.Session
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.`when`
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.annotation.Propagation
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.postgresql.PostgreSQLContainer
 import top.foxball.shopmall.entity.jdbc.Dress
+import top.foxball.shopmall.entity.jdbc.OrderEntity
+import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
+import top.foxball.shopmall.entity.jdbc.OrderStatus
+import top.foxball.shopmall.service.OrderPaymentService
 import java.math.BigDecimal
+import java.time.Instant
+import java.util.Optional
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest
@@ -21,6 +37,8 @@ import kotlin.test.assertEquals
 class OrderPersistencePostgresIntegrationTest @Autowired constructor(
     private val productRepository: ProductRepository,
     private val webhookEventRepository: StripeWebhookEventRepository,
+    private val orderRepository: OrderRepository,
+    private val orderPaymentService: OrderPaymentService,
 ) {
     @Test
     fun `stock and sales updates target the joined product root atomically`() {
@@ -51,6 +69,57 @@ class OrderPersistencePostgresIntegrationTest @Autowired constructor(
     fun `stripe webhook event claim is database idempotent`() {
         assertEquals(1, webhookEventRepository.claim("evt_pg_1", "payment_intent.succeeded"))
         assertEquals(0, webhookEventRepository.claim("evt_pg_1", "payment_intent.succeeded"))
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    fun `unreadable Checkout event rolls back claim and same event can be retried`() {
+        val eventId = "evt_pg_checkout_retry"
+        val eventType = "checkout.session.completed"
+        val unreadable = checkoutEvent(eventId, eventType, null)
+
+        assertFailsWith<IllegalStateException> { orderPaymentService.handleWebhookEvent(unreadable) }
+        assertFalse(webhookEventRepository.existsById(eventId))
+
+        val order = orderRepository.saveAndFlush(
+            OrderEntity(
+                orderNo = "ORD-PG-WEBHOOK-RETRY",
+                customerId = 7,
+                status = OrderStatus.PENDING_PAYMENT,
+                itemsSubtotal = BigDecimal("29.99"),
+                totalAmount = BigDecimal("29.99"),
+                stripeCheckoutSessionId = "cs_pg_retry",
+                expiresAt = Instant.parse("2026-07-28T10:00:00Z"),
+                shippingAddress = OrderShippingAddress(
+                    name = "Webhook Test",
+                    phone = "+14155550123",
+                    country = "US",
+                    city = "Austin",
+                    address1 = "1 Main St",
+                ),
+            ),
+        )
+        val session = mock(Session::class.java).also {
+            `when`(it.id).thenReturn("cs_pg_retry")
+            `when`(it.paymentIntent).thenReturn("pi_pg_retry")
+            `when`(it.paymentStatus).thenReturn("paid")
+        }
+
+        orderPaymentService.handleWebhookEvent(checkoutEvent(eventId, eventType, session))
+
+        assertTrue(webhookEventRepository.existsById(eventId))
+        assertEquals(OrderStatus.PAID, orderRepository.findById(requireNotNull(order.id)).orElseThrow().status)
+    }
+
+    private fun checkoutEvent(id: String, type: String, eventObject: StripeObject?): Event {
+        val deserializer = mock(EventDataObjectDeserializer::class.java)
+        `when`(deserializer.getObject()).thenReturn(Optional.ofNullable(eventObject))
+        return mock(Event::class.java).also { event ->
+            `when`(event.id).thenReturn(id)
+            `when`(event.type).thenReturn(type)
+            `when`(event.apiVersion).thenReturn("2025-12-15.clover")
+            `when`(event.dataObjectDeserializer).thenReturn(deserializer)
+        }
     }
 
     companion object {

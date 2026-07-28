@@ -23,7 +23,7 @@ management:
 
 shopmall:
   order:
-    payment-timeout-minutes: 1
+    payment-timeout-minutes: 30
     idempotency-ttl-seconds: 60
     stream-max-len: 100
     outbox-max-attempts: 3
@@ -36,3 +36,8 @@ shopmall:
 stripe:
   secret-key: "sk_test_placeholder"
   webhook-secret: "whsec_test_placeholder"
+  webhook-max-body-bytes: 262144
+  webhook:
+    endpoint-url: "http://localhost:8080/webhook"
+  checkout:
+    storefront-base-url: "http://localhost:3000"

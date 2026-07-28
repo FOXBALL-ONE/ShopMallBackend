@@ -21,6 +21,8 @@ import org.springframework.web.servlet.NoHandlerFoundException
 import org.springframework.web.servlet.resource.NoResourceFoundException
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
+import top.foxball.shopmall.service.payMent.PaymentProviderError
+import top.foxball.shopmall.service.payMent.PaymentProviderException
 
 
 /** 全局异常处理：将各类异常转换为统一 [Response] 响应。 */
@@ -43,6 +45,24 @@ class GlobalExceptionHandler {
             .retryAfter(1)
             .message(ex.message)
             .build()
+    }
+
+    @ExceptionHandler(PaymentProviderException::class)
+    fun onPaymentProviderException(ex: PaymentProviderException): ResponseEntity<Response> = when (ex.error) {
+        PaymentProviderError.INVALID_REQUEST, PaymentProviderError.SIGNATURE_VERIFICATION ->
+            builder.badRequest().message(ex.message).build()
+        PaymentProviderError.PAYMENT_NOT_FOUND -> builder.notFound().message(ex.message).build()
+        PaymentProviderError.CONFLICT, PaymentProviderError.UNSUPPORTED_OPERATION ->
+            builder.status(org.springframework.http.HttpStatus.CONFLICT).message(ex.message).build()
+        PaymentProviderError.RATE_LIMITED -> builder.tooManyRequests().retryAfter(1).message(ex.message).build()
+        PaymentProviderError.AUTHENTICATION,
+        PaymentProviderError.TEMPORARILY_UNAVAILABLE ->
+            builder.serviceUnavailable().retryAfter(1).message(ex.message).build()
+        PaymentProviderError.UNKNOWN -> if (ex.retryable) {
+            builder.serviceUnavailable().retryAfter(1).message(ex.message).build()
+        } else {
+            builder.exception().message(ex.message).build()
+        }
     }
 
     @ExceptionHandler(AccessDeniedException::class)

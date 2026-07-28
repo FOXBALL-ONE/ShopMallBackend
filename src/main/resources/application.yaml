@@ -107,7 +107,7 @@ shopmall:
       # 发件人地址，留空则回退到 spring.mail.username
       from: "${MAIL_FROM:}"
   order:
-    payment-timeout-minutes: "${ORDER_PAYMENT_TIMEOUT_MINUTES:15}"
+    payment-timeout-minutes: "${ORDER_PAYMENT_TIMEOUT_MINUTES:30}"
     idempotency-ttl-seconds: "${ORDER_IDEMPOTENCY_TTL:600}"
     stream-max-len: "${ORDER_STREAM_MAX_LEN:10000}"
     outbox-max-attempts: "${ORDER_OUTBOX_MAX_ATTEMPTS:5}"
@@ -143,4 +143,9 @@ shopmall:
 stripe:
   public-key: "${STRIPE_PUBLIC_KEY:}"
   secret-key: "${STRIPE_SECRET_KEY:}"
-  webhook-secret: "${STRIPE_WEBHOOK_SECRET:}"
+  webhook-secret: "${STRIPE_WEBHOOK_SECRET:${WEBHOOK_SECRET_SNAPSHOT:}}"
+  webhook-max-body-bytes: "${STRIPE_WEBHOOK_MAX_BODY_BYTES:262144}"
+  webhook:
+    endpoint-url: "${STRIPE_WEBHOOK_URL:${WEBHOOK_SECRET_SNAPSHOT_URL:}}"
+  checkout:
+    storefront-base-url: "${STOREFRONT_BASE_URL:http://localhost:3000}"

@@ -36,6 +36,7 @@ import java.time.LocalDateTime
     ],
 )
 class CustomerReview(
+    /** 客户评价的数据库自增主键。 */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     var id: Long? = null,

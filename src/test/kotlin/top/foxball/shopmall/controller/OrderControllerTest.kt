@@ -25,6 +25,8 @@ import top.foxball.shopmall.handler.GlobalExceptionHandler
 import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.service.AdminOrderQuery
 import top.foxball.shopmall.service.OrderLineCommand
+import top.foxball.shopmall.service.OrderCheckoutService
+import top.foxball.shopmall.service.OrderCheckoutView
 import top.foxball.shopmall.service.OrderService
 import top.foxball.shopmall.service.OrderView
 import top.foxball.shopmall.service.PlaceOrderCommand
@@ -34,12 +36,16 @@ import java.util.UUID
 
 class OrderControllerTest {
     private lateinit var orderService: OrderService
+    private lateinit var orderCheckoutService: OrderCheckoutService
     private lateinit var mockMvc: MockMvc
 
     @BeforeEach
     fun setUp() {
         orderService = mock(OrderService::class.java)
-        mockMvc = MockMvcBuilders.standaloneSetup(OrderController(orderService, ResponseBuilder()))
+        orderCheckoutService = mock(OrderCheckoutService::class.java)
+        mockMvc = MockMvcBuilders.standaloneSetup(
+            OrderController(orderService, orderCheckoutService, ResponseBuilder()),
+        )
             .setControllerAdvice(GlobalExceptionHandler())
             .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
             .build()
@@ -72,9 +78,29 @@ class OrderControllerTest {
             .andExpect(status().isCreated)
             .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
             .andExpect(jsonPath("$.data.items[0].unit_price").value(29.99))
-            .andExpect(jsonPath("$.data.client_secret").value("pi_secret"))
 
         verify(orderService).placeOrder(7L, expectedCommand, "idem-1")
+    }
+
+    @Test
+    fun `open checkout returns only server generated redirect URL`() {
+        authenticate(7L)
+        `when`(orderCheckoutService.openCheckout(7L, "ORD-API-1")).thenReturn(
+            OrderCheckoutView(
+                orderNo = "ORD-API-1",
+                status = OrderStatus.PENDING_PAYMENT,
+                checkoutUrl = "https://checkout.stripe.com/c/pay/cs_test_123",
+                expiresAt = java.time.Instant.parse("2026-07-27T10:30:00Z"),
+            ),
+        )
+
+        mockMvc.perform(post("/api/orders/ORD-API-1/checkout"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.status").value("PENDING_PAYMENT"))
+            .andExpect(jsonPath("$.data.checkout_url").value("https://checkout.stripe.com/c/pay/cs_test_123"))
+
+        verify(orderCheckoutService).openCheckout(7L, "ORD-API-1")
     }
 
     @Test
@@ -159,7 +185,6 @@ class OrderControllerTest {
                     lineTotal = BigDecimal("29.99"),
                 ),
             ),
-            clientSecret = "pi_secret",
         )
     }
 }
