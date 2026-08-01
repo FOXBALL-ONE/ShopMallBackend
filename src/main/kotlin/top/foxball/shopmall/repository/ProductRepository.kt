@@ -6,12 +6,26 @@ import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import top.foxball.shopmall.entity.jdbc.Product
 
+/** 商品图片列表中排序第一的图片。 */
+interface ProductPrimaryImage {
+    val productId: Long
+    val imageUrl: String
+}
+
 interface ProductRepository : JpaRepository<Product, Long> {
     fun findAllByStatusOrderByCreatedAtDesc(status: Product.Status): List<Product>
 
     fun findByIdAndStatus(id: Long, status: Product.Status): Product?
 
     fun existsByTags_Id(tagId: Long): Boolean
+
+    /** 批量读取商品主图，避免购物车逐条初始化 [Product.images] 造成 N+1 查询。 */
+    @Query(
+        value = "select product_id as productId, image_url as imageUrl from products_images " +
+            "where product_id in :productIds and sort_order = 0",
+        nativeQuery = true,
+    )
+    fun findPrimaryImagesByProductIds(@Param("productIds") productIds: Collection<Long>): List<ProductPrimaryImage>
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(

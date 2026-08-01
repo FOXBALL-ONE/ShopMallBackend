@@ -8,6 +8,7 @@ import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.handler.ParamErrorException
+import top.foxball.shopmall.repository.ShoppingCartRepository
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.UserService
 import java.time.LocalDateTime
@@ -20,6 +21,7 @@ class UserServiceImpl(
     private val userRepository: UserRepository,
     private val loginTokenAuthentication: LoginTokenAuthentication,
     private val passwordEncoder: PasswordEncoder,
+    private val shoppingCartRepository: ShoppingCartRepository,
 ) : UserService {
 
     @Transactional
@@ -120,7 +122,8 @@ class UserServiceImpl(
 
     @Transactional
     override fun deleteUserById(id: Long): Boolean {
-        val user = userRepository.findById(id).orElse(null) ?: return false
+        val user = userRepository.findByIdForUpdate(id) ?: return false
+        shoppingCartRepository.deleteByCustomerId(id)
         userRepository.delete(user)
         loginTokenAuthentication.revokeAll(id)
         return true
@@ -135,19 +138,18 @@ class UserServiceImpl(
         val distinctIds = ids.distinct()
         if (distinctIds.isEmpty()) return true
 
-        val users = usersInRequestedOrder(distinctIds)
+        val users = lockedUsersInRequestedOrder(distinctIds)
         if (users.size != distinctIds.size) return false
 
+        shoppingCartRepository.deleteAllByCustomerIdIn(distinctIds)
         userRepository.deleteAll(users)
         distinctIds.forEach(loginTokenAuthentication::revokeAll)
         return true
     }
 
-    private fun usersInRequestedOrder(ids: List<Long>): List<User> {
-        if (ids.isEmpty()) return emptyList()
-
-        val usersById = userRepository.findAllById(ids).associateBy { it.id }
-        return ids.distinct().mapNotNull(usersById::get)
+    private fun lockedUsersInRequestedOrder(ids: List<Long>): List<User> {
+        val usersById = userRepository.findAllByIdInForUpdate(ids).associateBy { it.id }
+        return ids.mapNotNull(usersById::get)
     }
 
     private fun usersWithDeliveryAddressInRequestedOrder(ids: List<Long>): List<User> {

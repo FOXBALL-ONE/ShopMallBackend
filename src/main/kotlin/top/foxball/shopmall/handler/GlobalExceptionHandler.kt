@@ -1,6 +1,7 @@
 package top.foxball.shopmall.handler
 
 import jakarta.servlet.http.HttpServletRequest
+import jakarta.validation.ConstraintViolationException
 import org.slf4j.LoggerFactory
 import org.springframework.core.annotation.Order
 import org.springframework.dao.DataAccessException
@@ -16,6 +17,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
+import org.springframework.web.method.annotation.HandlerMethodValidationException
 import org.springframework.web.multipart.MaxUploadSizeExceededException
 import org.springframework.web.servlet.NoHandlerFoundException
 import org.springframework.web.servlet.resource.NoResourceFoundException
@@ -110,6 +112,30 @@ class GlobalExceptionHandler {
         val detail = ex.fieldErrors.joinToString("; ") { "${it.field}: ${it.defaultMessage}" }
         return builder.badRequest()
             .message("参数校验失败：$detail")
+            .build()
+    }
+
+    @ExceptionHandler(HandlerMethodValidationException::class)
+    fun onHandlerMethodValidationException(ex: HandlerMethodValidationException): ResponseEntity<Response> {
+        val detail = ex.parameterValidationResults.joinToString("; ") { result ->
+            val parameterName = result.methodParameter.parameterName ?: "parameter"
+            val messages = result.resolvableErrors.joinToString(", ") { error ->
+                error.defaultMessage ?: "invalid value"
+            }
+            "$parameterName: $messages"
+        }
+        return builder.badRequest()
+            .message(if (detail.isBlank()) "参数校验失败" else "参数校验失败: $detail")
+            .build()
+    }
+
+    @ExceptionHandler(ConstraintViolationException::class)
+    fun onConstraintViolationException(ex: ConstraintViolationException): ResponseEntity<Response> {
+        val detail = ex.constraintViolations.joinToString("; ") { violation ->
+            "${violation.propertyPath}: ${violation.message}"
+        }
+        return builder.badRequest()
+            .message("参数校验失败: $detail")
             .build()
     }
 
