@@ -32,6 +32,7 @@ import java.time.Instant
     indexes = [
         Index(name = "idx_orders_no", columnList = "order_no"),
         Index(name = "idx_orders_customer_status", columnList = "customer_id,status"),
+        Index(name = "idx_orders_customer_created", columnList = "customer_id,created_at"),
         Index(name = "idx_orders_status_timeout", columnList = "status,expires_at"),
     ],
 )

@@ -110,6 +110,15 @@ class IdempotencyConflictException(
     message: String = "幂等键已用于不同请求",
 ) : BusinessException(HttpStatus.CONFLICT, message)
 
+class OrderWindowLimitException(
+    val retryAfterSeconds: Long,
+    message: String = "下单过于频繁，请稍后再试",
+) : BusinessException(HttpStatus.TOO_MANY_REQUESTS, message)
+
+class IdempotencyKeyInvalidException(
+    message: String = "幂等键无效或不属于当前用户",
+) : BusinessException(HttpStatus.FORBIDDEN, message)
+
 class CarrierException(
     message: String = "承运商服务异常",
 ) : BusinessException(HttpStatus.BAD_GATEWAY, message)

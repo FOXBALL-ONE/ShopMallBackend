@@ -114,6 +114,8 @@ shopmall:
     outbox-ack-sla-seconds: "${ORDER_OUTBOX_ACK_SLA:300}"
     outbox-retention-days: "${ORDER_OUTBOX_RETENTION_DAYS:7}"
     max-quantity-per-line: "${ORDER_SINGLE_SKU_LIMIT:99}"
+    creation-window-minutes: "${ORDER_CREATION_WINDOW_MINUTES:10}"
+    idempotency-key-ttl-minutes: "${ORDER_KEY_TTL_MINUTES:10}"
   logistics:
     webhook-max-body-bytes: "${LOGISTICS_WEBHOOK_MAX_BODY_BYTES:1048576}"
     # 轮询调度总开关；首期默认 true 以驱动 MANUAL 之外的轮询适配器

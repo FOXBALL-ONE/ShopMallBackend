@@ -30,6 +30,8 @@ import top.foxball.shopmall.service.OrderCheckoutView
 import top.foxball.shopmall.service.OrderService
 import top.foxball.shopmall.service.OrderView
 import top.foxball.shopmall.service.PlaceOrderCommand
+import top.foxball.shopmall.shared.IssuedKey
+import top.foxball.shopmall.shared.OrderIdempotencyKeyService
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.math.BigDecimal
 import java.util.UUID
@@ -37,14 +39,16 @@ import java.util.UUID
 class OrderControllerTest {
     private lateinit var orderService: OrderService
     private lateinit var orderCheckoutService: OrderCheckoutService
+    private lateinit var orderIdempotencyKeyService: OrderIdempotencyKeyService
     private lateinit var mockMvc: MockMvc
 
     @BeforeEach
     fun setUp() {
         orderService = mock(OrderService::class.java)
         orderCheckoutService = mock(OrderCheckoutService::class.java)
+        orderIdempotencyKeyService = mock(OrderIdempotencyKeyService::class.java)
         mockMvc = MockMvcBuilders.standaloneSetup(
-            OrderController(orderService, orderCheckoutService, ResponseBuilder()),
+            OrderController(orderService, orderCheckoutService, orderIdempotencyKeyService, ResponseBuilder()),
         )
             .setControllerAdvice(GlobalExceptionHandler())
             .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
@@ -83,9 +87,22 @@ class OrderControllerTest {
     }
 
     @Test
+    fun `place order without a server issued idempotency key is rejected`() {
+        authenticate(7L)
+
+        mockMvc.perform(
+            post("/api/orders")
+                .param("product_ids", "40")
+                .param("quantities", "1")
+                .param("address_id", UUID.randomUUID().toString()),
+        )
+            .andExpect(status().isBadRequest)
+    }
+
+    @Test
     fun `open checkout returns only server generated redirect URL`() {
         authenticate(7L)
-        `when`(orderCheckoutService.openCheckout(7L, "ORD-API-1")).thenReturn(
+        `when`(orderCheckoutService.openCheckout(7L, "ORD-API-1", "idem-1")).thenReturn(
             OrderCheckoutView(
                 orderNo = "ORD-API-1",
                 status = OrderStatus.PENDING_PAYMENT,
@@ -94,13 +111,39 @@ class OrderControllerTest {
             ),
         )
 
-        mockMvc.perform(post("/api/orders/ORD-API-1/checkout"))
+        mockMvc.perform(
+            post("/api/orders/ORD-API-1/checkout")
+                .header("Idempotency-Key", "idem-1"),
+        )
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
             .andExpect(jsonPath("$.data.status").value("PENDING_PAYMENT"))
             .andExpect(jsonPath("$.data.checkout_url").value("https://checkout.stripe.com/c/pay/cs_test_123"))
 
-        verify(orderCheckoutService).openCheckout(7L, "ORD-API-1")
+        verify(orderCheckoutService).openCheckout(7L, "ORD-API-1", "idem-1")
+    }
+
+    @Test
+    fun `checkout without an idempotency key is rejected`() {
+        authenticate(7L)
+
+        mockMvc.perform(post("/api/orders/ORD-API-1/checkout"))
+            .andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `issuing an idempotency key returns the issued key and expiry`() {
+        authenticate(7L)
+        val expiresAt = java.time.Instant.parse("2026-07-27T10:40:00Z")
+        `when`(orderIdempotencyKeyService.issue(7L))
+            .thenReturn(IssuedKey("issued-key-1", expiresAt))
+
+        mockMvc.perform(post("/api/orders/idempotency-keys"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.idempotency_key").value("issued-key-1"))
+            .andExpect(jsonPath("$.data.expires_at").value("2026-07-27T10:40:00Z"))
+
+        verify(orderIdempotencyKeyService).issue(7L)
     }
 
     @Test

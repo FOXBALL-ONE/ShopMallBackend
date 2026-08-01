@@ -5,8 +5,11 @@ import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.inOrder
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
+import org.springframework.data.domain.PageImpl
+import org.springframework.data.domain.PageRequest
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import top.foxball.shopmall.config.OrderProperties
 import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
@@ -15,12 +18,17 @@ import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.entity.jdbc.OutboxEvent
+import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.entity.jdbc.User
+import top.foxball.shopmall.handler.IdempotencyKeyInvalidException
+import top.foxball.shopmall.handler.InsufficientStockException
+import top.foxball.shopmall.handler.OrderWindowLimitException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.impl.OrderServiceImpl
+import top.foxball.shopmall.shared.OrderIdempotencyKeyService
 import top.foxball.shopmall.shared.OrderIdempotencyService
 import top.foxball.shopmall.shared.OrderNoGenerator
 import tools.jackson.databind.ObjectMapper
@@ -32,6 +40,7 @@ import java.util.Optional
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class OrderServiceImplTest {
     private val orderRepository = mock(OrderRepository::class.java)
@@ -43,6 +52,7 @@ class OrderServiceImplTest {
     private val eventPublisher = mock(DomainEventPublisher::class.java)
     private val paymentService = mock(OrderPaymentService::class.java)
     private val idempotencyService = mock(OrderIdempotencyService::class.java)
+    private val orderIdempotencyKeyService = mock(OrderIdempotencyKeyService::class.java)
     private val orderNoGenerator = mock(OrderNoGenerator::class.java)
     private val objectMapper = mock(ObjectMapper::class.java)
     private val clock = Clock.fixed(Instant.parse("2026-07-25T03:00:00Z"), ZoneOffset.UTC)
@@ -56,6 +66,7 @@ class OrderServiceImplTest {
         eventPublisher,
         paymentService,
         idempotencyService,
+        orderIdempotencyKeyService,
         orderNoGenerator,
         OrderProperties(),
         objectMapper,
@@ -80,6 +91,11 @@ class OrderServiceImplTest {
         `when`(userService.getDeliveryAddress(5, addressId)).thenReturn(address)
         `when`(idempotencyService.acquire(5, "request-1"))
             .thenReturn(OrderIdempotencyService.Acquisition.Acquired)
+        `when`(orderIdempotencyKeyService.isValidFor(5, "request-1")).thenReturn(true)
+        `when`(orderIdempotencyKeyService.consume(5, "request-1")).thenReturn(true)
+        `when`(userRepository.findByIdForUpdate(5)).thenReturn(customer)
+        `when`(orderRepository.findByCustomerIdOrderByCreatedAtDesc(5, PageRequest.of(0, 1)))
+            .thenReturn(PageImpl(emptyList(), PageRequest.of(0, 1), 0))
         `when`(productRepository.findAllById(listOf(10L, 20L))).thenReturn(listOf(firstProduct, secondProduct))
         `when`(objectMapper.writeValueAsString(any())).thenReturn("{}")
         `when`(orderNoGenerator.next()).thenReturn("260725030000000001ABCDEFGH")
@@ -196,6 +212,137 @@ class OrderServiceImplTest {
         verify(productRepository).restock(10, 2)
         verify(productRepository).decrementSales(10, 2)
         verify(paymentService).cancelOrRefund(order, "admin-refund")
+    }
+
+    @Test
+    fun `place order rejects when a recent order falls inside the creation window`() {
+        val addressId = UUID.randomUUID()
+        val customer = User(id = 5, emailVerified = true)
+        val address = DeliveryAddressItem(
+            id = addressId,
+            name = "Alex Doe",
+            phone = "+14155550123",
+            country = "US",
+            city = "Seattle",
+            address1 = "1 Market Street",
+        )
+        val recentOrder = OrderEntity(
+            id = 200,
+            orderNo = "ORDER-200",
+            customerId = 5,
+            status = OrderStatus.CANCELLED,
+            createdAt = clock.instant().minusSeconds(60),
+        )
+        `when`(userRepository.findById(5)).thenReturn(Optional.of(customer))
+        `when`(userService.getDeliveryAddress(5, addressId)).thenReturn(address)
+        `when`(idempotencyService.acquire(5, "request-1"))
+            .thenReturn(OrderIdempotencyService.Acquisition.Acquired)
+        `when`(idempotencyService.replayOrderNo(anyLong(), anyString(), anyString())).thenReturn(null)
+        `when`(orderIdempotencyKeyService.isValidFor(5, "request-1")).thenReturn(true)
+        `when`(userRepository.findByIdForUpdate(5)).thenReturn(customer)
+        `when`(orderRepository.findByCustomerIdOrderByCreatedAtDesc(5, PageRequest.of(0, 1)))
+            .thenReturn(PageImpl(listOf(recentOrder), PageRequest.of(0, 1), 1))
+
+        val ex = assertFailsWith<OrderWindowLimitException> {
+            service.placeOrder(
+                5,
+                PlaceOrderCommand(
+                    items = listOf(OrderLineCommand(10, 1)),
+                    addressId = addressId,
+                ),
+                "request-1",
+            )
+        }
+
+        assertEquals(540L, ex.retryAfterSeconds)
+        verify(orderIdempotencyKeyService).consume(5, "request-1")
+        verify(orderRepository).findByCustomerIdOrderByCreatedAtDesc(5, PageRequest.of(0, 1))
+    }
+
+    @Test
+    fun `place order rejects an issued key that does not belong to the customer`() {
+        val addressId = UUID.randomUUID()
+        val customer = User(id = 5, emailVerified = true)
+        val address = DeliveryAddressItem(
+            id = addressId,
+            name = "Alex Doe",
+            phone = "+14155550123",
+            country = "US",
+            city = "Seattle",
+            address1 = "1 Market Street",
+        )
+        `when`(userRepository.findById(5)).thenReturn(Optional.of(customer))
+        `when`(userService.getDeliveryAddress(5, addressId)).thenReturn(address)
+        `when`(idempotencyService.acquire(5, "forged-key"))
+            .thenReturn(OrderIdempotencyService.Acquisition.Acquired)
+        `when`(idempotencyService.replayOrderNo(anyLong(), anyString(), anyString())).thenReturn(null)
+        `when`(orderIdempotencyKeyService.isValidFor(5, "forged-key")).thenReturn(false)
+
+        assertFailsWith<IdempotencyKeyInvalidException> {
+            service.placeOrder(
+                5,
+                PlaceOrderCommand(
+                    items = listOf(OrderLineCommand(10, 1)),
+                    addressId = addressId,
+                ),
+                "forged-key",
+            )
+        }
+
+        verify(idempotencyService).reject(5, "forged-key", "幂等键无效或不属于当前用户")
+        verify(orderIdempotencyKeyService).consume(5, "forged-key")
+        verify(orderRepository, never()).findByCustomerIdOrderByCreatedAtDesc(5, PageRequest.of(0, 1))
+    }
+
+    @Test
+    fun `place order failure consumes the issued key before rethrowing`() {
+        val addressId = UUID.randomUUID()
+        val customer = User(id = 5, emailVerified = true)
+        val address = DeliveryAddressItem(
+            id = addressId,
+            name = "Alex Doe",
+            phone = "+14155550123",
+            country = "US",
+            city = "Seattle",
+            address1 = "1 Market Street",
+        )
+        `when`(userRepository.findById(5)).thenReturn(Optional.of(customer))
+        `when`(userService.getDeliveryAddress(5, addressId)).thenReturn(address)
+        `when`(idempotencyService.acquire(5, "request-1"))
+            .thenReturn(OrderIdempotencyService.Acquisition.Acquired)
+        `when`(idempotencyService.replayOrderNo(anyLong(), anyString(), anyString())).thenReturn(null)
+        `when`(orderIdempotencyKeyService.isValidFor(5, "request-1")).thenReturn(true)
+        `when`(userRepository.findByIdForUpdate(5)).thenReturn(customer)
+        `when`(orderRepository.findByCustomerIdOrderByCreatedAtDesc(5, PageRequest.of(0, 1)))
+            .thenReturn(PageImpl(emptyList(), PageRequest.of(0, 1), 0))
+        `when`(productRepository.findAllById(listOf(10L))).thenReturn(listOf(product(10, "9.99")))
+        `when`(objectMapper.writeValueAsString(any())).thenReturn("{}")
+        `when`(orderNoGenerator.next()).thenReturn("260725030000000002ABCDEFGH")
+        `when`(orderRepository.saveAndFlush(any(OrderEntity::class.java))).thenAnswer {
+            it.getArgument<OrderEntity>(0).apply { id = 100 }
+        }
+        `when`(orderItemRepository.saveAllAndFlush(any<List<OrderItem>>())).thenAnswer {
+            it.getArgument<List<OrderItem>>(0)
+        }
+        `when`(eventPublisher.publishInTx(anyString(), anyLong(), anyString(), anyString()))
+            .thenReturn(OutboxEvent())
+        `when`(productRepository.decrementStock(10, 1)).thenReturn(0)
+        `when`(productRepository.findByIdAndStatus(10, Product.Status.ACTIVE))
+            .thenReturn(product(10, "9.99"))
+
+        assertFailsWith<InsufficientStockException> {
+            service.placeOrder(
+                5,
+                PlaceOrderCommand(
+                    items = listOf(OrderLineCommand(10, 1)),
+                    addressId = addressId,
+                ),
+                "request-1",
+            )
+        }
+
+        verify(idempotencyService).reject(5, "request-1", "商品库存不足: 10")
+        verify(orderIdempotencyKeyService).consume(5, "request-1")
     }
 
     private fun product(id: Long, price: String): Dress = Dress(size = Dress.Size.M).apply {

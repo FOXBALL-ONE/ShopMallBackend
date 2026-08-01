@@ -49,6 +49,14 @@ class GlobalExceptionHandler {
             .build()
     }
 
+    @ExceptionHandler(OrderWindowLimitException::class)
+    fun onOrderWindowLimitException(ex: OrderWindowLimitException): ResponseEntity<Response> {
+        return builder.status(ex.status)
+            .retryAfter(ex.retryAfterSeconds)
+            .message(ex.message)
+            .build()
+    }
+
     @ExceptionHandler(PaymentProviderException::class)
     fun onPaymentProviderException(ex: PaymentProviderException): ResponseEntity<Response> = when (ex.error) {
         PaymentProviderError.INVALID_REQUEST, PaymentProviderError.SIGNATURE_VERIFICATION ->

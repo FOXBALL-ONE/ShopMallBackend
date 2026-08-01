@@ -8,4 +8,7 @@ interface OrderIdempotencyRepository : JpaRepository<OrderIdempotency, Long> {
         customerId: Long,
         idempotencyKey: String,
     ): OrderIdempotency?
+
+    /** 供支付链接校验：查询订单对应的幂等键绑定。 */
+    fun findByCustomerIdAndOrderNo(customerId: Long, orderNo: String): OrderIdempotency?
 }

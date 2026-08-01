@@ -50,13 +50,13 @@ data class OrderPaymentView(
  */
 interface OrderService {
     /**
-     * 根据服务端商品与地址快照创建待支付订单，并使用幂等键防止重复扣减库存。
-     * 未提供幂等键时，调用方会按请求内容生成稳定键。
+     * 根据服务端商品与地址快照创建待支付订单，并使用服务端签发的幂等键防止重复扣减库存。
+     * 幂等键必须由 [top.foxball.shopmall.shared.OrderIdempotencyKeyService] 提前签发并属于当前用户。
      */
     fun placeOrder(
         customerId: Long,
         command: PlaceOrderCommand,
-        idempotencyKey: String? = null,
+        idempotencyKey: String,
     ): OrderView
 
     /** 按分页条件返回当前客户可见的订单。 */

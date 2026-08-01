@@ -5,6 +5,7 @@ import jakarta.persistence.Entity
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
+import jakarta.persistence.Index
 import jakarta.persistence.Table
 import jakarta.persistence.UniqueConstraint
 import org.hibernate.annotations.CreationTimestamp
@@ -15,6 +16,9 @@ import java.time.Instant
 @Entity
 @Table(
     name = "order_idempotency",
+    indexes = [
+        Index(name = "idx_order_idem_customer_order", columnList = "customer_id,order_no"),
+    ],
     uniqueConstraints = [
         UniqueConstraint(
             name = "uk_order_idempotency",

@@ -22,6 +22,7 @@ import top.foxball.shopmall.service.OrderLineCommand
 import top.foxball.shopmall.service.OrderPageQuery
 import top.foxball.shopmall.service.OrderService
 import top.foxball.shopmall.service.PlaceOrderCommand
+import top.foxball.shopmall.shared.OrderIdempotencyKeyService
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.math.BigDecimal
@@ -36,11 +37,33 @@ import java.util.UUID
 class OrderController(
     private val orderService: OrderService,
     private val orderCheckoutService: OrderCheckoutService,
+    private val orderIdempotencyKeyService: OrderIdempotencyKeyService,
     private val builder: ResponseBuilder,
 ) {
     /**
+     * @api 申请下单幂等键
+     * @description 返回当前用户未消费的幂等键（重复调用返回原键）；距上次下单不足窗口时间时返回 429（UX 预检，权威判定在下单事务内）
+     */
+    @PostMapping("/api/orders/idempotency-keys")
+    fun issueIdempotencyKey(
+        @AuthenticationPrincipal userId: Long,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("idempotency_key")
+            val idempotencyKey: String,
+            @param:JsonProperty("expires_at")
+            val expiresAt: Instant,
+        )
+
+        val issued = orderIdempotencyKeyService.issue(userId)
+        return builder.ok()
+            .data(Response(issued.value, issued.expiresAt))
+            .build()
+    }
+
+    /**
      * @api 创建订单
-     * @param idempotencyKey 幂等键
+     * @param idempotencyKey 服务端签发的幂等键（必须先调用申请接口）
      * @param productIds 商品 ID 列表
      * @param quantities 各商品对应的购买数量
      * @param addressId 配送地址 ID
@@ -493,11 +516,12 @@ class OrderController(
             .build()
     }
 
-    /** @api 创建或取得 Stripe Checkout 支付会话 */
+    /** @api 创建或取得 Stripe Checkout 支付会话（需携带该订单的幂等键） */
     @PostMapping("/api/orders/{orderNo}/checkout")
     fun openCheckout(
         @AuthenticationPrincipal userId: Long,
         @PathVariable("orderNo") orderNo: String,
+        @RequestHeader("Idempotency-Key") @NotBlank idempotencyKey: String,
     ): ResponseEntity<Response> {
         data class Response(
             @param:JsonProperty("order_no")
@@ -509,7 +533,7 @@ class OrderController(
             val expiresAt: Instant,
         )
 
-        val checkout = orderCheckoutService.openCheckout(userId, orderNo)
+        val checkout = orderCheckoutService.openCheckout(userId, orderNo, idempotencyKey)
         return builder.ok()
             .data(
                 Response(
