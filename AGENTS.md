@@ -16,3 +16,9 @@ Follow `docs/CONTROLLER_CONVENTIONS.md` and the established style in `UserContro
   several endpoints return identical fields. Explicit duplication is the project convention.
 - Rename JSON fields with `@param:JsonProperty("snake_case")`, return
   `ResponseEntity<shared.Response>`, and produce responses through the injected `ResponseBuilder`.
+
+## Private Function Conventions
+
+- Do not extract a private function that has only one call site. Keep one-off logic at its call site;
+  extract a private function only when it has multiple call sites or represents a meaningful independent
+  abstraction.

@@ -3,7 +3,6 @@ package top.foxball.shopmall.service.impl
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
-import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.handler.IdempotencyKeyInvalidException
 import top.foxball.shopmall.handler.OrderNotFoundException
@@ -49,18 +48,37 @@ class OrderCheckoutServiceImpl(
         }
 
         val candidate = requireNotNull(transactions.execute {
-            loadCandidate(customerId, orderNo)
+            val order = orderRepository.findByOrderNoAndCustomerId(orderNo, customerId)
+                ?: throw OrderNotFoundException()
+            if (order.status != OrderStatus.PENDING_PAYMENT) {
+                throw OrderStatusException("当前订单不可发起支付")
+            }
+            val expiresAt = requireNotNull(order.expiresAt) { "待支付订单必须设置支付截止时间" }
+            if (!expiresAt.isAfter(clock.instant())) {
+                throw OrderStatusException("订单已超时，无法发起支付")
+            }
+            CheckoutCandidate(
+                orderId = requireNotNull(order.id),
+                orderNo = order.orderNo,
+                totalAmount = order.totalAmount,
+                currency = order.currency,
+                expiresAt = expiresAt,
+                sessionId = order.stripeCheckoutSessionId,
+            )
         })
         candidate.sessionId?.let { return reuseCheckout(candidate, it) }
 
+        val storefrontBaseUrl = stripeProperties.checkout.storefrontBaseUrl.toString().trimEnd('/')
         val transaction = stripeService.createPayment(
             PaymentCreateRequest(
                 merchantPaymentId = candidate.orderNo,
                 amount = PaymentAmount(candidate.totalAmount, candidate.currency),
                 idempotencyKey = "${candidate.orderNo}:checkout-session",
                 description = "Order ${candidate.orderNo}",
-                returnUrl = successUrl(candidate.orderNo),
-                cancelUrl = cancelledUrl(candidate.orderNo),
+                returnUrl = URI.create(
+                    "$storefrontBaseUrl/orders/${candidate.orderNo}/payment/result?session_id=%7BCHECKOUT_SESSION_ID%7D",
+                ),
+                cancelUrl = URI.create("$storefrontBaseUrl/orders/${candidate.orderNo}/payment/cancelled"),
                 metadata = mapOf("orderNo" to candidate.orderNo),
             ),
         )
@@ -76,7 +94,17 @@ class OrderCheckoutServiceImpl(
             )
 
         val binding = requireNotNull(transactions.execute {
-            bindCheckoutSession(candidate.orderId, sessionId, transaction.providerPaymentId)
+            if (orderRepository.attachStripeCheckoutSession(
+                    candidate.orderId,
+                    sessionId,
+                    transaction.providerPaymentId,
+                ) == 1
+            ) {
+                CheckoutBinding(attached = true, sessionId = sessionId)
+            } else {
+                val current = orderRepository.findById(candidate.orderId).orElse(null)
+                CheckoutBinding(attached = false, sessionId = current?.stripeCheckoutSessionId)
+            }
         })
         if (binding.attached) {
             return OrderCheckoutView(candidate.orderNo, OrderStatus.PENDING_PAYMENT, checkoutUrl, candidate.expiresAt)
@@ -112,49 +140,6 @@ class OrderCheckoutServiceImpl(
             expiresAt = candidate.expiresAt,
         )
     }
-
-    private fun loadCandidate(customerId: Long, orderNo: String): CheckoutCandidate {
-        val order = orderRepository.findByOrderNoAndCustomerId(orderNo, customerId)
-            ?: throw OrderNotFoundException()
-        if (order.status != OrderStatus.PENDING_PAYMENT) {
-            throw OrderStatusException("当前订单不可发起支付")
-        }
-        val expiresAt = requireNotNull(order.expiresAt) { "待支付订单必须设置支付截止时间" }
-        if (!expiresAt.isAfter(clock.instant())) {
-            throw OrderStatusException("订单已超时，无法发起支付")
-        }
-        return order.toCheckoutCandidate(expiresAt)
-    }
-
-    private fun bindCheckoutSession(
-        orderId: Long,
-        sessionId: String,
-        paymentIntentId: String?,
-    ): CheckoutBinding {
-        if (orderRepository.attachStripeCheckoutSession(orderId, sessionId, paymentIntentId) == 1) {
-            return CheckoutBinding(attached = true, sessionId = sessionId)
-        }
-        val current = orderRepository.findById(orderId).orElse(null)
-        return CheckoutBinding(attached = false, sessionId = current?.stripeCheckoutSessionId)
-    }
-
-    private fun OrderEntity.toCheckoutCandidate(expiresAt: Instant) = CheckoutCandidate(
-        orderId = requireNotNull(id),
-        orderNo = orderNo,
-        totalAmount = totalAmount,
-        currency = currency,
-        expiresAt = expiresAt,
-        sessionId = stripeCheckoutSessionId,
-    )
-
-    private fun successUrl(orderNo: String): URI = URI.create(
-        "${storefrontBaseUrl()}/orders/$orderNo/payment/result?session_id=%7BCHECKOUT_SESSION_ID%7D",
-    )
-
-    private fun cancelledUrl(orderNo: String): URI =
-        URI.create("${storefrontBaseUrl()}/orders/$orderNo/payment/cancelled")
-
-    private fun storefrontBaseUrl(): String = stripeProperties.checkout.storefrontBaseUrl.toString().trimEnd('/')
 
     private data class CheckoutCandidate(
         val orderId: Long,

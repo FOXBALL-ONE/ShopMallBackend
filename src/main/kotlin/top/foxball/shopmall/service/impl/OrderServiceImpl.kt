@@ -115,6 +115,10 @@ class OrderServiceImpl(
             .digest(canonicalRequest.toByteArray(StandardCharsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
 
+        //Acquired 分支的数据库回放会直接返回，Redis 保持 PENDING 到 TTL 结束；正确性仍由 DB 保证，但它不会立即恢复成 COMPLETED。
+        //Pending 分支会消费签发键。若第二个并发请求恰好发生在第一个请求 acquire() 之后、isValidFor() 之前，第二个请求可能先删除授权键，导致第一个请求随后校验失败。这是实际并发竞态。
+        //recordOrderNo() 的唯一约束异常发生在 saveAndFlush()。JPA/Hibernate 通常会把当前事务标为 rollback-only，因此 catch 后用 return@run 回放旧订单未必能可靠提交；这个恢复路径需要专门的并发测试验证。
+        //Completed 分支没有再次校验 dbRequestHash，因此同一个键在 Redis TTL 内携带不同参数时，当前实现会直接返回旧订单，而不是报参数冲突。
         return when (val acquisition = idempotencyService.acquire(customerId, clientKey)) {
             OrderIdempotencyService.Acquisition.Acquired -> {
                 // 关键兜底点：Redis 以为首次（key 已过期或被 flushDb），但上次下单的 DB 幂等行仍在 → 直接回放，不重复创建。
@@ -302,7 +306,8 @@ class OrderServiceImpl(
     }
 
     override fun getPayment(customerId: Long, orderNo: String): OrderPaymentView {
-        val order = orderRepository.findByOrderNoAndCustomerId(orderNo, customerId) ?: throw OrderNotFoundException()
+        val order = orderRepository.findByOrderNoAndCustomerId(orderNo, customerId)
+            ?: throw OrderNotFoundException()
         return OrderPaymentView(
             orderNo = order.orderNo,
             status = order.status,
