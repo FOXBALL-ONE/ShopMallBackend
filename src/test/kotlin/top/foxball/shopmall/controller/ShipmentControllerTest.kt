@@ -23,6 +23,7 @@ import top.foxball.shopmall.entity.jdbc.ShipmentStatus
 import top.foxball.shopmall.entity.jdbc.ShipmentTrack
 import top.foxball.shopmall.entity.jdbc.TrackSource
 import top.foxball.shopmall.handler.GlobalExceptionHandler
+import top.foxball.shopmall.controller.admin.AdminShipmentController
 import top.foxball.shopmall.service.ShipmentDetails
 import top.foxball.shopmall.service.ShipmentService
 import top.foxball.shopmall.shared.ResponseBuilder
@@ -35,7 +36,10 @@ class ShipmentControllerTest {
     @BeforeEach
     fun setUp() {
         shipmentService = mock(ShipmentService::class.java)
-        mockMvc = MockMvcBuilders.standaloneSetup(ShipmentController(shipmentService, ResponseBuilder()))
+        mockMvc = MockMvcBuilders.standaloneSetup(
+            ShipmentController(shipmentService, ResponseBuilder()),
+            AdminShipmentController(shipmentService, ResponseBuilder()),
+        )
             .setControllerAdvice(GlobalExceptionHandler())
             .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
             .build()
@@ -64,7 +68,7 @@ class ShipmentControllerTest {
         ).thenReturn(details)
 
         mockMvc.perform(
-            post("/api/admin/orders/ORD-1/shipments")
+            post("/admin/api/orders/ORD-1/shipments")
                 .header("Idempotency-Key", "create-1")
                 .param("carrier_code", "MANUAL")
                 .param("tracking_no", "TRACK-1")

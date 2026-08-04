@@ -28,10 +28,10 @@ export interface CategoryConfig {
 }
 
 export const CATEGORIES: readonly CategoryConfig[] = [
-    { type: "DRESS", label: "连衣裙", basePath: "/admin/dresses", singularKey: "dress", pluralKey: "dresses" },
-    { type: "BIKINI", label: "比基尼", basePath: "/admin/bikini-suits", singularKey: "bikiniSuit", pluralKey: "bikiniSuits" },
-    { type: "ONE_PIECE", label: "一件式", basePath: "/admin/one-piece-suits", singularKey: "onePieceSuit", pluralKey: "onePieceSuits" },
-    { type: "COVER_UP", label: "罩衫", basePath: "/admin/cover-ups", singularKey: "coverUp", pluralKey: "coverUps" },
+    { type: "DRESS", label: "连衣裙", basePath: "/dresses", singularKey: "dress", pluralKey: "dresses" },
+    { type: "BIKINI", label: "比基尼", basePath: "/bikini-suits", singularKey: "bikiniSuit", pluralKey: "bikiniSuits" },
+    { type: "ONE_PIECE", label: "一件式", basePath: "/one-piece-suits", singularKey: "onePieceSuit", pluralKey: "onePieceSuits" },
+    { type: "COVER_UP", label: "罩衫", basePath: "/cover-ups", singularKey: "coverUp", pluralKey: "coverUps" },
 ] as const;
 
 /**
@@ -63,7 +63,7 @@ const UNAUTHORIZED_STATUS = 401;
  * 商品管理 API 封装。
  *
  * 基于 useHttp（已剥掉 ApiResult 外层，直接给 data）。
- * delete 是保留字，需对象解构: const { delete: del } = useHttp()。
+ * delete 是保留字，需对象解构: const { delete: del } = useHttp(adminApiBase)。
  *
  * 文件上传走 multipart/form-data，useHttp 的 post 系列默认 payloadMode
  * 不便传 FormData（query/json 分支会误把 FormData 当 query 或 body 处理），
@@ -71,8 +71,9 @@ const UNAUTHORIZED_STATUS = 401;
  * （cookie admin_auth_token），与 useHttp 保持一致的 baseURL 与鉴权来源。
  */
 export const useProductApi = () => {
-    const { get, post, put, delete: del } = useHttp();
     const runtimeConfig = useRuntimeConfig();
+    const adminApiBase = (runtimeConfig.public.adminApiBase as string) || "http://127.0.0.1:8080/admin/api";
+    const { get, post, put, delete: del } = useHttp(adminApiBase);
     const apiBase = (runtimeConfig.public.apiBase as string) || "http://127.0.0.1:8080/api";
     const authToken = useCookie<string | null>("admin_auth_token");
     const authUser = useCookie<unknown | null>("admin_user_info");
@@ -157,7 +158,7 @@ export const useProductApi = () => {
 
     /** 取标签全量列表。 */
     function listTags(): Promise<Tag[]> {
-        return get<TagListResponse>("/admin/tags").then((data) => data?.tags ?? []);
+        return get<TagListResponse>("/tags").then((data) => data?.tags ?? []);
     }
 
     /**

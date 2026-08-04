@@ -41,11 +41,11 @@ function getResponseMessage(response: ApiResult<unknown>): string {
     return response.message ?? "Request failed";
 }
 
-export const useHttp = () => {
+export const useHttp = (baseURL?: string) => {
     const authToken = useCookie<string | null>(TOKEN_COOKIE);
     const authUser = useCookie<UserInfo | null>(USER_COOKIE);
     const runtimeConfig = useRuntimeConfig();
-    const apiBase = runtimeConfig.public.apiBase as string || "http://127.0.0.1:8080/api";
+    const apiBase = baseURL || (runtimeConfig.public.apiBase as string) || "http://127.0.0.1:8080/api";
 
     const http = createFetch({
         defaults: {

@@ -21,6 +21,7 @@ import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
 import top.foxball.shopmall.entity.jdbc.OrderStatus
+import top.foxball.shopmall.controller.admin.AdminOrderController
 import top.foxball.shopmall.handler.GlobalExceptionHandler
 import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.service.AdminOrderQuery
@@ -49,6 +50,7 @@ class OrderControllerTest {
         orderIdempotencyKeyService = mock(OrderIdempotencyKeyService::class.java)
         mockMvc = MockMvcBuilders.standaloneSetup(
             OrderController(orderService, orderCheckoutService, orderIdempotencyKeyService, ResponseBuilder()),
+            AdminOrderController(orderService, ResponseBuilder()),
         )
             .setControllerAdvice(GlobalExceptionHandler())
             .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
@@ -178,7 +180,7 @@ class OrderControllerTest {
         `when`(orderService.listAdmin(99L, expectedQuery)).thenReturn(page)
 
         mockMvc.perform(
-            get("/api/admin/orders")
+            get("/admin/api/orders")
                 .param("page", "1")
                 .param("size", "5")
                 .param("status", "PENDING_PAYMENT")

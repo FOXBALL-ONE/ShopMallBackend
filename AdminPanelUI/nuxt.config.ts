@@ -8,8 +8,10 @@ export default defineNuxtConfig({
   modules: ['nuxtjs-naive-ui'],
   runtimeConfig: {
     public: {
-      // 后端 Spring Boot API 基址；可用 NUXT_PUBLIC_API_BASE 覆盖
+      // 用户端及管理员共享 API 基址；可用 NUXT_PUBLIC_API_BASE 覆盖
       apiBase: 'http://127.0.0.1:8080/api',
+      // 纯管理员 API 基址；可用 NUXT_PUBLIC_ADMIN_API_BASE 覆盖
+      adminApiBase: 'http://127.0.0.1:8080/admin/api',
     },
   },
   vite: {
