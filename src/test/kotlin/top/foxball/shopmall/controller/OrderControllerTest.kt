@@ -25,6 +25,7 @@ import top.foxball.shopmall.controller.admin.AdminOrderController
 import top.foxball.shopmall.handler.GlobalExceptionHandler
 import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.service.AdminOrderQuery
+import top.foxball.shopmall.service.AdminOrderDetails
 import top.foxball.shopmall.service.OrderLineCommand
 import top.foxball.shopmall.service.OrderCheckoutService
 import top.foxball.shopmall.service.OrderCheckoutView
@@ -204,6 +205,25 @@ class OrderControllerTest {
             .andExpect(jsonPath("$.data.list[0].order_no").value("ORD-API-1"))
 
         verify(orderService).listAdmin(99L, expectedQuery)
+    }
+
+    @Test
+    fun `admin detail exposes address and fulfillment allocation`() {
+        authenticate(99L)
+        val view = orderView()
+        `when`(orderService.getAdmin(99L, "ORD-API-1")).thenReturn(
+            AdminOrderDetails(view.order, view.items, mapOf(30L to 1)),
+        )
+
+        mockMvc.perform(get("/admin/api/orders/ORD-API-1"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.shipping_address.address1").value("1 Main St"))
+            .andExpect(jsonPath("$.data.items[0].allocated").value(true))
+            .andExpect(jsonPath("$.data.items[0].allocated_quantity").value(1))
+            .andExpect(jsonPath("$.data.items[0].remaining_quantity").value(0))
+
+        verify(orderService).getAdmin(99L, "ORD-API-1")
     }
 
     private fun authenticate(userId: Long) {

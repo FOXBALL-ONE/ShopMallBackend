@@ -3,7 +3,7 @@ import { computed, h, onMounted, reactive, ref } from 'vue'
 import type { DataTableColumns, FormInst, FormRules, TagProps } from 'naive-ui'
 import { NButton, NTag, useMessage } from 'naive-ui'
 import { ORDER_STATUS_OPTIONS } from '~/composables/useOrderApi'
-import type { OrderListItem, OrderListQuery, OrderStatus } from '~/types/order'
+import type { OrderDetail, OrderListItem, OrderListQuery, OrderStatus } from '~/types/order'
 
 definePageMeta({ layout: 'default' })
 
@@ -12,6 +12,8 @@ const message = useMessage()
 const loading = ref(false)
 const orders = ref<OrderListItem[]>([])
 const selectedOrder = ref<OrderListItem | null>(null)
+const selectedOrderDetail = ref<OrderDetail | null>(null)
+const detailLoading = ref(false)
 const detailOpen = ref(false)
 const refundOpen = ref(false)
 const refundLoading = ref(false)
@@ -161,9 +163,29 @@ async function changePageSize(pageSize: number) {
   await loadOrders()
 }
 
-function openDetail(order: OrderListItem) {
+async function openDetail(order: OrderListItem) {
   selectedOrder.value = order
+  selectedOrderDetail.value = null
   detailOpen.value = true
+  detailLoading.value = true
+  try {
+    selectedOrderDetail.value = await api.detail(order.order_no)
+  } catch (error) {
+    message.error(`加载订单详情失败：${errorMessage(error)}`)
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function productSnapshotLabel(snapshot: string): string {
+  try {
+    const value = JSON.parse(snapshot) as { name?: string; color?: string; size?: string; topSize?: string; bottomSize?: string }
+    return [value.name, value.color, value.size || [value.topSize, value.bottomSize].filter(Boolean).join('/')]
+      .filter(Boolean)
+      .join(' · ') || snapshot
+  } catch {
+    return snapshot
+  }
 }
 
 function openRefund(order: OrderListItem) {
@@ -298,7 +320,7 @@ const columns: DataTableColumns<OrderListItem> = [
   {
     title: '操作',
     key: 'actions',
-    width: 170,
+    width: 230,
     fixed: 'right',
     render: row => h('div', { class: 'table-actions' }, [
       h(
@@ -316,6 +338,16 @@ const columns: DataTableColumns<OrderListItem> = [
           onClick: () => openRefund(row),
         },
         { default: () => '退款' },
+      ),
+      h(
+        NButton,
+        {
+          size: 'small',
+          tertiary: true,
+          type: 'primary',
+          onClick: () => navigateTo({ path: '/shipments', query: { order_no: row.order_no } }),
+        },
+        { default: () => '物流' },
       ),
     ]),
   },
@@ -442,6 +474,7 @@ onMounted(() => {
     <NDrawer v-model:show="detailOpen" :width="520" placement="right">
       <NDrawerContent title="订单概览" closable>
         <template v-if="selectedOrder">
+          <NSpin :show="detailLoading">
           <NSpace vertical :size="20">
             <div class="detail-heading">
               <div>
@@ -491,6 +524,68 @@ onMounted(() => {
               </NDescriptionsItem>
             </NDescriptions>
 
+            <template v-if="selectedOrderDetail">
+              <div>
+                <NText strong>金额明细</NText>
+                <NDescriptions class="detail-block" label-placement="top" bordered :column="2" size="small">
+                  <NDescriptionsItem label="商品小计">
+                    {{ formatAmount(selectedOrderDetail.items_subtotal, selectedOrderDetail.currency) }}
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="运费">
+                    {{ formatAmount(selectedOrderDetail.shipping_fee, selectedOrderDetail.currency) }}
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="税费">
+                    {{ formatAmount(selectedOrderDetail.tax_amount, selectedOrderDetail.currency) }}
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="优惠">
+                    {{ formatAmount(selectedOrderDetail.discount_amount, selectedOrderDetail.currency) }}
+                  </NDescriptionsItem>
+                </NDescriptions>
+              </div>
+
+              <div>
+                <NText strong>收货信息</NText>
+                <NDescriptions class="detail-block" label-placement="top" bordered :column="2" size="small">
+                  <NDescriptionsItem label="收件人">{{ selectedOrderDetail.shipping_address.name }}</NDescriptionsItem>
+                  <NDescriptionsItem label="联系电话">{{ selectedOrderDetail.shipping_address.phone }}</NDescriptionsItem>
+                  <NDescriptionsItem label="地址" :span="2">
+                    {{ [
+                      selectedOrderDetail.shipping_address.country,
+                      selectedOrderDetail.shipping_address.state_or_province,
+                      selectedOrderDetail.shipping_address.city,
+                      selectedOrderDetail.shipping_address.district,
+                      selectedOrderDetail.shipping_address.address1,
+                      selectedOrderDetail.shipping_address.address2,
+                    ].filter(Boolean).join(' ') }}
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="客户留言" :span="2">
+                    {{ selectedOrderDetail.client_message || '-' }}
+                  </NDescriptionsItem>
+                </NDescriptions>
+              </div>
+
+              <div>
+                <NText strong>商品明细</NText>
+                <NList class="detail-block" bordered>
+                  <NListItem v-for="item in selectedOrderDetail.items" :key="item.id">
+                    <div class="order-item-row">
+                      <div>
+                        <div class="order-item-name">{{ productSnapshotLabel(item.product_snapshot) }}</div>
+                        <NText depth="3">商品行 #{{ item.id }} · 商品 #{{ item.product_id }}</NText>
+                      </div>
+                      <div class="order-item-values">
+                        <div>{{ item.quantity }} 件</div>
+                        <NTag size="small" :type="item.allocated ? 'success' : 'default'" :bordered="false">
+                          {{ item.allocated ? '已分配' : '待发货' }}
+                        </NTag>
+                        <strong>{{ formatAmount(item.line_total, selectedOrderDetail.currency) }}</strong>
+                      </div>
+                    </div>
+                  </NListItem>
+                </NList>
+              </div>
+            </template>
+
             <div>
               <NText strong>订单流程</NText>
               <div class="status-flow">
@@ -511,6 +606,7 @@ onMounted(() => {
               </div>
             </div>
           </NSpace>
+          </NSpin>
         </template>
 
         <template #footer>
@@ -615,6 +711,30 @@ onMounted(() => {
   margin-top: 16px;
 }
 
+.detail-block {
+  margin-top: 10px;
+}
+
+.order-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.order-item-name {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.order-item-values {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
 :deep(.table-actions) {
   display: flex;
   gap: 8px;
@@ -624,6 +744,12 @@ onMounted(() => {
   .page-heading,
   .table-header,
   .detail-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .order-item-row,
+  .order-item-values {
     align-items: flex-start;
     flex-direction: column;
   }

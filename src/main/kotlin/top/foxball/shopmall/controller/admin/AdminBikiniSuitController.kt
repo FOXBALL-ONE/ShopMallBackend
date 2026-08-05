@@ -55,6 +55,20 @@ class AdminBikiniSuitController(
             @param:JsonProperty("sales_volume")
             val salesVolume: Int,
             val status: String,
+            val highlight: List<String>,
+            val images: List<String>,
+            @param:JsonProperty("fit_sense")
+            val fitSense: String?,
+            val description: String?,
+            @param:JsonProperty("design_and_extras")
+            val designAndExtras: List<String>,
+            @param:JsonProperty("care_instructions")
+            val careInstructions: List<String>,
+            val score: Float?,
+            @param:JsonProperty("tag_ids")
+            val tagIds: List<Long>,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
             @param:JsonProperty("updated_at")
             val updatedAt: LocalDateTime?,
         )
@@ -73,6 +87,15 @@ class AdminBikiniSuitController(
                 warehouseVolume = it.warehouseVolume,
                 salesVolume = it.salesVolume,
                 status = it.status.name,
+                highlight = it.highlight.toList(),
+                images = it.images.toList(),
+                fitSense = it.fitSense,
+                description = it.description,
+                designAndExtras = it.designAndExtras.toList(),
+                careInstructions = it.careInstructions.toList(),
+                score = it.score,
+                tagIds = it.tags.mapNotNull { tag -> tag.id },
+                createdAt = it.createdAt,
                 updatedAt = it.updatedAt,
             )
         }
@@ -112,8 +135,13 @@ class AdminBikiniSuitController(
             val designAndExtras: List<String>,
             @param:JsonProperty("care_instructions")
             val careInstructions: List<String>,
+            val score: Float?,
             @param:JsonProperty("tag_ids")
             val tagIds: List<Long>,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
+            @param:JsonProperty("updated_at")
+            val updatedAt: LocalDateTime?,
         )
 
         adminAccessService.requireAdmin(adminId)
@@ -134,7 +162,10 @@ class AdminBikiniSuitController(
             description = bikiniSuit.description,
             designAndExtras = bikiniSuit.designAndExtras.toList(),
             careInstructions = bikiniSuit.careInstructions.toList(),
+            score = bikiniSuit.score,
             tagIds = bikiniSuit.tags.mapNotNull { it.id },
+            createdAt = bikiniSuit.createdAt,
+            updatedAt = bikiniSuit.updatedAt,
         )
         return builder.ok().data(rs).build()
     }

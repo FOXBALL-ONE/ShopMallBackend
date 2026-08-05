@@ -13,6 +13,10 @@ interface ProductPrimaryImage {
 }
 
 interface ProductRepository : JpaRepository<Product, Long> {
+    fun countByStatus(status: Product.Status): Long
+
+    fun countByWarehouseVolumeLessThanEqualAndStatus(warehouseVolume: Int, status: Product.Status): Long
+
     fun findAllByStatusOrderByCreatedAtDesc(status: Product.Status): List<Product>
 
     fun findByIdAndStatus(id: Long, status: Product.Status): Product?

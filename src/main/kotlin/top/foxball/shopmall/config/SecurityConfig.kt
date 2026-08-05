@@ -63,6 +63,7 @@ class SecurityConfig(
                 it.requestMatchers(
                     HttpMethod.GET,
                     "/api/products/**",
+                    "/api/product-images/**",
                     "/api/bikini-suits/**",
                     "/api/one-piece-suits/**",
                     "/api/dresses/**",

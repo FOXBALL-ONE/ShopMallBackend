@@ -36,6 +36,12 @@ data class OrderView(
     val items: List<OrderItem>,
 )
 
+data class AdminOrderDetails(
+    val order: OrderEntity,
+    val items: List<OrderItem>,
+    val allocatedQuantities: Map<Long, Int>,
+)
+
 data class OrderPaymentView(
     val orderNo: String,
     val status: OrderStatus,
@@ -73,6 +79,9 @@ interface OrderService {
 
     /** 以管理员权限按筛选条件分页查询订单。 */
     fun listAdmin(adminId: Long, query: AdminOrderQuery): Page<OrderView>
+
+    /** 以管理员权限查询订单详情及当前有效的履约分配。 */
+    fun getAdmin(adminId: Long, orderNo: String): AdminOrderDetails
 
     /** 由管理员取消可退款订单、恢复库存，并登记第三方支付退款补偿任务。 */
     fun refund(adminId: Long, orderNo: String, reason: String): OrderView

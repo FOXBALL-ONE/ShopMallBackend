@@ -12,6 +12,13 @@ import top.foxball.shopmall.entity.jdbc.SupportTicketPriority
 import top.foxball.shopmall.entity.jdbc.SupportTicketStatus
 
 interface SupportTicketRepository : JpaRepository<SupportTicket, Long> {
+    fun countByStatus(status: SupportTicketStatus): Long
+
+    fun countByPriorityAndStatusIn(
+        priority: SupportTicketPriority,
+        statuses: Collection<SupportTicketStatus>,
+    ): Long
+
     @EntityGraph(attributePaths = ["order"])
     fun findByIdAndCustomerId(id: Long, customerId: Long): SupportTicket?
 

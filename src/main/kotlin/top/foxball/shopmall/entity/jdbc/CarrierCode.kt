@@ -9,6 +9,8 @@ enum class CarrierCode(val pathValue: String) {
 
     companion object {
         fun fromPath(value: String): CarrierCode? =
-            entries.firstOrNull { it.pathValue.equals(value, ignoreCase = true) }
+            entries.firstOrNull {
+                it.pathValue.equals(value, ignoreCase = true) || it.name.equals(value, ignoreCase = true)
+            }
     }
 }

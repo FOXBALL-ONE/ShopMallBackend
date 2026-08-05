@@ -32,3 +32,7 @@ export interface UserInfo {
     locale: string | null;
     currency: string | null;
 }
+
+export interface AdminSession extends UserInfo {
+    id: number;
+}

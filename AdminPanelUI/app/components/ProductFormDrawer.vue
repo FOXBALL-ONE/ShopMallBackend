@@ -35,7 +35,7 @@ import { getCategoryConfig, useProductApi } from "~/composables/useProductApi";
  * - 单一 reactive model 容纳所有品类的可编辑字段；按 category 用 v-if 决定专属字段区块的显隐。
  *   这样 rule 路径稳定（始终基于同一 model），避免切换品类时表单项 path 错位。
  * - 提交时仅拾取当前品类所需字段（公共 + 专属），构造 { [singularKey]: editableFields, tagIds }。
- * - 图片上传走 NUpload custom-request → useProductApi().uploadImages，把 signedDownloadUrl 回填 images。
+ * - 图片上传走 NUpload custom-request → useProductApi().uploadImages，把稳定图片 URL 回填 images。
  * - 编辑回填通过 watch props.open + props.product：抽屉常驻挂载，每次开启都按当前 product 重置。
  * - 枚举选项集中定义为 ENUM_OPTIONS 常量，供 NSelect 复用；中文 label，value 保持后端原始字面量。
  */
@@ -281,6 +281,7 @@ const uploading = ref(false);
 const editingId = ref<number | null>(null);
 
 const message = useMessage();
+const productApi = useProductApi();
 
 /** 当前品类配置，用于提交时取 singularKey 与路径。 */
 const categoryConfig = computed(() => getCategoryConfig(props.category));
@@ -430,9 +431,7 @@ watch(
 
 /* ===================== 图片上传 ===================== */
 
-const { uploadImages } = useProductApi();
-
-/** NUpload custom-request：单/多文件上传后取 signedDownloadUrl 回填 images。 */
+/** NUpload custom-request：单/多文件上传后取稳定地址回填 images。 */
 async function handleUploadRequest({
   file,
   onFinish,
@@ -451,10 +450,10 @@ async function handleUploadRequest({
   }
   uploading.value = true;
   try {
-    const result = await uploadImages([rawFile]);
-    const url = result[0]?.signedDownloadUrl;
+    const result = await productApi.uploadImages([rawFile]);
+    const url = result[0]?.stableUrl;
     if (!url) {
-      throw new Error("上传响应缺少 signedDownloadUrl");
+      throw new Error("上传响应缺少 stableUrl");
     }
     // multiple 并发上传时多个 custom-request 可能同时通过上方校验；
     // push 前最终确认未越界，越界则丢弃本次结果
@@ -542,12 +541,11 @@ async function handleSubmit() {
 
   loading.value = true;
   try {
-    const { create, update } = useProductApi();
     const payload = buildPayload();
     if (editingId.value !== null) {
-      await update(props.category, editingId.value, payload as never);
+      await productApi.update(props.category, editingId.value, payload as never);
     } else {
-      await create(props.category, payload as never);
+      await productApi.create(props.category, payload as never);
     }
     message.success(editingId.value !== null ? "已保存" : "已创建");
     emit("submitted");

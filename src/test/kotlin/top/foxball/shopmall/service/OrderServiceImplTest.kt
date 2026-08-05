@@ -26,6 +26,7 @@ import top.foxball.shopmall.handler.OrderWindowLimitException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ProductRepository
+import top.foxball.shopmall.repository.ShipmentItemRepository
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.impl.OrderServiceImpl
 import top.foxball.shopmall.shared.OrderIdempotencyKeyService
@@ -45,6 +46,7 @@ import kotlin.test.assertFailsWith
 class OrderServiceImplTest {
     private val orderRepository = mock(OrderRepository::class.java)
     private val orderItemRepository = mock(OrderItemRepository::class.java)
+    private val shipmentItemRepository = mock(ShipmentItemRepository::class.java)
     private val productRepository = mock(ProductRepository::class.java)
     private val userRepository = mock(UserRepository::class.java)
     private val userService = mock(UserService::class.java)
@@ -59,6 +61,7 @@ class OrderServiceImplTest {
     private val service = OrderServiceImpl(
         orderRepository,
         orderItemRepository,
+        shipmentItemRepository,
         productRepository,
         userRepository,
         userService,

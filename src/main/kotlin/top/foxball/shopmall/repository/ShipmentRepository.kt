@@ -2,6 +2,7 @@ package top.foxball.shopmall.repository
 
 import jakarta.persistence.LockModeType
 import org.springframework.data.domain.Pageable
+import org.springframework.data.domain.Page
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Modifying
@@ -13,6 +14,10 @@ import top.foxball.shopmall.entity.jdbc.ShipmentStatus
 import java.time.Instant
 
 interface ShipmentRepository : JpaRepository<Shipment, Long> {
+    fun countByStatus(status: ShipmentStatus): Long
+
+    fun countByLastTrackErrorIsNotNull(): Long
+
     fun findByShipmentNo(shipmentNo: String): Shipment?
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -20,6 +25,26 @@ interface ShipmentRepository : JpaRepository<Shipment, Long> {
     fun findByIdForUpdate(@Param("id") id: Long): Shipment?
 
     fun findAllByOrderIdOrderByCreatedAtAsc(orderId: Long): List<Shipment>
+
+    @Query(
+        "select s from Shipment s where " +
+            "(:status is null or s.status = :status) and " +
+            "(:carrier is null or s.carrierCode = :carrier) and " +
+            "(:orderNo is null or s.orderId in " +
+            "(select o.id from OrderEntity o where o.orderNo = :orderNo)) and " +
+            "(:trackingNo is null or lower(s.trackingNo) like lower(concat('%', :trackingNo, '%'))) and " +
+            "(:hasError is null or (:hasError = true and s.lastTrackError is not null) or " +
+            "(:hasError = false and s.lastTrackError is null)) " +
+            "order by s.createdAt desc, s.id desc",
+    )
+    fun findAllForAdmin(
+        @Param("status") status: ShipmentStatus?,
+        @Param("carrier") carrier: CarrierCode?,
+        @Param("orderNo") orderNo: String?,
+        @Param("trackingNo") trackingNo: String?,
+        @Param("hasError") hasError: Boolean?,
+        pageable: Pageable,
+    ): Page<Shipment>
 
     fun findByCarrierCodeAndTrackingNoNormalized(
         carrierCode: CarrierCode,

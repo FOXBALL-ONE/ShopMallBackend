@@ -50,6 +50,18 @@ class AdminOnePieceSuitController(
             val id: Long,
             val name: String,
             val size: String,
+            @param:JsonProperty("support_level")
+            val supportLevel: String?,
+            val coverage: String?,
+            @param:JsonProperty("torso_fit")
+            val torsoFit: String?,
+            val neckline: String?,
+            @param:JsonProperty("back_style")
+            val backStyle: String?,
+            @param:JsonProperty("tummy_control")
+            val tummyControl: Boolean,
+            @param:JsonProperty("removable_padding")
+            val removablePadding: Boolean,
             val color: String,
             val price: BigDecimal,
             @param:JsonProperty("warehouse_volume")
@@ -57,6 +69,20 @@ class AdminOnePieceSuitController(
             @param:JsonProperty("sales_volume")
             val salesVolume: Int,
             val status: String,
+            val highlight: List<String>,
+            val images: List<String>,
+            @param:JsonProperty("fit_sense")
+            val fitSense: String?,
+            val description: String?,
+            @param:JsonProperty("design_and_extras")
+            val designAndExtras: List<String>,
+            @param:JsonProperty("care_instructions")
+            val careInstructions: List<String>,
+            val score: Float?,
+            @param:JsonProperty("tag_ids")
+            val tagIds: List<Long>,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
             @param:JsonProperty("updated_at")
             val updatedAt: LocalDateTime?,
         )
@@ -69,11 +95,27 @@ class AdminOnePieceSuitController(
                 id = requireNotNull(it.id),
                 name = it.name,
                 size = requireNotNull(it.size).name,
+                supportLevel = it.supportLevel?.name,
+                coverage = it.coverage?.name,
+                torsoFit = it.torsoFit?.name,
+                neckline = it.neckline?.name,
+                backStyle = it.backStyle?.name,
+                tummyControl = it.tummyControl,
+                removablePadding = it.removablePadding,
                 color = it.color,
                 price = it.price,
                 warehouseVolume = it.warehouseVolume,
                 salesVolume = it.salesVolume,
                 status = it.status.name,
+                highlight = it.highlight.toList(),
+                images = it.images.toList(),
+                fitSense = it.fitSense,
+                description = it.description,
+                designAndExtras = it.designAndExtras.toList(),
+                careInstructions = it.careInstructions.toList(),
+                score = it.score,
+                tagIds = it.tags.mapNotNull { tag -> tag.id },
+                createdAt = it.createdAt,
                 updatedAt = it.updatedAt,
             )
         }
@@ -106,8 +148,29 @@ class AdminOnePieceSuitController(
             val tummyControl: Boolean,
             @param:JsonProperty("removable_padding")
             val removablePadding: Boolean,
+            val color: String,
+            val price: BigDecimal,
+            @param:JsonProperty("warehouse_volume")
+            val warehouseVolume: Int,
+            @param:JsonProperty("sales_volume")
+            val salesVolume: Int,
+            val status: String,
+            val highlight: List<String>,
+            val images: List<String>,
+            @param:JsonProperty("fit_sense")
+            val fitSense: String?,
+            val description: String?,
+            @param:JsonProperty("design_and_extras")
+            val designAndExtras: List<String>,
+            @param:JsonProperty("care_instructions")
+            val careInstructions: List<String>,
+            val score: Float?,
             @param:JsonProperty("tag_ids")
             val tagIds: List<Long>,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
+            @param:JsonProperty("updated_at")
+            val updatedAt: LocalDateTime?,
         )
 
         adminAccessService.requireAdmin(adminId)
@@ -123,7 +186,21 @@ class AdminOnePieceSuitController(
             backStyle = suit.backStyle?.name,
             tummyControl = suit.tummyControl,
             removablePadding = suit.removablePadding,
+            color = suit.color,
+            price = suit.price,
+            warehouseVolume = suit.warehouseVolume,
+            salesVolume = suit.salesVolume,
+            status = suit.status.name,
+            highlight = suit.highlight.toList(),
+            images = suit.images.toList(),
+            fitSense = suit.fitSense,
+            description = suit.description,
+            designAndExtras = suit.designAndExtras.toList(),
+            careInstructions = suit.careInstructions.toList(),
+            score = suit.score,
             tagIds = suit.tags.mapNotNull { it.id },
+            createdAt = suit.createdAt,
+            updatedAt = suit.updatedAt,
         )
         return builder.ok().data(rs).build()
     }
@@ -168,7 +245,10 @@ class AdminOnePieceSuitController(
         @RequestParam("status", defaultValue = "ACTIVE") status: Product.Status,
         @RequestParam("highlight", required = false) @Size(max = 10) highlight: List<String>?,
         @RequestParam("images", required = false) @Size(max = 12) images: List<String>?,
+        @RequestParam("fit_sense", required = false) @Size(max = 255) fitSense: String?,
         @RequestParam("description", required = false) @Size(max = 4000) description: String?,
+        @RequestParam("design_and_extras", required = false) @Size(max = 12) designAndExtras: List<String>?,
+        @RequestParam("care_instructions", required = false) @Size(max = 12) careInstructions: List<String>?,
         @RequestParam("tag_ids", required = false) @Size(max = 20) tagIds: Set<Long>?,
     ): ResponseEntity<Response> {
         data class Response(
@@ -198,7 +278,10 @@ class AdminOnePieceSuitController(
             this.status = status
             this.highlight = highlight.orEmpty().toMutableList()
             this.images = images.orEmpty().toMutableList()
+            this.fitSense = fitSense
             this.description = description
+            this.designAndExtras = designAndExtras.orEmpty().toMutableList()
+            this.careInstructions = careInstructions.orEmpty().toMutableList()
         }
         val suit = onePieceSuitService.create(source, tagIds.orEmpty())
         val rs = Response(requireNotNull(suit.id), suit.name, suit.status.name, suit.createdAt)
@@ -247,7 +330,10 @@ class AdminOnePieceSuitController(
         @RequestParam("status") status: Product.Status,
         @RequestParam("highlight", required = false) @Size(max = 10) highlight: List<String>?,
         @RequestParam("images", required = false) @Size(max = 12) images: List<String>?,
+        @RequestParam("fit_sense", required = false) @Size(max = 255) fitSense: String?,
         @RequestParam("description", required = false) @Size(max = 4000) description: String?,
+        @RequestParam("design_and_extras", required = false) @Size(max = 12) designAndExtras: List<String>?,
+        @RequestParam("care_instructions", required = false) @Size(max = 12) careInstructions: List<String>?,
         @RequestParam("tag_ids", required = false) @Size(max = 20) tagIds: Set<Long>?,
     ): ResponseEntity<Response> {
         data class Response(
@@ -277,7 +363,10 @@ class AdminOnePieceSuitController(
             this.status = status
             this.highlight = highlight.orEmpty().toMutableList()
             this.images = images.orEmpty().toMutableList()
+            this.fitSense = fitSense
             this.description = description
+            this.designAndExtras = designAndExtras.orEmpty().toMutableList()
+            this.careInstructions = careInstructions.orEmpty().toMutableList()
         }
         val suit = onePieceSuitService.update(id, source, tagIds.orEmpty())
             ?: return builder.notFound().build()

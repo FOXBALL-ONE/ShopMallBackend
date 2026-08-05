@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import top.foxball.shopmall.entity.jdbc.CarrierCode
+import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.ShipmentNotFoundException
 import top.foxball.shopmall.service.ShipmentService
 import top.foxball.shopmall.shared.Response
@@ -48,7 +49,7 @@ class AdminShipmentController(
         @AuthenticationPrincipal adminId: Long,
         @PathVariable("order_no") orderNo: String,
         @RequestHeader("Idempotency-Key") @NotBlank idempotencyKey: String,
-        @RequestParam("carrier_code") carrierCode: CarrierCode,
+        @RequestParam("carrier_code") carrierCodeValue: String,
         @RequestParam("tracking_no", required = false) @Size(max = 64) trackingNo: String?,
         @RequestParam("order_item_ids") @Size(min = 1, max = 50) orderItemIds: List<Long>,
         @RequestParam("quantities") @Size(min = 1, max = 50) quantities: List<Int>,
@@ -131,6 +132,8 @@ class AdminShipmentController(
             val lastTrackError: String?,
         )
 
+        val carrierCode = CarrierCode.fromPath(carrierCodeValue)
+            ?: throw ParamErrorException("不支持的承运商代码")
         val details = shipmentService.createShipment(
             orderNo = orderNo,
             carrierCode = carrierCode,

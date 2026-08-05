@@ -3,6 +3,9 @@ package top.foxball.shopmall.service.impl
 import jakarta.persistence.EntityManager
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.PageImpl
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.entity.jdbc.CarrierCode
@@ -30,6 +33,7 @@ import top.foxball.shopmall.repository.ShipmentItemRepository
 import top.foxball.shopmall.repository.ShipmentRepository
 import top.foxball.shopmall.repository.ShipmentTrackRepository
 import top.foxball.shopmall.service.AdminAccessService
+import top.foxball.shopmall.service.AdminShipmentQuery
 import top.foxball.shopmall.service.DomainEventPublisher
 import top.foxball.shopmall.service.ShipmentDetails
 import top.foxball.shopmall.service.ShipmentService
@@ -221,6 +225,59 @@ class ShipmentServiceImpl(
                         .findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
                 )
             }
+    }
+
+    override fun listAdmin(adminId: Long, query: AdminShipmentQuery): Page<ShipmentDetails> {
+        adminAccessService.requireAdmin(adminId)
+        if (query.page < 0 || query.size !in 1..100) {
+            throw ParamErrorException("分页参数无效")
+        }
+        val orderNo = query.orderNo?.trim()?.takeIf(String::isNotEmpty)
+        val trackingNo = query.trackingNo?.trim()?.takeIf(String::isNotEmpty)
+        val shipments = shipmentRepository.findAllForAdmin(
+            status = query.status,
+            carrier = query.carrier,
+            orderNo = orderNo,
+            trackingNo = trackingNo,
+            hasError = query.hasError,
+            pageable = PageRequest.of(query.page, query.size),
+        )
+        if (shipments.isEmpty) {
+            return PageImpl(emptyList(), shipments.pageable, shipments.totalElements)
+        }
+
+        val shipmentIds = shipments.content.map { requireNotNull(it.id) }
+        val orderNosById = orderRepository.findAllById(shipments.content.map(Shipment::orderId).distinct())
+            .associate { requireNotNull(it.id) to it.orderNo }
+        val itemsByShipmentId = shipmentItemRepository
+            .findAllByShipment_IdInOrderByShipment_IdAscIdAsc(shipmentIds)
+            .groupBy { requireNotNull(it.shipment?.id) }
+        val tracksByShipmentId = shipmentTrackRepository
+            .findAllByShipment_IdInOrderByShipment_IdAscOccurredAtAscCarrierEventIdAsc(shipmentIds)
+            .groupBy { requireNotNull(it.shipment?.id) }
+        val details = shipments.content.map { shipment ->
+            val shipmentId = requireNotNull(shipment.id)
+            ShipmentDetails(
+                shipment = shipment,
+                orderNo = orderNosById[shipment.orderId] ?: throw OrderNotFoundException(),
+                items = itemsByShipmentId[shipmentId].orEmpty(),
+                tracks = tracksByShipmentId[shipmentId].orEmpty(),
+            )
+        }
+        return PageImpl(details, shipments.pageable, shipments.totalElements)
+    }
+
+    override fun getAdmin(shipmentNo: String, adminId: Long): ShipmentDetails {
+        adminAccessService.requireAdmin(adminId)
+        val shipment = shipmentRepository.findByShipmentNo(shipmentNo) ?: throw ShipmentNotFoundException()
+        val order = orderRepository.findById(shipment.orderId).orElse(null) ?: throw OrderNotFoundException()
+        val shipmentId = requireNotNull(shipment.id)
+        return ShipmentDetails(
+            shipment = shipment,
+            orderNo = order.orderNo,
+            items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+            tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+        )
     }
 
     override fun listCustomer(orderNo: String, userId: Long): List<ShipmentDetails> {

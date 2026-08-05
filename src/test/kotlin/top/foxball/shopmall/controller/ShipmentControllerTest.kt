@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
+import org.springframework.data.domain.PageImpl
+import org.springframework.data.domain.PageRequest
 import org.springframework.security.authentication.TestingAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
@@ -24,6 +26,8 @@ import top.foxball.shopmall.entity.jdbc.ShipmentTrack
 import top.foxball.shopmall.entity.jdbc.TrackSource
 import top.foxball.shopmall.handler.GlobalExceptionHandler
 import top.foxball.shopmall.controller.admin.AdminShipmentController
+import top.foxball.shopmall.controller.admin.AdminShipmentQueryController
+import top.foxball.shopmall.service.AdminShipmentQuery
 import top.foxball.shopmall.service.ShipmentDetails
 import top.foxball.shopmall.service.ShipmentService
 import top.foxball.shopmall.shared.ResponseBuilder
@@ -39,6 +43,7 @@ class ShipmentControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(
             ShipmentController(shipmentService, ResponseBuilder()),
             AdminShipmentController(shipmentService, ResponseBuilder()),
+            AdminShipmentQueryController(shipmentService, ResponseBuilder()),
         )
             .setControllerAdvice(GlobalExceptionHandler())
             .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
@@ -106,6 +111,40 @@ class ShipmentControllerTest {
             .andExpect(jsonPath("$.data.list[0].tracking_no").value("TRACK-1"))
 
         verify(shipmentService).listCustomer("ORD-1", 7L)
+    }
+
+    @Test
+    fun `admin global shipment list forwards filters and pagination`() {
+        authenticate(99L)
+        val query = AdminShipmentQuery(
+            page = 0,
+            size = 10,
+            status = ShipmentStatus.IN_TRANSIT,
+            carrier = CarrierCode.MANUAL,
+            orderNo = "ORD-1",
+            trackingNo = "TRACK",
+            hasError = true,
+        )
+        `when`(shipmentService.listAdmin(99L, query)).thenReturn(
+            PageImpl(listOf(shipmentDetails()), PageRequest.of(0, 10), 11),
+        )
+
+        mockMvc.perform(
+            get("/admin/api/shipments")
+                .param("page", "1")
+                .param("size", "10")
+                .param("status", "IN_TRANSIT")
+                .param("carrier", "manual")
+                .param("order_no", "ORD-1")
+                .param("tracking_no", "TRACK")
+                .param("has_error", "true"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.list[0].shipment.shipment_no").value("SHP-1"))
+            .andExpect(jsonPath("$.data.pagination.total_items").value(11))
+            .andExpect(jsonPath("$.data.pagination.total_pages").value(2))
+
+        verify(shipmentService).listAdmin(99L, query)
     }
 
     private fun authenticate(userId: Long) {

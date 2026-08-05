@@ -13,6 +13,8 @@ import top.foxball.shopmall.entity.jdbc.OrderStatus
 import java.time.Instant
 
 interface OrderRepository : JpaRepository<OrderEntity, Long> {
+    fun countByStatus(status: OrderStatus): Long
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from OrderEntity o where o.id = :id")
     fun lockById(@Param("id") id: Long): OrderEntity?

@@ -8,8 +8,25 @@ import top.foxball.shopmall.entity.jdbc.AllocationStatus
 import top.foxball.shopmall.entity.jdbc.ShipmentItem
 import java.time.Instant
 
+interface ActiveOrderItemAllocation {
+    val orderItemId: Long
+    val allocatedQuantity: Long
+}
+
 interface ShipmentItemRepository : JpaRepository<ShipmentItem, Long> {
     fun findAllByShipment_IdOrderById(shipmentId: Long): List<ShipmentItem>
+
+    fun findAllByShipment_IdInOrderByShipment_IdAscIdAsc(shipmentIds: Collection<Long>): List<ShipmentItem>
+
+    @Query(
+        "select i.orderItemId as orderItemId, sum(i.quantity) as allocatedQuantity " +
+            "from ShipmentItem i where i.orderItemId in :ids and i.allocationStatus = :status " +
+            "group by i.orderItemId",
+    )
+    fun findActiveAllocations(
+        @Param("ids") ids: Collection<Long>,
+        @Param("status") status: AllocationStatus = AllocationStatus.ALLOCATED,
+    ): List<ActiveOrderItemAllocation>
 
     @Query(
         "select count(i) from ShipmentItem i where i.orderItemId in :ids " +

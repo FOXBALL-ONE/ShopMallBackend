@@ -1,6 +1,7 @@
 import type {
     OrderListQuery,
     OrderListResponse,
+    OrderDetail,
     OrderStatus,
     RefundOrderResponse,
 } from "~/types/order";
@@ -27,8 +28,13 @@ export const useOrderApi = () => {
         return post<RefundOrderResponse>(`/orders/${encodeURIComponent(orderNo)}/refund`, {reason});
     }
 
+    function detail(orderNo: string): Promise<OrderDetail> {
+        return get<OrderDetail>(`/orders/${encodeURIComponent(orderNo)}`);
+    }
+
     return {
         list,
+        detail,
         refund,
     };
 };

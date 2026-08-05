@@ -125,9 +125,7 @@ export interface FileMetadataResponse {
     sizeBytes: number;
     sha256: string;
     createdAt?: string;
-    signedDownloadUrl: string;
-    downloadExpiresAt: string;
-    scope: string;
+    stableUrl: string;
     storage: string;
 }
 

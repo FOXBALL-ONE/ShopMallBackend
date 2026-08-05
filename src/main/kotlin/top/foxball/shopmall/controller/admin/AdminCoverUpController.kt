@@ -54,7 +54,26 @@ class AdminCoverUpController(
             val price: BigDecimal,
             @param:JsonProperty("warehouse_volume")
             val warehouseVolume: Int,
+            @param:JsonProperty("sales_volume")
+            val salesVolume: Int,
             val status: String,
+            @param:JsonProperty("sheer_level")
+            val sheerLevel: String?,
+            val fabric: String?,
+            val highlight: List<String>,
+            val images: List<String>,
+            @param:JsonProperty("fit_sense")
+            val fitSense: String?,
+            val description: String?,
+            @param:JsonProperty("design_and_extras")
+            val designAndExtras: List<String>,
+            @param:JsonProperty("care_instructions")
+            val careInstructions: List<String>,
+            val score: Float?,
+            @param:JsonProperty("tag_ids")
+            val tagIds: List<Long>,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
             @param:JsonProperty("updated_at")
             val updatedAt: LocalDateTime?,
         )
@@ -71,7 +90,19 @@ class AdminCoverUpController(
                 color = it.color,
                 price = it.price,
                 warehouseVolume = it.warehouseVolume,
+                salesVolume = it.salesVolume,
                 status = it.status.name,
+                sheerLevel = it.sheerLevel?.name,
+                fabric = it.fabric,
+                highlight = it.highlight.toList(),
+                images = it.images.toList(),
+                fitSense = it.fitSense,
+                description = it.description,
+                designAndExtras = it.designAndExtras.toList(),
+                careInstructions = it.careInstructions.toList(),
+                score = it.score,
+                tagIds = it.tags.mapNotNull { tag -> tag.id },
+                createdAt = it.createdAt,
                 updatedAt = it.updatedAt,
             )
         }
@@ -112,8 +143,13 @@ class AdminCoverUpController(
             val designAndExtras: List<String>,
             @param:JsonProperty("care_instructions")
             val careInstructions: List<String>,
+            val score: Float?,
             @param:JsonProperty("tag_ids")
             val tagIds: List<Long>,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
+            @param:JsonProperty("updated_at")
+            val updatedAt: LocalDateTime?,
         )
 
         adminAccessService.requireAdmin(adminId)
@@ -136,7 +172,10 @@ class AdminCoverUpController(
             description = coverUp.description,
             designAndExtras = coverUp.designAndExtras.toList(),
             careInstructions = coverUp.careInstructions.toList(),
+            score = coverUp.score,
             tagIds = coverUp.tags.mapNotNull { it.id },
+            createdAt = coverUp.createdAt,
+            updatedAt = coverUp.updatedAt,
         )
         return builder.ok().data(rs).build()
     }

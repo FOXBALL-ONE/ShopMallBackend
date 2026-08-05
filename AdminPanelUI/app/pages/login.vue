@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
+import type { LoginResponse } from '~/types/http'
 
 definePageMeta({ layout: false })
 
-// 字段对齐后端 LoginRequest { identifier, password }；暂不对接 API，仅做表单校验 + 模拟登录
+const { post, setAuth, clearAuth } = useHttp()
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
+const errorMessage = ref('')
 const model = reactive({
   identifier: '',
   password: '',
@@ -24,10 +26,26 @@ async function handleSubmit() {
     return
   }
   loading.value = true
-  // TODO: 对接 POST /api/auth/login，body = { identifier, password }
-  await new Promise(resolve => setTimeout(resolve, 600))
-  loading.value = false
-  await navigateTo('/')
+  errorMessage.value = ''
+  try {
+    const data = await post<LoginResponse>('/auth/login', {
+      identifier: model.identifier.trim(),
+      password: model.password,
+    })
+    if (data.user_info.role !== 'ADMIN') {
+      await post<Record<string, never>>('/auth/logout').catch(() => undefined)
+      clearAuth()
+      errorMessage.value = '该账号没有管理后台权限'
+      return
+    }
+    setAuth(data.access_token, data.user_info)
+    await navigateTo('/')
+  } catch (error: any) {
+    clearAuth()
+    errorMessage.value = error?.statusMessage || error?.message || '登录失败，请检查账号和密码'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -42,6 +60,10 @@ async function handleSubmit() {
           管理后台，不对外开放
         </div>
       </div>
+
+      <NAlert v-if="errorMessage" type="error" :bordered="false" class="login-error">
+        {{ errorMessage }}
+      </NAlert>
 
       <NForm
         ref="formRef"
@@ -114,5 +136,9 @@ async function handleSubmit() {
   margin-top: 4px;
   font-size: 14px;
   color: #909399;
+}
+
+.login-error {
+  margin-bottom: 16px;
 }
 </style>

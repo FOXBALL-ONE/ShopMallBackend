@@ -50,11 +50,33 @@ class AdminDressController(
             val id: Long,
             val name: String,
             val size: String,
+            val length: String?,
+            val silhouette: String?,
+            val neckline: String?,
+            @param:JsonProperty("sleeve_type")
+            val sleeveType: String?,
+            val fabric: String?,
             val color: String,
             val price: BigDecimal,
             @param:JsonProperty("warehouse_volume")
             val warehouseVolume: Int,
+            @param:JsonProperty("sales_volume")
+            val salesVolume: Int,
             val status: String,
+            val highlight: List<String>,
+            val images: List<String>,
+            @param:JsonProperty("fit_sense")
+            val fitSense: String?,
+            val description: String?,
+            @param:JsonProperty("design_and_extras")
+            val designAndExtras: List<String>,
+            @param:JsonProperty("care_instructions")
+            val careInstructions: List<String>,
+            val score: Float?,
+            @param:JsonProperty("tag_ids")
+            val tagIds: List<Long>,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
             @param:JsonProperty("updated_at")
             val updatedAt: LocalDateTime?,
         )
@@ -67,10 +89,25 @@ class AdminDressController(
                 id = requireNotNull(it.id),
                 name = it.name,
                 size = requireNotNull(it.size).name,
+                length = it.length?.name,
+                silhouette = it.silhouette?.name,
+                neckline = it.neckline?.name,
+                sleeveType = it.sleeveType?.name,
+                fabric = it.fabric,
                 color = it.color,
                 price = it.price,
                 warehouseVolume = it.warehouseVolume,
+                salesVolume = it.salesVolume,
                 status = it.status.name,
+                highlight = it.highlight.toList(),
+                images = it.images.toList(),
+                fitSense = it.fitSense,
+                description = it.description,
+                designAndExtras = it.designAndExtras.toList(),
+                careInstructions = it.careInstructions.toList(),
+                score = it.score,
+                tagIds = it.tags.mapNotNull { tag -> tag.id },
+                createdAt = it.createdAt,
                 updatedAt = it.updatedAt,
             )
         }
@@ -97,8 +134,29 @@ class AdminDressController(
             @param:JsonProperty("sleeve_type")
             val sleeveType: String?,
             val fabric: String?,
+            val color: String,
+            val price: BigDecimal,
+            @param:JsonProperty("warehouse_volume")
+            val warehouseVolume: Int,
+            @param:JsonProperty("sales_volume")
+            val salesVolume: Int,
+            val status: String,
+            val highlight: List<String>,
+            val images: List<String>,
+            @param:JsonProperty("fit_sense")
+            val fitSense: String?,
+            val description: String?,
+            @param:JsonProperty("design_and_extras")
+            val designAndExtras: List<String>,
+            @param:JsonProperty("care_instructions")
+            val careInstructions: List<String>,
+            val score: Float?,
             @param:JsonProperty("tag_ids")
             val tagIds: List<Long>,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
+            @param:JsonProperty("updated_at")
+            val updatedAt: LocalDateTime?,
         )
 
         adminAccessService.requireAdmin(adminId)
@@ -112,7 +170,21 @@ class AdminDressController(
             neckline = dress.neckline?.name,
             sleeveType = dress.sleeveType?.name,
             fabric = dress.fabric,
+            color = dress.color,
+            price = dress.price,
+            warehouseVolume = dress.warehouseVolume,
+            salesVolume = dress.salesVolume,
+            status = dress.status.name,
+            highlight = dress.highlight.toList(),
+            images = dress.images.toList(),
+            fitSense = dress.fitSense,
+            description = dress.description,
+            designAndExtras = dress.designAndExtras.toList(),
+            careInstructions = dress.careInstructions.toList(),
+            score = dress.score,
             tagIds = dress.tags.mapNotNull { it.id },
+            createdAt = dress.createdAt,
+            updatedAt = dress.updatedAt,
         )
         return builder.ok().data(rs).build()
     }
@@ -148,10 +220,14 @@ class AdminDressController(
         @RequestParam("color") @NotBlank @Size(max = 50) color: String,
         @RequestParam("price") @DecimalMin("0.01") price: BigDecimal,
         @RequestParam("warehouse_volume", defaultValue = "0") @Min(0) warehouseVolume: Int,
+        @RequestParam("sales_volume", defaultValue = "0") @Min(0) salesVolume: Int,
         @RequestParam("status", defaultValue = "ACTIVE") status: Product.Status,
         @RequestParam("images", required = false) @Size(max = 12) images: List<String>?,
         @RequestParam("highlight", required = false) @Size(max = 10) highlight: List<String>?,
+        @RequestParam("fit_sense", required = false) @Size(max = 255) fitSense: String?,
         @RequestParam("description", required = false) @Size(max = 4000) description: String?,
+        @RequestParam("design_and_extras", required = false) @Size(max = 12) designAndExtras: List<String>?,
+        @RequestParam("care_instructions", required = false) @Size(max = 12) careInstructions: List<String>?,
         @RequestParam("tag_ids", required = false) @Size(max = 20) tagIds: Set<Long>?,
     ): ResponseEntity<Response> {
         data class Response(val id: Long, val name: String, val status: String)
@@ -162,10 +238,14 @@ class AdminDressController(
             this.color = color
             this.price = price
             this.warehouseVolume = warehouseVolume
+            this.salesVolume = salesVolume
             this.status = status
             this.images = images.orEmpty().toMutableList()
             this.highlight = highlight.orEmpty().toMutableList()
+            this.fitSense = fitSense
             this.description = description
+            this.designAndExtras = designAndExtras.orEmpty().toMutableList()
+            this.careInstructions = careInstructions.orEmpty().toMutableList()
         }
         val dress = dressService.create(source, tagIds.orEmpty())
         val rs = Response(requireNotNull(dress.id), dress.name, dress.status.name)
@@ -205,10 +285,14 @@ class AdminDressController(
         @RequestParam("color") @NotBlank @Size(max = 50) color: String,
         @RequestParam("price") @DecimalMin("0.01") price: BigDecimal,
         @RequestParam("warehouse_volume") @Min(0) warehouseVolume: Int,
+        @RequestParam("sales_volume") @Min(0) salesVolume: Int,
         @RequestParam("status") status: Product.Status,
         @RequestParam("images", required = false) @Size(max = 12) images: List<String>?,
         @RequestParam("highlight", required = false) @Size(max = 10) highlight: List<String>?,
+        @RequestParam("fit_sense", required = false) @Size(max = 255) fitSense: String?,
         @RequestParam("description", required = false) @Size(max = 4000) description: String?,
+        @RequestParam("design_and_extras", required = false) @Size(max = 12) designAndExtras: List<String>?,
+        @RequestParam("care_instructions", required = false) @Size(max = 12) careInstructions: List<String>?,
         @RequestParam("tag_ids", required = false) @Size(max = 20) tagIds: Set<Long>?,
     ): ResponseEntity<Response> {
         data class Response(val id: Long, val name: String, val status: String)
@@ -219,10 +303,14 @@ class AdminDressController(
             this.color = color
             this.price = price
             this.warehouseVolume = warehouseVolume
+            this.salesVolume = salesVolume
             this.status = status
             this.images = images.orEmpty().toMutableList()
             this.highlight = highlight.orEmpty().toMutableList()
+            this.fitSense = fitSense
             this.description = description
+            this.designAndExtras = designAndExtras.orEmpty().toMutableList()
+            this.careInstructions = careInstructions.orEmpty().toMutableList()
         }
         val dress = dressService.update(id, source, tagIds.orEmpty()) ?: return builder.notFound().build()
         val rs = Response(requireNotNull(dress.id), dress.name, dress.status.name)

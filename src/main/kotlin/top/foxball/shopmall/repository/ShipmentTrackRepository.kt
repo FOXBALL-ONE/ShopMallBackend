@@ -9,6 +9,10 @@ import top.foxball.shopmall.logistics.TrackingEvent
 
 interface ShipmentTrackRepository : JpaRepository<ShipmentTrack, Long>, ShipmentTrackInsertRepository {
     fun findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId: Long): List<ShipmentTrack>
+
+    fun findAllByShipment_IdInOrderByShipment_IdAscOccurredAtAscCarrierEventIdAsc(
+        shipmentIds: Collection<Long>,
+    ): List<ShipmentTrack>
 }
 
 interface ShipmentTrackInsertRepository {

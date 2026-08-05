@@ -44,11 +44,13 @@ export const useHttp = (baseURL?: string) => {
     const authToken = useCookie<string | null>(TOKEN_COOKIE);
     const authUser = useCookie<UserInfo | null>(USER_COOKIE);
     const runtimeConfig = useRuntimeConfig();
+    const route = useRoute();
     const apiBase = baseURL || (runtimeConfig.public.apiBase as string) || "http://127.0.0.1:8080/api";
 
     const http = createFetch({
         defaults: {
             baseURL: apiBase,
+            credentials: "include",
             headers: {
                 Accept: "application/json",
             },
@@ -62,7 +64,7 @@ export const useHttp = (baseURL?: string) => {
         if (import.meta.server) {
             // SSR 阶段无法直接跳转，抛 401 交由 Nuxt 渲染错误页 / 中间件处理
             throw createError({statusCode: 401, statusMessage: "Unauthorized"});
-        } else if (useRoute().path !== "/login") {
+        } else if (route.path !== "/login") {
             navigateTo("/login");
         }
     }

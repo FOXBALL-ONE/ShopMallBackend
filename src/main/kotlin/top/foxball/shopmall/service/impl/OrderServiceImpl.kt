@@ -33,8 +33,10 @@ import top.foxball.shopmall.handler.ResourceNotFoundException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ProductRepository
+import top.foxball.shopmall.repository.ShipmentItemRepository
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.AdminAccessService
+import top.foxball.shopmall.service.AdminOrderDetails
 import top.foxball.shopmall.service.AdminOrderQuery
 import top.foxball.shopmall.service.DomainEventPublisher
 import top.foxball.shopmall.service.OrderPageQuery
@@ -59,6 +61,7 @@ import java.time.Clock
 class OrderServiceImpl(
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
+    private val shipmentItemRepository: ShipmentItemRepository,
     private val productRepository: ProductRepository,
     private val userRepository: UserRepository,
     private val userService: UserService,
@@ -355,6 +358,21 @@ class OrderServiceImpl(
                 pageable,
             ),
         )
+    }
+
+    override fun getAdmin(adminId: Long, orderNo: String): AdminOrderDetails {
+        adminAccessService.requireAdmin(adminId)
+        val order = orderRepository.findByOrderNo(orderNo) ?: throw OrderNotFoundException()
+        val items = orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(requireNotNull(order.id))
+        val itemIds = items.map { requireNotNull(it.id) }
+        val allocatedQuantities = if (itemIds.isEmpty()) {
+            emptyMap()
+        } else {
+            shipmentItemRepository.findActiveAllocations(itemIds).associate {
+                it.orderItemId to it.allocatedQuantity.toInt()
+            }
+        }
+        return AdminOrderDetails(order, items, allocatedQuantities)
     }
 
     @Transactional
