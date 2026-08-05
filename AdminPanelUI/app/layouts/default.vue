@@ -1,23 +1,33 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { MenuOption } from 'naive-ui'
 
+const route = useRoute()
 const menuOptions: MenuOption[] = [
   { label: '仪表盘', key: 'dashboard' },
   { label: '商品管理', key: 'products' },
   { label: '订单管理', key: 'orders' },
+  { label: '工单支持', key: 'support-tickets' },
 ]
 
-// NMenu 选中回调：按 key 跳转对应路由。订单管理路由暂未实现，点击无效（跳 '#'）。
+const activeMenuKey = computed(() => {
+  if (route.path.startsWith('/products')) return 'products'
+  if (route.path.startsWith('/orders')) return 'orders'
+  if (route.path.startsWith('/support-tickets')) return 'support-tickets'
+  return 'dashboard'
+})
+
 function handleMenuSelect(key: string) {
   if (key === 'dashboard') {
     navigateTo('/')
   } else if (key === 'products') {
     navigateTo('/products')
+  } else if (key === 'support-tickets') {
+    navigateTo('/support-tickets')
   }
   // 'orders' 暂无页面，忽略
 }
 
-// 退出登录：清登录态并跳登录页（复用 useHttp 的 clearAuth）
 const { clearAuth } = useHttp()
 function handleLogout() {
   clearAuth()
@@ -27,42 +37,43 @@ function handleLogout() {
 
 <template>
   <NConfigProvider>
-    <!-- useMessage / useDialog / useNotification 依赖各自的 Provider，
-         需在 NConfigProvider 内、内容区外包裹，供所有页面调用。 -->
     <NMessageProvider>
       <NDialogProvider>
         <NNotificationProvider>
           <NLayout has-sider style="height: 100vh">
-      <!-- 侧边导航 -->
-      <NLayoutSider
-        bordered
-        collapse-mode="width"
-        :collapsed-width="64"
-        :width="220"
-        show-trigger
-      >
-        <div class="logo">
-          <span>ShopMall</span>
-        </div>
-        <NMenu :options="menuOptions" :collapsed-width="64" :collapsed-icon-size="22" @update:value="handleMenuSelect" />
-      </NLayoutSider>
+            <NLayoutSider
+              bordered
+              collapse-mode="width"
+              :collapsed-width="64"
+              :width="220"
+              show-trigger
+            >
+              <div class="logo">
+                <span>ShopMall</span>
+              </div>
+              <NMenu
+                :value="activeMenuKey"
+                :options="menuOptions"
+                :collapsed-width="64"
+                :collapsed-icon-size="22"
+                @update:value="handleMenuSelect"
+              />
+            </NLayoutSider>
 
-      <NLayout>
-        <!-- 顶栏 -->
-        <NLayoutHeader bordered class="header">
-          <div class="header-title">管理后台</div>
-          <NSpace>
-            <NButton @click="$router.go(0)">刷新</NButton>
-            <NButton type="primary" tertiary @click="handleLogout">退出登录</NButton>
-          </NSpace>
-        </NLayoutHeader>
+            <NLayout>
+              <NLayoutHeader bordered class="header">
+                <div class="header-title">管理后台</div>
+                <NSpace>
+                  <NButton @click="$router.go(0)">刷新</NButton>
+                  <NButton type="primary" tertiary @click="handleLogout">退出登录</NButton>
+                </NSpace>
+              </NLayoutHeader>
 
-        <!-- 内容区 -->
-        <NLayoutContent class="content">
-          <slot />
-        </NLayoutContent>
-      </NLayout>
-      </NLayout>
+              <NLayoutContent class="content">
+                <slot />
+              </NLayoutContent>
+            </NLayout>
+          </NLayout>
         </NNotificationProvider>
       </NDialogProvider>
     </NMessageProvider>

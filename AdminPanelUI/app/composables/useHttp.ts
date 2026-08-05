@@ -12,7 +12,6 @@ export interface HttpRequestOptions<T> extends Omit<FetchOptions<"json">, "baseU
     body?: T;
 }
 
-const SUCCESS_STATUS = 200;
 const UNAUTHORIZED_STATUS = 401;
 
 // 后端 JWT 认证：令牌以 "Authorization: Bearer <jwt>" 携带；
@@ -113,7 +112,7 @@ export const useHttp = (baseURL?: string) => {
         if (responseStatus === UNAUTHORIZED_STATUS) {
             handleUnauthorized();
         }
-        if (responseStatus !== SUCCESS_STATUS) {
+        if (responseStatus < 200 || responseStatus >= 300) {
             throw createError({
                 statusCode: responseStatus,
                 statusMessage: getResponseMessage(response),
