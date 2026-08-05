@@ -22,10 +22,11 @@ function handleMenuSelect(key: string) {
     navigateTo('/')
   } else if (key === 'products') {
     navigateTo('/products')
+  } else if (key === 'orders') {
+    navigateTo('/orders')
   } else if (key === 'support-tickets') {
     navigateTo('/support-tickets')
   }
-  // 'orders' 暂无页面，忽略
 }
 
 const { clearAuth } = useHttp()

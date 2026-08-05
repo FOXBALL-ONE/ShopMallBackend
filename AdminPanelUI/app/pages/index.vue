@@ -25,7 +25,7 @@ const count = ref(0)
     <NCard title="快速入口" size="small">
       <NSpace>
         <NButton tertiary @click="navigateTo('/products')">商品管理</NButton>
-        <NButton tertiary>订单管理</NButton>
+        <NButton tertiary @click="navigateTo('/orders')">订单管理</NButton>
         <NButton type="primary" tertiary @click="navigateTo('/support-tickets')">工单支持</NButton>
       </NSpace>
     </NCard>
