@@ -22,3 +22,8 @@ Follow `docs/CONTROLLER_CONVENTIONS.md` and the established style in `UserContro
 - Do not extract a private function that has only one call site. Keep one-off logic at its call site;
   extract a private function only when it has multiple call sites or represents a meaningful independent
   abstraction.
+
+## Database Migration Scope
+
+- Database migrations are out of scope for this project. Do not create or modify migration scripts,
+  and do not report missing migrations as a defect, unless the user explicitly requests migration work.

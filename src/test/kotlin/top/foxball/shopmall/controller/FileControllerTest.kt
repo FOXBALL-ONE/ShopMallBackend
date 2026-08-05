@@ -24,6 +24,7 @@ import top.foxball.shopmall.entity.jdbc.StoredFile
 import top.foxball.shopmall.service.DownloadableFile
 import top.foxball.shopmall.service.FileDetails
 import top.foxball.shopmall.service.FileService
+import top.foxball.shopmall.service.SUPPORT_TICKET_DOWNLOAD_SCOPE
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.nio.file.Files
 import java.nio.file.Path
@@ -94,6 +95,43 @@ class FileControllerTest {
             .andExpect(status().isOk)
             .andExpect(header().string("X-Content-Type-Options", "nosniff"))
             .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("attachment")))
+    }
+
+    @Test
+    fun `downloads support ticket scoped links through the ordinary download endpoint`() {
+        val fileId = UUID.randomUUID()
+        val path = tempDir.resolve("support-ticket.txt")
+        Files.writeString(path, "payload")
+        `when`(
+            fileService.openSignedDownload(
+                fileId,
+                SUPPORT_TICKET_DOWNLOAD_SCOPE,
+                2_000_000_000,
+                "nonce-2",
+                "signature-2",
+                null,
+                false,
+            ),
+        ).thenReturn(DownloadableFile(path, "support-ticket.txt", MediaType.TEXT_PLAIN_VALUE, 7))
+
+        mockMvc.perform(
+            get("/api/files/$fileId/download")
+                .queryParam("scope", SUPPORT_TICKET_DOWNLOAD_SCOPE)
+                .queryParam("expires", "2000000000")
+                .queryParam("nonce", "nonce-2")
+                .queryParam("signature", "signature-2"),
+        )
+            .andExpect(status().isOk)
+
+        verify(fileService).openSignedDownload(
+            fileId,
+            SUPPORT_TICKET_DOWNLOAD_SCOPE,
+            2_000_000_000,
+            "nonce-2",
+            "signature-2",
+            null,
+            false,
+        )
     }
 
     @Test

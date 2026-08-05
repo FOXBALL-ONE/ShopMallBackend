@@ -86,6 +86,8 @@ class SecurityConfig(
                 it.requestMatchers(HttpMethod.GET, "/api/orders/*/shipments/**").authenticated()
                 // 其余管理端：凭角色（access 的 role claim 映射为 ROLE_ADMIN）
                 it.requestMatchers("/admin/api/**").hasRole("ADMIN")
+                // 客户工单入口仅允许普通客户，避免管理员身份被记录为客户发送者。
+                it.requestMatchers("/api/support-tickets/**").hasRole("CUSTOMER")
                 // 仅带签名的下载 URL 可匿名访问，其余文件接口均要求 JWT。
                 it.requestMatchers(HttpMethod.GET, "/api/files/*/download").permitAll()
                 it.requestMatchers("/api/files/**").authenticated()
@@ -134,6 +136,7 @@ class SecurityConfig(
                 "Idempotency-Key",
             )
             allowCredentials = true
+            exposedHeaders = listOf("Retry-After")
             maxAge = 3600
         }
         val source = UrlBasedCorsConfigurationSource()

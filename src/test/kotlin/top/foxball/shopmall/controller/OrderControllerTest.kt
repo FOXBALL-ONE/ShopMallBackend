@@ -173,6 +173,18 @@ class OrderControllerTest {
     }
 
     @Test
+    fun `customer can cancel an order without a reason`() {
+        authenticate(7L)
+        `when`(orderService.cancel(7L, "ORD-API-1", null)).thenReturn(orderView())
+
+        mockMvc.perform(post("/api/orders/ORD-API-1/cancel"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+
+        verify(orderService).cancel(7L, "ORD-API-1", null)
+    }
+
+    @Test
     fun `admin list forwards pagination and filters`() {
         authenticate(99L)
         val page = PageImpl(listOf(orderView()), PageRequest.of(0, 5), 6)

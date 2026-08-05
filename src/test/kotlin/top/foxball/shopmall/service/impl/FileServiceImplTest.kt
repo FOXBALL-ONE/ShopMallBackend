@@ -13,11 +13,14 @@ import org.mockito.Mockito
 import org.springframework.mock.web.MockMultipartFile
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.util.UriComponentsBuilder
 import top.foxball.shopmall.config.FileProperties
 import top.foxball.shopmall.entity.jdbc.StoredFile
 import top.foxball.shopmall.repository.StoredFileRepository
 import top.foxball.shopmall.service.FileLinkSigner
+import top.foxball.shopmall.service.SUPPORT_TICKET_DOWNLOAD_SCOPE
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Clock
@@ -133,6 +136,17 @@ class FileServiceImplTest {
 
         assertEquals(diskPath, result.path)
 
+        val supportTicketLink = signer.sign(stored.id, SUPPORT_TICKET_DOWNLOAD_SCOPE, 300)
+        val supportTicketResult = service.openSignedDownload(
+            stored.id,
+            supportTicketLink.scope,
+            supportTicketLink.expiresAt.epochSecond,
+            supportTicketLink.nonce,
+            supportTicketLink.signature,
+        )
+
+        assertEquals(diskPath, supportTicketResult.path)
+
         val wrongOwnerLink = signer.sign(stored.id, "user:43", 300)
         assertFailsWith<top.foxball.shopmall.handler.ResourceNotFoundException> {
             service.openSignedDownload(
@@ -185,6 +199,34 @@ class FileServiceImplTest {
     }
 
     @Test
+    fun `support ticket links omit owner identifiers and are not limited by api batch size`() {
+        val constrainedService = FileServiceImpl(
+            fileRepository = repository,
+            properties = FileProperties(
+                storagePath = storageRoot.toString(),
+                baseUrl = "https://files.example.test/",
+                signingSecret = "test-file-signing-secret-must-be-long-enough",
+                maxBatchSize = 1,
+            ),
+            linkSigner = signer,
+        )
+        val files = listOf(
+            StoredFile(id = UUID.randomUUID(), ownerId = 42, originalFilename = "one.txt"),
+            StoredFile(id = UUID.randomUUID(), ownerId = 43, originalFilename = "two.txt"),
+        )
+
+        val response = constrainedService.createSupportTicketDownloadLinks(files)
+
+        assertEquals(listOf(SUPPORT_TICKET_DOWNLOAD_SCOPE, SUPPORT_TICKET_DOWNLOAD_SCOPE), response.map { it.scope })
+        response.forEach { details ->
+            val query = UriComponentsBuilder.fromUriString(details.signedDownloadUrl).build().queryParams
+            assertEquals(SUPPORT_TICKET_DOWNLOAD_SCOPE, query.getFirst("scope"))
+            assertFalse(details.signedDownloadUrl.contains("user:"))
+        }
+        Mockito.verifyNoInteractions(repository)
+    }
+
+    @Test
     fun `removes copied files when metadata persistence fails`() {
         Mockito.`when`(repository.saveAllAndFlush(ArgumentMatchers.anyList<StoredFile>()))
             .thenThrow(IllegalStateException("database unavailable"))
@@ -198,6 +240,33 @@ class FileServiceImplTest {
 
         Files.walk(storageRoot).use { paths ->
             assertFalse(paths.anyMatch { Files.isRegularFile(it) })
+        }
+    }
+
+    @Test
+    fun `removes uploaded content when an enclosing transaction rolls back`() {
+        var persisted: List<StoredFile> = emptyList()
+        Mockito.`when`(repository.saveAllAndFlush(ArgumentMatchers.anyList<StoredFile>()))
+            .thenAnswer { invocation ->
+                persisted = invocation.getArgument<List<StoredFile>>(0)
+                persisted
+            }
+        TransactionSynchronizationManager.initSynchronization()
+        try {
+            service.upload(
+                ownerId = 42,
+                files = listOf(MockMultipartFile("files", "evidence.txt", "text/plain", "payload".toByteArray())),
+            )
+            val diskPath = storageRoot.resolve(persisted.single().relativePath)
+            assertTrue(Files.isRegularFile(diskPath))
+
+            TransactionSynchronizationManager.getSynchronizations().forEach {
+                it.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK)
+            }
+
+            assertFalse(Files.exists(diskPath))
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization()
         }
     }
 

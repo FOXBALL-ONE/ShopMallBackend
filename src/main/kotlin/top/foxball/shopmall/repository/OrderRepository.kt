@@ -117,7 +117,7 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
         @Param("expected") expected: OrderStatus,
         @Param("next") next: OrderStatus,
         @Param("at") at: Instant,
-        @Param("reason") reason: String,
+        @Param("reason") reason: String?,
     ): Int
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)

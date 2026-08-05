@@ -68,8 +68,8 @@ interface OrderService {
     /** 返回当前客户订单的支付会话标识和失效时间，不创建新的支付会话。 */
     fun getPayment(customerId: Long, orderNo: String): OrderPaymentView
 
-    /** 取消当前客户仍可取消的订单，恢复库存并登记后续支付补偿任务。 */
-    fun cancel(customerId: Long, orderNo: String, reason: String): OrderView
+    /** 取消当前客户仍可取消的订单，恢复库存并登记后续支付补偿任务；取消原因可省略。 */
+    fun cancel(customerId: Long, orderNo: String, reason: String?): OrderView
 
     /** 以管理员权限按筛选条件分页查询订单。 */
     fun listAdmin(adminId: Long, query: AdminOrderQuery): Page<OrderView>

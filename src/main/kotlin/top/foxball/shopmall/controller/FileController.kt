@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
 import top.foxball.shopmall.handler.ResourceNotFoundException
 import top.foxball.shopmall.service.FileService
+import top.foxball.shopmall.service.SUPPORT_TICKET_DOWNLOAD_SCOPE
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.nio.charset.StandardCharsets
@@ -221,7 +222,9 @@ class FileController(
         @RequestParam("nonce") nonce: String,
         @RequestParam("signature") signature: String,
     ): ResponseEntity<Resource> {
-        if (scope != "public" && !scope.startsWith("user:")) throw ResourceNotFoundException()
+        if (scope != "public" && scope != SUPPORT_TICKET_DOWNLOAD_SCOPE && !scope.startsWith("user:")) {
+            throw ResourceNotFoundException()
+        }
         val downloadable = fileService.openSignedDownload(fileId, scope, expires, nonce, signature)
         val contentType = downloadable.contentType
             ?.let { runCatching { MediaType.parseMediaType(it) }.getOrNull() }

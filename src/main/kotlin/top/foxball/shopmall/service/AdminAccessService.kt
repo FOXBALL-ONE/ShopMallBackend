@@ -20,7 +20,18 @@ class AdminAccessService(
     /** 要求指定用户为普通客户，避免管理员身份代替客户提交评价。 */
     fun requireCustomer(userId: Long) {
         if (userRepository.findById(userId).orElse(null)?.role != Role.CUSTOMER) {
-            throw ForbiddenException("仅普通客户可以提交或编辑评价")
+            throw ForbiddenException("仅普通客户可以执行此操作")
+        }
+    }
+
+    /**
+     * 锁定并校验普通客户；供需要在用户维度串行化创建受限资源的写操作使用。
+     *
+     * 与 [requireCustomer] 保持相同的拒绝语义，仅查询方式改为悲观写锁。
+     */
+    fun requireCustomerForUpdate(userId: Long) {
+        if (userRepository.findByIdForUpdate(userId)?.role != Role.CUSTOMER) {
+            throw ForbiddenException("仅普通客户可以执行此操作")
         }
     }
 

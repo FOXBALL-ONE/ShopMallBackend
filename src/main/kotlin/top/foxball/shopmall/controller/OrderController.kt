@@ -585,7 +585,7 @@ class OrderController(
     fun cancelOrder(
         @AuthenticationPrincipal userId: Long,
         @PathVariable("orderNo") orderNo: String,
-        @RequestParam("reason") @NotBlank @Size(max = 200) reason: String,
+        @RequestParam("reason", required = false) @Size(max = 200) reason: String?,
     ): ResponseEntity<Response> {
         data class ItemData(
             val id: Long,

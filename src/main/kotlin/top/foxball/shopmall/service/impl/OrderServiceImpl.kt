@@ -317,8 +317,8 @@ class OrderServiceImpl(
     }
 
     @Transactional
-    override fun cancel(customerId: Long, orderNo: String, reason: String): OrderView {
-        val normalizedReason = normalizeReason(reason)
+    override fun cancel(customerId: Long, orderNo: String, reason: String?): OrderView {
+        val normalizedReason = normalizeReason(reason, required = false)
         val order = orderRepository.lockByOrderNo(orderNo)
             ?.takeIf { it.customerId == customerId }
             ?: throw OrderNotFoundException()
@@ -360,7 +360,7 @@ class OrderServiceImpl(
     @Transactional
     override fun refund(adminId: Long, orderNo: String, reason: String): OrderView {
         adminAccessService.requireAdmin(adminId)
-        val normalizedReason = normalizeReason(reason)
+        val normalizedReason = requireNotNull(normalizeReason(reason, required = true))
         val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
         val orderId = requireNotNull(order.id)
         val items = orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(orderId)
@@ -410,10 +410,13 @@ class OrderServiceImpl(
         }
     }
 
-    private fun normalizeReason(reason: String): String {
-        val normalized = reason.trim()
-        if (normalized.isEmpty() || normalized.length > MAX_REASON_LENGTH) {
-            throw ParamErrorException("原因不能为空且不能超过 $MAX_REASON_LENGTH 个字符")
+    private fun normalizeReason(reason: String?, required: Boolean): String? {
+        val normalized = reason?.trim()?.takeIf(String::isNotEmpty)
+        if (required && normalized == null) {
+            throw ParamErrorException("原因不能为空")
+        }
+        if (normalized != null && normalized.length > MAX_REASON_LENGTH) {
+            throw ParamErrorException("原因不能超过 $MAX_REASON_LENGTH 个字符")
         }
         return normalized
     }

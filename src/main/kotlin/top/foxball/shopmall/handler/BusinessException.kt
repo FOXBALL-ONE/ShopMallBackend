@@ -130,3 +130,23 @@ class CarrierSignatureException(
 class WebhookPayloadTooLargeException(
     message: String = "Webhook 请求体过大",
 ) : BusinessException(HttpStatus.PAYLOAD_TOO_LARGE, message)
+
+class SupportTicketStatusException(
+    message: String = "工单状态不允许此操作",
+) : BusinessException(HttpStatus.CONFLICT, message)
+class SupportTicketRateLimitException(
+    val retryAfterSeconds: Long,
+    message: String = "工单操作过于频繁，请稍后再试",
+) : BusinessException(HttpStatus.TOO_MANY_REQUESTS, message)
+
+class SupportTicketRequestInProgressException(
+    message: String = "相同工单请求仍在处理中，请稍后重试",
+) : BusinessException(HttpStatus.CONFLICT, message)
+
+class SupportTicketAttachmentLimitException(
+    message: String = "工单附件超过允许的限制",
+) : BusinessException(HttpStatus.PAYLOAD_TOO_LARGE, message)
+
+class SupportTicketUnsafeAttachmentException(
+    message: String = "工单附件类型不受支持或未通过安全检查",
+) : BusinessException(HttpStatus.BAD_REQUEST, message)

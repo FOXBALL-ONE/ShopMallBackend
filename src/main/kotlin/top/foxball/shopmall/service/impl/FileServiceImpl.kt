@@ -3,6 +3,8 @@ package top.foxball.shopmall.service.impl
 import org.springframework.stereotype.Service
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.multipart.MultipartFile
 import org.springframework.web.util.UriComponentsBuilder
 import top.foxball.shopmall.config.FileProperties
@@ -14,6 +16,7 @@ import top.foxball.shopmall.service.DownloadableFile
 import top.foxball.shopmall.service.FileDetails
 import top.foxball.shopmall.service.FileLinkSigner
 import top.foxball.shopmall.service.FileService
+import top.foxball.shopmall.service.SUPPORT_TICKET_DOWNLOAD_SCOPE
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -51,24 +54,19 @@ class FileServiceImpl(
         try {
             files.forEach { stored += storeUpload(ownerId, it) }
             val saved = fileRepository.saveAllAndFlush(stored.map { it.metadata })
-            return saved.map { storedFile ->
-                val scope = "user:${storedFile.ownerId}"
-                val signedLink = linkSigner.sign(storedFile.id, scope, ttlFor(scope))
-                val url = UriComponentsBuilder.fromUriString(properties.baseUrl.trimEnd('/'))
-                    .pathSegment("api", "files", storedFile.id.toString(), "download")
-                    .queryParam("scope", signedLink.scope)
-                    .queryParam("expires", signedLink.expiresAt.epochSecond)
-                    .queryParam("nonce", signedLink.nonce)
-                    .queryParam("signature", signedLink.signature)
-                    .build()
-                    .toUriString()
-                FileDetails(
-                    file = storedFile,
-                    signedDownloadUrl = url,
-                    downloadExpiresAt = LocalDateTime.ofInstant(signedLink.expiresAt, ZoneOffset.UTC),
-                    scope = signedLink.scope,
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                val storedPaths = stored.map { it.path }
+                TransactionSynchronizationManager.registerSynchronization(
+                    object : TransactionSynchronization {
+                        override fun afterCompletion(status: Int) {
+                            if (status == TransactionSynchronization.STATUS_ROLLED_BACK) {
+                                storedPaths.forEach(::deletePathQuietly)
+                            }
+                        }
+                    },
                 )
             }
+            return saved.map { storedFile -> fileDetails(storedFile, "user:${storedFile.ownerId}") }
         } catch (ex: Exception) {
             stored.forEach { deletePathQuietly(it.path) }
             throw ex
@@ -77,22 +75,7 @@ class FileServiceImpl(
 
     override fun list(ownerId: Long, pageable: Pageable): Page<FileDetails> =
         fileRepository.findAllByOwnerIdOrderByCreatedAtDesc(ownerId, pageable).map { storedFile ->
-            val scope = "user:${storedFile.ownerId}"
-            val signedLink = linkSigner.sign(storedFile.id, scope, ttlFor(scope))
-            val url = UriComponentsBuilder.fromUriString(properties.baseUrl.trimEnd('/'))
-                .pathSegment("api", "files", storedFile.id.toString(), "download")
-                .queryParam("scope", signedLink.scope)
-                .queryParam("expires", signedLink.expiresAt.epochSecond)
-                .queryParam("nonce", signedLink.nonce)
-                .queryParam("signature", signedLink.signature)
-                .build()
-                .toUriString()
-            FileDetails(
-                file = storedFile,
-                signedDownloadUrl = url,
-                downloadExpiresAt = LocalDateTime.ofInstant(signedLink.expiresAt, ZoneOffset.UTC),
-                scope = signedLink.scope,
-            )
+            fileDetails(storedFile, "user:${storedFile.ownerId}")
         }
 
     override fun createDownloadLinks(
@@ -105,23 +88,12 @@ class FileServiceImpl(
         val resolvedScope = resolveIssuableScope(ownerId, scope)
         return fileIds.map { fileId ->
             val storedFile = filesById.getValue(fileId)
-            val signedLink = linkSigner.sign(storedFile.id, resolvedScope, ttlFor(resolvedScope))
-            val url = UriComponentsBuilder.fromUriString(properties.baseUrl.trimEnd('/'))
-                .pathSegment("api", "files", storedFile.id.toString(), "download")
-                .queryParam("scope", signedLink.scope)
-                .queryParam("expires", signedLink.expiresAt.epochSecond)
-                .queryParam("nonce", signedLink.nonce)
-                .queryParam("signature", signedLink.signature)
-                .build()
-                .toUriString()
-            FileDetails(
-                file = storedFile,
-                signedDownloadUrl = url,
-                downloadExpiresAt = LocalDateTime.ofInstant(signedLink.expiresAt, ZoneOffset.UTC),
-                scope = signedLink.scope,
-            )
+            fileDetails(storedFile, resolvedScope)
         }
     }
+
+    override fun createSupportTicketDownloadLinks(files: Collection<StoredFile>): List<FileDetails> =
+        files.map { storedFile -> fileDetails(storedFile, SUPPORT_TICKET_DOWNLOAD_SCOPE) }
 
     override fun openSignedDownload(
         fileId: UUID,
@@ -244,12 +216,31 @@ class FileServiceImpl(
 
     private fun ttlFor(scope: String): Long = when {
         scope == "public" -> properties.signing.publicTtlSeconds
-        scope.startsWith("user:") -> properties.signing.resolvedUserTtl(properties.downloadTokenTtlSeconds)
+        scope.startsWith("user:") || scope == SUPPORT_TICKET_DOWNLOAD_SCOPE ->
+            properties.signing.resolvedUserTtl(properties.downloadTokenTtlSeconds)
         // order / role:* 暂未提供签发入口（createDownloadLinks 仅签发 public/user），
         // 此处保留 TTL 分级供 secure-download 验签扩展点对齐设计文档 §5.4。
         scope == "role:admin" -> properties.signing.adminTtlSeconds
         scope.startsWith("order:") -> properties.signing.orderTtlSeconds
         else -> properties.signing.resolvedUserTtl(properties.downloadTokenTtlSeconds)
+    }
+
+    private fun fileDetails(storedFile: StoredFile, scope: String): FileDetails {
+        val signedLink = linkSigner.sign(storedFile.id, scope, ttlFor(scope))
+        val url = UriComponentsBuilder.fromUriString(properties.baseUrl.trimEnd('/'))
+            .pathSegment("api", "files", storedFile.id.toString(), "download")
+            .queryParam("scope", signedLink.scope)
+            .queryParam("expires", signedLink.expiresAt.epochSecond)
+            .queryParam("nonce", signedLink.nonce)
+            .queryParam("signature", signedLink.signature)
+            .build()
+            .toUriString()
+        return FileDetails(
+            file = storedFile,
+            signedDownloadUrl = url,
+            downloadExpiresAt = LocalDateTime.ofInstant(signedLink.expiresAt, ZoneOffset.UTC),
+            scope = signedLink.scope,
+        )
     }
 
     /**
@@ -268,6 +259,7 @@ class FileServiceImpl(
         authenticatedAdmin: Boolean,
     ): Boolean = when {
         scope == "public" -> true
+        scope == SUPPORT_TICKET_DOWNLOAD_SCOPE -> true
         scope == "user:${stored.ownerId}" -> true
         scope == "role:admin" -> authenticatedUserId != null && authenticatedAdmin
         else -> false

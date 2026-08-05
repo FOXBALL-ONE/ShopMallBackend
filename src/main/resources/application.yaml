@@ -116,6 +116,19 @@ shopmall:
     max-quantity-per-line: "${ORDER_SINGLE_SKU_LIMIT:99}"
     creation-window-minutes: "${ORDER_CREATION_WINDOW_MINUTES:10}"
     idempotency-key-ttl-minutes: "${ORDER_KEY_TTL_MINUTES:10}"
+  support-ticket:
+    create-rate-limit: "${SUPPORT_TICKET_CREATE_RATE_LIMIT:5}"
+    create-rate-window-seconds: "${SUPPORT_TICKET_CREATE_RATE_WINDOW_SECONDS:600}"
+    message-rate-limit: "${SUPPORT_TICKET_MESSAGE_RATE_LIMIT:30}"
+    message-rate-window-seconds: "${SUPPORT_TICKET_MESSAGE_RATE_WINDOW_SECONDS:60}"
+    idempotency-ttl-seconds: "${SUPPORT_TICKET_IDEMPOTENCY_TTL_SECONDS:900}"
+    max-files-per-message: "${SUPPORT_TICKET_MAX_FILES_PER_MESSAGE:10}"
+    max-attachment-bytes-per-message: "${SUPPORT_TICKET_MAX_ATTACHMENT_BYTES_PER_MESSAGE:52428800}"
+    max-message-request-bytes: "${SUPPORT_TICKET_MAX_MESSAGE_REQUEST_BYTES:62914560}"
+    max-attachments-per-ticket: "${SUPPORT_TICKET_MAX_ATTACHMENTS_PER_TICKET:100}"
+    max-attachment-bytes-per-ticket: "${SUPPORT_TICKET_MAX_ATTACHMENT_BYTES_PER_TICKET:536870912}"
+    max-attachments-per-customer: "${SUPPORT_TICKET_MAX_ATTACHMENTS_PER_CUSTOMER:500}"
+    max-attachment-bytes-per-customer: "${SUPPORT_TICKET_MAX_ATTACHMENT_BYTES_PER_CUSTOMER:2147483648}"
   logistics:
     webhook-max-body-bytes: "${LOGISTICS_WEBHOOK_MAX_BODY_BYTES:1048576}"
     # 轮询调度总开关；首期默认 true 以驱动 MANUAL 之外的轮询适配器

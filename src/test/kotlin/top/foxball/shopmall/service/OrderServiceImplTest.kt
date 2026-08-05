@@ -174,6 +174,48 @@ class OrderServiceImplTest {
     }
 
     @Test
+    fun `customer cancellation stores a blank reason as null`() {
+        val order = OrderEntity(
+            id = 102,
+            orderNo = "ORDER-102",
+            customerId = 5,
+            status = OrderStatus.PENDING_PAYMENT,
+        )
+        val cancelled = OrderEntity(
+            id = 102,
+            orderNo = order.orderNo,
+            customerId = order.customerId,
+            status = OrderStatus.CANCELLED,
+            cancelReason = null,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(102)).thenReturn(emptyList())
+        `when`(
+            orderRepository.markCancelled(
+                102,
+                OrderStatus.PENDING_PAYMENT,
+                OrderStatus.CANCELLED,
+                clock.instant(),
+                null,
+            ),
+        ).thenReturn(1)
+        `when`(eventPublisher.publishInTx(anyString(), anyLong(), anyString(), anyString()))
+            .thenReturn(OutboxEvent())
+        `when`(orderRepository.findById(102)).thenReturn(Optional.of(cancelled))
+
+        val result = service.cancel(5, order.orderNo, "   ")
+
+        assertEquals(null, result.order.cancelReason)
+        verify(orderRepository).markCancelled(
+            102,
+            OrderStatus.PENDING_PAYMENT,
+            OrderStatus.CANCELLED,
+            clock.instant(),
+            null,
+        )
+    }
+
+    @Test
     fun `refund restores stock and sales only after paid transition succeeds`() {
         val order = OrderEntity(
             id = 100,

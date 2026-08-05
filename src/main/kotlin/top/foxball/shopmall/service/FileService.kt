@@ -8,6 +8,9 @@ import java.nio.file.Path
 import java.time.LocalDateTime
 import java.util.UUID
 
+/** 已完成工单领域授权后签发的短期 bearer 下载链接范围，不包含上传者标识。 */
+const val SUPPORT_TICKET_DOWNLOAD_SCOPE = "support-ticket"
+
 /** 前端可展示的文件元数据，以及当前响应时新签发的下载链接。 */
 data class FileDetails(
     val file: StoredFile,
@@ -42,6 +45,9 @@ interface FileService {
         fileIds: List<UUID>,
         scope: String? = null,
     ): List<FileDetails>
+
+    /** 为已完成工单领域授权的附件签发不含上传者标识的短期下载链接。 */
+    fun createSupportTicketDownloadLinks(files: Collection<StoredFile>): List<FileDetails>
 
     /** 校验文件、scope、到期时间与 HMAC 签名后打开本地文件。 */
     fun openSignedDownload(

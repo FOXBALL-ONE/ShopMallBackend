@@ -9,6 +9,7 @@ import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.TransientDataAccessException
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.security.access.AccessDeniedException
 import org.springframework.web.HttpRequestMethodNotSupportedException
 import org.springframework.web.bind.MethodArgumentNotValidException
@@ -51,6 +52,13 @@ class GlobalExceptionHandler {
 
     @ExceptionHandler(OrderWindowLimitException::class)
     fun onOrderWindowLimitException(ex: OrderWindowLimitException): ResponseEntity<Response> {
+        return builder.status(ex.status)
+            .retryAfter(ex.retryAfterSeconds)
+            .message(ex.message)
+            .build()
+    }
+    @ExceptionHandler(SupportTicketRateLimitException::class)
+    fun onSupportTicketRateLimitException(ex: SupportTicketRateLimitException): ResponseEntity<Response> {
         return builder.status(ex.status)
             .retryAfter(ex.retryAfterSeconds)
             .message(ex.message)
@@ -178,6 +186,14 @@ class GlobalExceptionHandler {
             .build()
     }
 
+    @ExceptionHandler(ObjectOptimisticLockingFailureException::class)
+    fun onOptimisticLockingFailureException(ex: ObjectOptimisticLockingFailureException): ResponseEntity<Response> {
+        log.warn("Optimistic locking conflict: {}", ex.message)
+        return builder.status(org.springframework.http.HttpStatus.CONFLICT)
+            .message("数据已被其他操作更新，请刷新后重试")
+            .build()
+    }
+
     @ExceptionHandler(DataIntegrityViolationException::class)
     fun onDataIntegrityViolationException(ex: DataIntegrityViolationException): ResponseEntity<Response> {
         val detail = generateSequence<Throwable>(ex) { it.cause }
@@ -189,6 +205,7 @@ class GlobalExceptionHandler {
             "uk_shipment_carrier_tracking" in detail -> "承运商追踪号已绑定其他运单"
             "uk_logistics_idempotency" in detail -> "幂等键冲突，请重试查询原结果"
             "uk_order_idempotency" in detail -> "下单幂等键冲突，请重试查询原订单"
+            "fk_support_ticket_message_attachment_file" in detail -> "工单消息使用中的附件不能删除"
             else -> null
         }
         if (message != null) {

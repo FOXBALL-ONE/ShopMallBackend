@@ -1,5 +1,6 @@
 package top.foxball.shopmall.config
 
+import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -7,11 +8,13 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
+import org.springframework.http.HttpHeaders
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.web.bind.annotation.GetMapping
@@ -60,6 +63,35 @@ class AdminApiSecurityIntegrationTest @Autowired constructor(
             .andExpect(jsonPath("$.user_id").value(42L))
     }
 
+    @Test
+    fun `customer access token can access customer support ticket api`() {
+        mockMvc.perform(
+            get("/api/support-tickets/options")
+                .header("Authorization", bearerToken(userId = 41L, role = "CUSTOMER")),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.default_priority").value("LOW"))
+    }
+
+    @Test
+    fun `credentialed cors exposes retry after header`() {
+        mockMvc.perform(
+            get("/api/support-tickets/options")
+                .header("Authorization", bearerToken(userId = 41L, role = "CUSTOMER"))
+                .header(HttpHeaders.ORIGIN, "https://frontend.example.test"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, containsString("Retry-After")))
+    }
+    @Test
+    fun `admin access token cannot impersonate a customer on support ticket api`() {
+        mockMvc.perform(
+            get("/api/support-tickets/options")
+                .header("Authorization", bearerToken(userId = 42L, role = "ADMIN")),
+        )
+            .andExpect(status().isForbidden)
+            .andExpect(jsonPath("$.status").value(403))
+    }
     private fun bearerToken(userId: Long, role: String): String =
         "Bearer ${jwtService.issue(userId, TokenType.ACCESS, ttlSeconds = 60, role = role).token}"
 
