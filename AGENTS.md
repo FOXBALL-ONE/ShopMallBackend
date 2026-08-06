@@ -27,3 +27,14 @@ Follow `docs/CONTROLLER_CONVENTIONS.md` and the established style in `UserContro
 
 - Database migrations are out of scope for this project. Do not create or modify migration scripts,
   and do not report missing migrations as a defect, unless the user explicitly requests migration work.
+
+## Date And Time Conventions
+
+- Use `java.time.LocalDateTime` for new or modified application and database business timestamps unless
+  an external protocol explicitly requires epoch/offset semantics.
+- Serialize and parse date-time text with ISO-8601 (`ISO_LOCAL_DATE_TIME`); do not introduce custom
+  date-time string patterns.
+- Frontend and backend date-time fields must be transmitted as ISO-8601 strings. For `LocalDateTime`,
+  use the offset-free `ISO_LOCAL_DATE_TIME` representation (for example, `2026-08-06T19:25:14`).
+- Bind `LocalDateTime` directly for JDBC date-time parameters. Do not pass `Instant` directly to
+  `JdbcTemplate`; convert it to the intended local date-time first when integration boundaries require it.

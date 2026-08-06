@@ -233,7 +233,7 @@ class ShipmentServiceImpl(
             throw ParamErrorException("分页参数无效")
         }
         val orderNo = query.orderNo?.trim()?.takeIf(String::isNotEmpty)
-        val trackingNo = query.trackingNo?.trim()?.takeIf(String::isNotEmpty)
+        val trackingNo = query.trackingNo?.trim()?.takeIf(String::isNotEmpty).orEmpty()
         val shipments = shipmentRepository.findAllForAdmin(
             status = query.status,
             deleted = ShipmentStatus.DELETED,

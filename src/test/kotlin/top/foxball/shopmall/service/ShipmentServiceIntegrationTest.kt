@@ -188,6 +188,30 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
         assertEquals(ShipmentStatus.LABEL_CREATED, shipmentRepository.findById(requireNotNull(created.shipment.id)).get().status)
     }
 
+    @Test
+    fun `admin shipment list handles absent and case-insensitive tracking number filters`() {
+        val fixture = createFixture("admin-list")
+        val created = shipmentService.createShipment(
+            orderNo = fixture.orderNo,
+            carrierCode = CarrierCode.MANUAL,
+            trackingNo = "TRACK-ADMIN-LIST",
+            orderItemIds = listOf(fixture.orderItemId),
+            quantities = listOf(1),
+            note = null,
+            adminId = fixture.adminId,
+            idempotencyKey = "create-admin-list",
+        )
+
+        val unfiltered = shipmentService.listAdmin(fixture.adminId, AdminShipmentQuery(trackingNo = "   "))
+        val filtered = shipmentService.listAdmin(
+            fixture.adminId,
+            AdminShipmentQuery(trackingNo = "track-admin"),
+        )
+
+        assertEquals(listOf(created.shipment.id), unfiltered.content.map { it.shipment.id })
+        assertEquals(listOf(created.shipment.id), filtered.content.map { it.shipment.id })
+    }
+
     private fun createFixture(suffix: String): Fixture {
         val admin = userRepository.saveAndFlush(
             User(

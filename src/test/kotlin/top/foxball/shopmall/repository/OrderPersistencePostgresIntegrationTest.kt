@@ -9,6 +9,7 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.data.domain.PageRequest
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
@@ -21,9 +22,11 @@ import top.foxball.shopmall.entity.jdbc.Dress
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
 import top.foxball.shopmall.entity.jdbc.OrderStatus
+import top.foxball.shopmall.entity.jdbc.ShipmentStatus
 import top.foxball.shopmall.service.OrderPaymentService
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDateTime
 import java.util.Optional
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -39,7 +42,34 @@ class OrderPersistencePostgresIntegrationTest @Autowired constructor(
     private val webhookEventRepository: StripeWebhookEventRepository,
     private val orderRepository: OrderRepository,
     private val orderPaymentService: OrderPaymentService,
+    private val dashboardReportRepository: AdminDashboardReportRepository,
+    private val shipmentRepository: ShipmentRepository,
 ) {
+    @Test
+    fun `admin shipment query binds an absent tracking number as text on PostgreSQL`() {
+        val shipments = shipmentRepository.findAllForAdmin(
+            status = null,
+            deleted = ShipmentStatus.DELETED,
+            carrier = null,
+            orderNo = null,
+            trackingNo = "",
+            hasError = null,
+            pageable = PageRequest.of(0, 20),
+        )
+
+        assertTrue(shipments.isEmpty)
+    }
+
+    @Test
+    fun `dashboard reports bind LocalDateTime ranges on PostgreSQL`() {
+        val from = LocalDateTime.parse("1900-01-01T00:00:00")
+        val until = LocalDateTime.parse("1900-01-02T00:00:00")
+
+        assertTrue(dashboardReportRepository.findDailyOrderCounts(from, until).isEmpty())
+        assertTrue(dashboardReportRepository.findDailyRevenue(from, until).isEmpty())
+        assertTrue(dashboardReportRepository.findDailyCustomerCounts(from, until).isEmpty())
+    }
+
     @Test
     fun `stock and sales updates target the joined product root atomically`() {
         val productId = requireNotNull(

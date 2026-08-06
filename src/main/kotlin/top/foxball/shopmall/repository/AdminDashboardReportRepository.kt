@@ -3,8 +3,8 @@ package top.foxball.shopmall.repository
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import java.math.BigDecimal
-import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 data class AdminDailyOrderCount(
     val date: LocalDate,
@@ -28,7 +28,7 @@ data class AdminDailyCustomerCount(
 class AdminDashboardReportRepository(
     private val jdbcTemplate: JdbcTemplate,
 ) {
-    fun findDailyOrderCounts(from: Instant, until: Instant): List<AdminDailyOrderCount> =
+    fun findDailyOrderCounts(from: LocalDateTime, until: LocalDateTime): List<AdminDailyOrderCount> =
         jdbcTemplate.query(
             """
             SELECT CAST(created_at AS DATE) AS report_date,
@@ -50,7 +50,7 @@ class AdminDashboardReportRepository(
             until,
         )
 
-    fun findDailyRevenue(from: Instant, until: Instant): List<AdminDailyRevenue> =
+    fun findDailyRevenue(from: LocalDateTime, until: LocalDateTime): List<AdminDailyRevenue> =
         jdbcTemplate.query(
             """
             SELECT CAST(created_at AS DATE) AS report_date,
@@ -73,7 +73,7 @@ class AdminDashboardReportRepository(
             until,
         )
 
-    fun findDailyCustomerCounts(from: Instant, until: Instant): List<AdminDailyCustomerCount> =
+    fun findDailyCustomerCounts(from: LocalDateTime, until: LocalDateTime): List<AdminDailyCustomerCount> =
         jdbcTemplate.query(
             """
             SELECT CAST(created_at AS DATE) AS report_date, COUNT(*) AS customer_count

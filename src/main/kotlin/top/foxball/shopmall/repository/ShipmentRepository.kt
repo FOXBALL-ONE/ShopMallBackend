@@ -39,7 +39,7 @@ interface ShipmentRepository : JpaRepository<Shipment, Long> {
             "(:carrier is null or s.carrierCode = :carrier) and " +
             "(:orderNo is null or s.orderId in " +
             "(select o.id from OrderEntity o where o.orderNo = :orderNo)) and " +
-            "(:trackingNo is null or lower(s.trackingNo) like lower(concat('%', :trackingNo, '%'))) and " +
+            "(:trackingNo = '' or lower(s.trackingNo) like lower(concat('%', :trackingNo, '%'))) and " +
             "(:hasError is null or (:hasError = true and s.lastTrackError is not null) or " +
             "(:hasError = false and s.lastTrackError is null)) " +
             "order by s.createdAt desc, s.id desc",
@@ -49,7 +49,7 @@ interface ShipmentRepository : JpaRepository<Shipment, Long> {
         @Param("deleted") deleted: ShipmentStatus,
         @Param("carrier") carrier: CarrierCode?,
         @Param("orderNo") orderNo: String?,
-        @Param("trackingNo") trackingNo: String?,
+        @Param("trackingNo") trackingNo: String,
         @Param("hasError") hasError: Boolean?,
         pageable: Pageable,
     ): Page<Shipment>

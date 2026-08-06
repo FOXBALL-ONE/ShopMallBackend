@@ -40,8 +40,8 @@ class AdminDashboardServiceImplTest {
         val currentStart = today.minusDays(6)
         val previousStart = currentStart.minusDays(7)
         val until = today.plusDays(1)
-        val queryFrom = previousStart.atStartOfDay().toInstant(ZoneOffset.UTC)
-        val queryUntil = until.atStartOfDay().toInstant(ZoneOffset.UTC)
+        val queryFrom = previousStart.atStartOfDay()
+        val queryUntil = until.atStartOfDay()
 
         `when`(reportRepository.findDailyOrderCounts(queryFrom, queryUntil)).thenReturn(
             listOf(

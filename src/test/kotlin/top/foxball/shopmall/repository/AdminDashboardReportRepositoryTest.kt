@@ -4,8 +4,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.datasource.DriverManagerDataSource
 import java.math.BigDecimal
-import java.time.Instant
-import java.time.OffsetDateTime
+import java.time.LocalDateTime
 import java.util.UUID
 import kotlin.test.assertEquals
 
@@ -38,8 +37,8 @@ class AdminDashboardReportRepositoryTest {
             )
             """.trimIndent(),
         )
-        val firstDay = OffsetDateTime.parse("2026-08-01T08:00:00Z")
-        val secondDay = OffsetDateTime.parse("2026-08-02T09:00:00Z")
+        val firstDay = LocalDateTime.parse("2026-08-01T08:00:00")
+        val secondDay = LocalDateTime.parse("2026-08-02T09:00:00")
         jdbcTemplate.update(
             "INSERT INTO orders (created_at, paid_at, status, total_amount, currency) VALUES (?, ?, ?, ?, ?)",
             firstDay,
@@ -78,8 +77,8 @@ class AdminDashboardReportRepositoryTest {
         )
 
         val repository = AdminDashboardReportRepository(jdbcTemplate)
-        val from = Instant.parse("2026-08-01T00:00:00Z")
-        val until = Instant.parse("2026-08-03T00:00:00Z")
+        val from = LocalDateTime.parse("2026-08-01T00:00:00")
+        val until = LocalDateTime.parse("2026-08-03T00:00:00")
 
         assertEquals(
             listOf(AdminDailyOrderCount(firstDay.toLocalDate(), orders = 2, paidOrders = 1)),
