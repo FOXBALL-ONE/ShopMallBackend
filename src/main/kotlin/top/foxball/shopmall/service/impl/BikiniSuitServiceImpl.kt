@@ -30,6 +30,7 @@ class BikiniSuitServiceImpl(
 
     @Transactional
     override fun create(source: BikiniSuit, tagIds: Collection<Long>): BikiniSuit {
+        source.prepareForCreate()
         source.applyTags(tagRepository, tagIds)
         return hydrate(bikiniSuitRepository.save(source))
     }
@@ -37,6 +38,7 @@ class BikiniSuitServiceImpl(
     @Transactional
     override fun update(id: Long, source: BikiniSuit, tagIds: Collection<Long>): BikiniSuit? {
         val target = bikiniSuitRepository.findById(id).orElse(null) ?: return null
+        target.requireNotDeletedForUpdate()
         target.applyChangesFrom(source)
         target.applyTags(tagRepository, tagIds)
         return hydrate(target)

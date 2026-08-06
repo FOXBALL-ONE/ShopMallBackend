@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore
 import jakarta.persistence.*
 import jakarta.validation.constraints.*
 import org.hibernate.annotations.CreationTimestamp
+import org.hibernate.annotations.DynamicUpdate
 import org.hibernate.annotations.UpdateTimestamp
 import java.math.BigDecimal
 import java.time.LocalDateTime
@@ -19,6 +20,7 @@ import jakarta.validation.constraints.Size as ValidationSize
  * 统一根实体便于后续订单与库存管理以单一外键引用任意品类商品。
  */
 @Entity
+@DynamicUpdate
 @Table(
     name = "products",
     indexes = [

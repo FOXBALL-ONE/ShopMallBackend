@@ -1,319 +1,224 @@
 <script setup lang="ts">
+import { Plus, Tags, Trash2 } from '@lucide/vue'
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
-import type { DataTableColumns, DataTableRowKey } from 'naive-ui'
-import {
-  NButton,
-  NImage,
-  NSpace,
-  NTag,
-  useDialog,
-  useMessage,
-} from 'naive-ui'
+import type { DataTableColumns, DataTableRowKey, FormInst, FormRules, TagProps } from 'naive-ui'
+import { NButton, NDropdown, NImage, NTag, useMessage } from 'naive-ui'
 import { CATEGORIES } from '~/composables/useProductApi'
 import type {
-  BikiniSuitEditable,
-  BikiniSuitResponse,
-  CoverUpEditable,
-  CoverUpResponse,
-  DressEditable,
-  DressResponse,
-  OnePieceSuitEditable,
-  OnePieceSuitResponse,
-  OnePieceSuitUpsertRequest,
   ProductListItem,
+  ProductListQuery,
+  ProductSortBy,
   ProductStatus,
   ProductType,
-  ProductUpsertRequest,
   Tag,
 } from '~/types/product'
 
 definePageMeta({ layout: 'default' })
 
 const api = useProductApi()
+const { confirmDeleteRequest } = useDeleteConfirmation()
 const message = useMessage()
-const dialog = useDialog()
-
-/* ===================== 品类页签 ===================== */
-
 const activeCategory = ref<ProductType>('DRESS')
-
-/* ===================== 数据源（全量缓存） ===================== */
-
-// 各品类全量列表（含下架/软删除），切换页签后缓存避免重复请求；手动刷新会覆盖。
-const sourceMap = reactive<Record<ProductType, ProductListItem[]>>({
-  DRESS: [],
-  BIKINI: [],
-  ONE_PIECE: [],
-  COVER_UP: [],
-})
+const products = ref<ProductListItem[]>([])
+const tags = ref<Tag[]>([])
 const loading = ref(false)
+const batchRunning = ref(false)
+const busyIds = ref<Set<number>>(new Set())
+let loadSequence = 0
 
-// 当前页签对应的源数据（响应式引用）
-const currentSource = computed<ProductListItem[]>(() => sourceMap[activeCategory.value])
+const filters = reactive<{
+  status: ProductStatus | null
+  keyword: string
+  lowStock: boolean
+  lowStockThreshold: number
+  sortBy: ProductSortBy
+  ascending: boolean
+}>({
+  status: null,
+  keyword: '',
+  lowStock: false,
+  lowStockThreshold: 10,
+  sortBy: 'UPDATED_AT',
+  ascending: false,
+})
 
-/* ===================== 筛选 ===================== */
-
-const statusFilter = ref<'ALL' | ProductStatus>('ALL')
-const keyword = ref('')
+const pagination = reactive({
+  page: 1,
+  pageSize: 20,
+  pageCount: 1,
+  totalItems: 0,
+})
 
 const statusOptions = [
-  { label: '全部', value: 'ALL' },
   { label: '上架', value: 'ACTIVE' },
   { label: '下架', value: 'INACTIVE' },
   { label: '已删除', value: 'DELETED' },
 ]
 
-// 内存过滤：状态 + 名称模糊
-const filteredData = computed<ProductListItem[]>(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  return currentSource.value.filter((p) => {
-    if (statusFilter.value !== 'ALL' && p.status !== statusFilter.value) return false
-    if (kw && !p.name.toLowerCase().includes(kw)) return false
-    return true
-  })
+const sortOptions = [
+  { label: '更新时间', value: 'UPDATED_AT' },
+  { label: '创建时间', value: 'CREATED_AT' },
+  { label: '名称', value: 'NAME' },
+  { label: '价格', value: 'PRICE' },
+  { label: '库存', value: 'STOCK' },
+  { label: '销量', value: 'SALES' },
+]
+
+const pageSizeOptions = [10, 20, 50, 100]
+const resultSummary = computed(() => {
+  if (loading.value) return '正在加载商品…'
+  if (pagination.totalItems === 0) return '当前条件下没有商品'
+  return `共 ${pagination.totalItems} 条，第 ${pagination.page} / ${pagination.pageCount} 页`
 })
 
-function resetFilter() {
-  statusFilter.value = 'ALL'
-  keyword.value = ''
-  pagination.page = 1
+function errorMessage(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const value = error as { statusMessage?: string; message?: string }
+    return value.statusMessage || value.message || '未知错误'
+  }
+  return '未知错误'
 }
 
-/* ===================== 分页（客户端） ===================== */
+async function loadProducts() {
+  const sequence = ++loadSequence
+  loading.value = true
+  try {
+    const query: ProductListQuery = {
+      product_type: activeCategory.value,
+      sort_by: filters.sortBy,
+      ascending: filters.ascending,
+      page: pagination.page,
+      size: pagination.pageSize,
+    }
+    if (filters.status) query.status = filters.status
+    if (filters.keyword.trim()) query.keyword = filters.keyword.trim()
+    if (filters.lowStock) {
+      query.low_stock = true
+      query.low_stock_threshold = filters.lowStockThreshold
+    }
+    const data = await api.listProducts(query)
+    if (sequence !== loadSequence) return
+    const pageCount = Math.max(data.pagination.totalPages, 1)
+    if (pagination.page > pageCount) {
+      pagination.page = pageCount
+      await loadProducts()
+      return
+    }
+    products.value = data.list
+    pagination.pageCount = pageCount
+    pagination.totalItems = data.pagination.totalItems
+    checkedRowKeys.value = []
+  } catch (error) {
+    if (sequence !== loadSequence) return
+    products.value = []
+    pagination.pageCount = 1
+    pagination.totalItems = 0
+    message.error(`加载商品失败：${errorMessage(error)}`)
+  } finally {
+    if (sequence === loadSequence) loading.value = false
+  }
+}
 
-// 分页状态：不显式注解为 PaginationProps，避免与 NDataTable 在 DOM 库上下文下
-// 的 `to` 属性类型冲突；推断出的窄类型对 page/pageSize 非可选，且仍结构兼容 PaginationProps。
-const pagination = reactive({
-  page: 1,
-  pageSize: 10,
-  showSizePicker: true,
-  pageSizes: [10, 20, 50, 100],
-  onChange: (page: number) => {
-    pagination.page = page
-  },
-  onUpdatePageSize: (size: number) => {
-    pagination.pageSize = size
-    pagination.page = 1
-  },
-})
+async function loadTags() {
+  try {
+    tags.value = await api.listTags()
+  } catch (error) {
+    message.error(`加载标签失败：${errorMessage(error)}`)
+  }
+}
 
-// 当前页切片数据
-const pagedData = computed<ProductListItem[]>(() => {
-  const start = (pagination.page - 1) * pagination.pageSize
-  return filteredData.value.slice(start, start + pagination.pageSize)
-})
+function handleTagsChanged(value: Tag[]) {
+  tags.value = value
+  const tagsById = new Map(value.map(tag => [tag.id, tag]))
+  products.value.forEach(product => {
+    product.tags = product.tags.map(tag => tagsById.get(tag.id) ?? tag)
+  })
+}
 
-// 过滤条件变化时回到第一页
-watch([statusFilter, keyword, activeCategory], () => {
+async function searchProducts() {
   pagination.page = 1
+  await loadProducts()
+}
+
+async function resetFilters() {
+  Object.assign(filters, {
+    status: null,
+    keyword: '',
+    lowStock: false,
+    lowStockThreshold: 10,
+    sortBy: 'UPDATED_AT',
+    ascending: false,
+  })
+  pagination.page = 1
+  await loadProducts()
+}
+
+async function changePage(page: number) {
+  pagination.page = page
+  await loadProducts()
+}
+
+async function changePageSize(pageSize: number) {
+  pagination.pageSize = pageSize
+  pagination.page = 1
+  await loadProducts()
+}
+
+watch(activeCategory, () => {
+  pagination.page = 1
+  checkedRowKeys.value = []
+  void loadProducts()
 })
 
-/* ===================== 勾选 ===================== */
+onMounted(() => {
+  void loadProducts()
+  void loadTags()
+})
 
-const checkedRowKeys = ref<Array<number | string>>([])
+const checkedRowKeys = ref<DataTableRowKey[]>([])
+const selectedRows = computed(() => {
+  const ids = new Set(checkedRowKeys.value)
+  return products.value.filter(product => ids.has(product.id))
+})
+const selectedAvailable = computed(() => selectedRows.value.filter(product => product.status !== 'DELETED'))
+const selectedDeleted = computed(() => selectedRows.value.filter(product => product.status === 'DELETED'))
 
 function rowKey(row: ProductListItem): DataTableRowKey {
   return row.id
 }
 
-function handleCheck(keys: Array<number | string>) {
+function handleCheck(keys: DataTableRowKey[]) {
   checkedRowKeys.value = keys
 }
 
-const hasChecked = computed(() => checkedRowKeys.value.length > 0)
-
-/* ===================== 数据加载 ===================== */
-
-async function loadCurrentCategory(force = false) {
-  // 已有缓存且非强制刷新时跳过，避免页签来回切换重复请求
-  if (!force && currentSource.value.length > 0) return
-  loading.value = true
-  try {
-    const list = await api.list(activeCategory.value)
-    sourceMap[activeCategory.value] = list ?? []
-    pagination.page = 1
-    checkedRowKeys.value = []
-  } catch (e: any) {
-    message.error(`加载列表失败：${e?.statusMessage || e?.message || '未知错误'}`)
-  } finally {
-    loading.value = false
-  }
-}
-
-// 标签只需加载一次，供表单多选使用。
-const tags = ref<Tag[]>([])
-const tagsLoaded = ref(false)
-async function ensureTagsLoaded() {
-  if (tagsLoaded.value) return
-  try {
-    tags.value = await api.listTags()
-    tagsLoaded.value = true
-  } catch {
-    // 标签加载失败不阻塞列表，忽略
-  }
-}
-
-// 切换页签：无条件清空勾选（避免跨品类 id 撞号导致批量误操作），再加载对应品类
-watch(activeCategory, () => {
-  checkedRowKeys.value = []
-  void loadCurrentCategory()
-})
-
-onMounted(() => {
-  // useMessage/useDialog 在客户端可用，onMounted 内调用更稳妥
-  void loadCurrentCategory(true)
-  void ensureTagsLoaded()
-})
-
-/* ===================== 状态展示辅助 ===================== */
-
-function statusTagType(s: ProductStatus): 'success' | 'warning' | 'error' {
-  if (s === 'ACTIVE') return 'success'
-  if (s === 'INACTIVE') return 'warning'
-  return 'error'
-}
-
-function statusLabel(s: ProductStatus): string {
-  if (s === 'ACTIVE') return '上架'
-  if (s === 'INACTIVE') return '下架'
+function statusLabel(status: ProductStatus): string {
+  if (status === 'ACTIVE') return '上架'
+  if (status === 'INACTIVE') return '下架'
   return '已删除'
 }
 
-function formatPrice(p: number): string {
-  if (p == null || Number.isNaN(p)) return '-'
-  return p.toFixed(2)
+function statusTagType(status: ProductStatus): TagProps['type'] {
+  if (status === 'ACTIVE') return 'success'
+  if (status === 'INACTIVE') return 'warning'
+  return 'error'
 }
 
-function formatTime(t?: string): string {
-  if (!t) return '-'
-  // ISO-8601 字符串截取到分钟展示
-  return t.replace('T', ' ').slice(0, 16)
+function formatPrice(price: number): string {
+  return Number.isFinite(price) ? `¥${price.toFixed(2)}` : '-'
 }
 
-function firstImage(row: ProductListItem): string {
-  return row.images?.[0] ?? ''
+function formatTime(value?: string): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', { hour12: false })
 }
 
-/* ===================== Upsert 请求体组装 ===================== */
-
-/**
- * 从响应行剥离出可编辑体（去掉 id/score/createdAt/updatedAt/tags/productType）
- * 并提取 tagIds，组装成完整 UpsertRequest，供 PUT 整体更新使用。
- * 状态切换 / 批量上架下架都走此路径。
- */
-function buildUpsertRequest(
-  row: ProductListItem,
-  overrideStatus?: ProductStatus,
-): ProductUpsertRequest {
-  const tagIds = (row.tags ?? []).map((t) => t.id)
-  const status = overrideStatus ?? row.status
-
-  // 公共可编辑字段
-  const base = {
-    name: row.name,
-    color: row.color,
-    price: row.price,
-    warehouseVolume: row.warehouseVolume,
-    salesVolume: row.salesVolume,
-    status,
-    highlight: row.highlight ?? [],
-    images: row.images ?? [],
-    fitSense: row.fitSense,
-    description: row.description,
-    designAndExtras: row.designAndExtras ?? [],
-    careInstructions: row.careInstructions ?? [],
-  }
-
-  switch (row.productType) {
-    case 'DRESS': {
-      const r = row as DressResponse
-      const dress: DressEditable = {
-        ...base,
-        size: r.size,
-        length: r.length,
-        silhouette: r.silhouette,
-        neckline: r.neckline,
-        sleeveType: r.sleeveType,
-        fabric: r.fabric,
-      }
-      return { dress, tagIds }
-    }
-    case 'BIKINI': {
-      const r = row as BikiniSuitResponse
-      const bikiniSuit: BikiniSuitEditable = {
-        ...base,
-        topSize: r.topSize,
-        bottomSize: r.bottomSize,
-      }
-      return { bikiniSuit, tagIds }
-    }
-    case 'ONE_PIECE': {
-      const r = row as OnePieceSuitResponse
-      const onePieceSuit: OnePieceSuitEditable = {
-        ...base,
-        size: r.size,
-        supportLevel: r.supportLevel,
-        coverage: r.coverage,
-        torsoFit: r.torsoFit,
-        neckline: r.neckline,
-        backStyle: r.backStyle,
-        tummyControl: r.tummyControl,
-        removablePadding: r.removablePadding,
-      }
-      const req: OnePieceSuitUpsertRequest = { onePieceSuit, tagIds }
-      return req
-    }
-    case 'COVER_UP': {
-      const r = row as CoverUpResponse
-      const coverUp: CoverUpEditable = {
-        ...base,
-        style: r.style,
-        sheerLevel: r.sheerLevel,
-        fabric: r.fabric,
-        size: r.size,
-      }
-      return { coverUp, tagIds }
-    }
-  }
+function variantLabel(row: ProductListItem): string {
+  if (row.productType === 'BIKINI') return [row.topSize, row.bottomSize].filter(Boolean).join(' / ') || '-'
+  return row.size || '-'
 }
 
-/* ===================== 并发限流工具 ===================== */
-
-/**
- * 限并发执行任务，返回与输入等长的结果数组（allSettled 风格）。
- * 用于批量上架/下架/删除，限制同时 5 个请求。
- */
-async function runWithConcurrency<T>(
-  tasks: Array<() => Promise<T>>,
-  limit = 5,
-): Promise<Array<{ ok: true; value: T } | { ok: false; reason: any }>> {
-  const results: Array<{ ok: true; value: T } | { ok: false; reason: any }> = []
-  let cursor = 0
-  const workers: Promise<void>[] = []
-  const worker = async () => {
-    while (cursor < tasks.length) {
-      const idx = cursor++
-      const task = tasks[idx]
-      if (!task) break
-      try {
-        const value = await task()
-        results[idx] = { ok: true, value }
-      } catch (reason) {
-        results[idx] = { ok: false, reason }
-      }
-    }
-  }
-  const workerCount = Math.min(limit, tasks.length)
-  for (let i = 0; i < workerCount; i++) workers.push(worker())
-  await Promise.all(workers)
-  return results
-}
-
-/* ===================== 表单抽屉 ===================== */
-
-// ProductFormDrawer 约定契约（由表单 agent 实现）：
-//   props: { category: ProductType, modelValue: boolean, product?: ProductListItem | null }
-//   emits: 'update:modelValue', 'saved'
 const drawerVisible = ref(false)
 const editingProduct = ref<ProductListItem | null>(null)
 
@@ -323,358 +228,581 @@ function openCreate() {
 }
 
 function openEdit(row: ProductListItem) {
+  if (row.status === 'DELETED') return
   editingProduct.value = row
   drawerVisible.value = true
 }
 
-function onDrawerSaved() {
-  // 新增/编辑成功后刷新当前品类列表（强制重拉，覆盖缓存）
-  void loadCurrentCategory(true)
-}
-
-/* ===================== 行操作：状态切换 / 删除 ===================== */
-
-const togglingIds = ref<Set<number>>(new Set())
-
-function isToggling(id: number): boolean {
-  return togglingIds.value.has(id)
+async function onDrawerSubmitted() {
+  await loadProducts()
 }
 
 async function toggleStatus(row: ProductListItem) {
   if (row.status === 'DELETED') return
-  const next: ProductStatus = row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
-  togglingIds.value.add(row.id)
-  const msg = message.loading(`${next === 'ACTIVE' ? '上架' : '下架'}中...`, { duration: 0 })
+  const target = row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+  busyIds.value.add(row.id)
   try {
-    const payload = buildUpsertRequest(row, next)
-    const updated = await api.update(row.productType, row.id, payload)
-    // 用 PUT 返回的完整实体替换本地行（含后端刷新的 updatedAt），避免时间戳陈旧
-    const idx = currentSource.value.findIndex((p) => p.id === row.id && p.productType === row.productType)
-    if (idx >= 0 && updated) {
-      currentSource.value[idx] = { ...updated, productType: row.productType } as ProductListItem
-    }
-    message.success(`已${next === 'ACTIVE' ? '上架' : '下架'}`)
-  } catch (e: any) {
-    message.error(`切换失败：${e?.statusMessage || e?.message || '未知错误'}`)
+    await api.changeStatus(row.id, target)
+    message.success(target === 'ACTIVE' ? '商品已上架' : '商品已下架')
+    await loadProducts()
+  } catch (error) {
+    message.error(`状态更新失败：${errorMessage(error)}`)
   } finally {
-    msg.destroy()
-    togglingIds.value.delete(row.id)
+    busyIds.value.delete(row.id)
   }
 }
 
 function confirmDelete(row: ProductListItem) {
-  dialog.warning({
-    title: '确认移除',
-    content: '软删除不可在后台恢复，仅标记为已删除。是否继续？',
+  confirmDeleteRequest({
+    title: '移除商品',
+    content: `确认移除“${row.name}”？移除后可从已删除列表恢复。`,
     positiveText: '移除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
+    onConfirm: async () => {
+      busyIds.value.add(row.id)
       try {
-        await api.remove(row.productType, row.id)
-        // 本地标记为 DELETED 而非移除，便于筛选切换查看
-        const idx = currentSource.value.findIndex((p) => p.id === row.id && p.productType === row.productType)
-        if (idx >= 0) {
-          const existing = currentSource.value[idx]
-          if (existing) currentSource.value[idx] = { ...existing, status: 'DELETED' }
-        }
-        checkedRowKeys.value = checkedRowKeys.value.filter((k) => k !== row.id)
-        message.success('已移除')
-      } catch (e: any) {
-        message.error(`移除失败：${e?.statusMessage || e?.message || '未知错误'}`)
+        await api.deleteProducts([row.id])
+        message.success('商品已移除')
+        await loadProducts()
+      } catch (error) {
+        message.error(`移除失败：${errorMessage(error)}`)
+      } finally {
+        busyIds.value.delete(row.id)
       }
     },
   })
 }
 
-/* ===================== 批量操作 ===================== */
-
-const batchRunning = ref(false)
-const batchProgress = reactive({ done: 0, total: 0, success: 0, failed: 0 })
-
-function selectedRows(): ProductListItem[] {
-  const ids = new Set(checkedRowKeys.value)
-  return currentSource.value.filter((p) => ids.has(p.id))
+function confirmPermanentDelete(row: ProductListItem) {
+  if (row.status !== 'DELETED') return
+  confirmDeleteRequest({
+    tone: 'error',
+    title: '永久删除商品',
+    content: `确认永久删除“${row.name}”？商品、关联评价和购物车项会从数据库移除，且无法恢复。`,
+    positiveText: '永久删除',
+    onConfirm: async () => {
+      busyIds.value.add(row.id)
+      try {
+        await api.permanentlyDeleteProducts([row.id])
+        message.success('商品已永久删除')
+        await loadProducts()
+      } catch (error) {
+        message.error(`永久删除失败：${errorMessage(error)}`)
+      } finally {
+        busyIds.value.delete(row.id)
+      }
+    },
+  })
 }
 
-function resetBatchProgress(total: number) {
-  batchProgress.done = 0
-  batchProgress.total = total
-  batchProgress.success = 0
-  batchProgress.failed = 0
+async function restore(row: ProductListItem) {
+  busyIds.value.add(row.id)
+  try {
+    await api.restoreProduct(row.id)
+    message.success('商品已恢复为下架状态')
+    await loadProducts()
+  } catch (error) {
+    message.error(`恢复失败：${errorMessage(error)}`)
+  } finally {
+    busyIds.value.delete(row.id)
+  }
 }
 
-// 批量改状态（上架/下架）：循环 PUT，限并发 5
+const stockOpen = ref(false)
+const stockLoading = ref(false)
+const stockProduct = ref<ProductListItem | null>(null)
+const stockFormRef = ref<FormInst | null>(null)
+const stockForm = reactive<{
+  mode: 'IN' | 'OUT'
+  quantity: number | null
+}>({ mode: 'IN', quantity: 1 })
+
+const stockRules: FormRules = {
+  quantity: [{
+    required: true,
+    validator: (_rule: unknown, value: number | null) => value !== null
+      && Number.isInteger(value)
+      && value >= 1
+      && value <= 1_000_000
+      ? true
+      : new Error('数量必须是 1 到 1000000 之间的整数'),
+    trigger: ['blur', 'change'],
+  }],
+}
+
+function openStock(row: ProductListItem) {
+  if (row.status === 'DELETED') return
+  stockProduct.value = row
+  stockForm.mode = 'IN'
+  stockForm.quantity = 1
+  stockFormRef.value?.restoreValidation()
+  stockOpen.value = true
+}
+
+async function submitStockAdjustment() {
+  try {
+    await stockFormRef.value?.validate()
+  } catch {
+    return
+  }
+  const row = stockProduct.value
+  const quantity = stockForm.quantity
+  if (!row || quantity === null) return
+  const adjustment = stockForm.mode === 'IN' ? quantity : -quantity
+  stockLoading.value = true
+  try {
+    const result = await api.adjustStock(row.id, adjustment)
+    row.warehouseVolume = result.warehouseVolume
+    stockOpen.value = false
+    message.success('库存已更新')
+  } catch (error) {
+    message.error(`库存调整失败：${errorMessage(error)}`)
+  } finally {
+    stockLoading.value = false
+  }
+}
+
 async function batchChangeStatus(target: 'ACTIVE' | 'INACTIVE') {
-  const rows = selectedRows().filter((r) => r.status !== 'DELETED' && r.status !== target)
-  if (rows.length === 0) {
+  const ids = selectedAvailable.value.filter(row => row.status !== target).map(row => row.id)
+  if (ids.length === 0) {
     message.info('没有符合条件的商品')
     return
   }
   batchRunning.value = true
-  resetBatchProgress(rows.length)
-  const actionText = target === 'ACTIVE' ? '上架' : '下架'
-  const progressMsg = message.loading(`批量${actionText}中 0/${rows.length}`, { duration: 0 })
-
-  const tasks = rows.map((row) => async () => {
-    try {
-      const payload = buildUpsertRequest(row, target)
-      const updated = await api.update(row.productType, row.id, payload)
-      batchProgress.success++
-      // 本地同步：用返回实体替换（含刷新的 updatedAt）
-      const idx = currentSource.value.findIndex((p) => p.id === row.id && p.productType === row.productType)
-      if (idx >= 0 && updated) currentSource.value[idx] = { ...updated, productType: row.productType } as ProductListItem
-    } catch (e: any) {
-      batchProgress.failed++
-      throw e
-    } finally {
-      batchProgress.done++
-      progressMsg.content = `批量${actionText}中 ${batchProgress.done}/${rows.length}`
-    }
-  })
-
-  const results = await runWithConcurrency(tasks, 5)
-  progressMsg.destroy()
-
-  const failures: Array<{ id: number; reason: string }> = []
-  results.forEach((r, i) => {
-    if (r.ok) return
-    const failedRow = rows[i]
-    if (!failedRow) return
-    failures.push({ id: failedRow.id, reason: r.reason?.statusMessage || r.reason?.message || '未知错误' })
-  })
-
-  if (failures.length === 0) {
-    message.success(`批量${actionText}完成，成功 ${batchProgress.success} 条`)
-  } else {
-    message.warning(`批量${actionText}完成：成功 ${batchProgress.success}，失败 ${failures.length}`)
-    failures.forEach((f) => {
-      message.error(`ID ${f.id} 失败：${f.reason}`, { duration: 5000 })
-    })
+  try {
+    const result = await api.changeStatuses(ids, target)
+    message.success(`已更新 ${result.updated} 条商品`)
+    await loadProducts()
+  } catch (error) {
+    message.error(`批量更新失败：${errorMessage(error)}`)
+  } finally {
+    batchRunning.value = false
   }
-  checkedRowKeys.value = []
-  batchRunning.value = false
 }
 
-// 批量删除（软删除）：循环 DELETE，限并发 5
 function batchDelete() {
-  const rows = selectedRows().filter((r) => r.status !== 'DELETED')
-  if (rows.length === 0) {
+  const ids = selectedAvailable.value.map(row => row.id)
+  if (ids.length === 0) {
     message.info('没有可移除的商品')
     return
   }
-  dialog.warning({
-    title: '确认批量移除',
-    content: `将对 ${rows.length} 条商品执行软删除（不可在后台恢复，仅标记为已删除）。是否继续？`,
+  confirmDeleteRequest({
+    title: '批量移除商品',
+    content: `确认移除选中的 ${ids.length} 条商品？移除后可恢复。`,
     positiveText: '批量移除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
+    onConfirm: async () => {
       batchRunning.value = true
-      resetBatchProgress(rows.length)
-      const progressMsg = message.loading(`批量移除中 0/${rows.length}`, { duration: 0 })
-
-      const tasks = rows.map((row) => async () => {
-        try {
-          await api.remove(row.productType, row.id)
-          batchProgress.success++
-          const idx = currentSource.value.findIndex((p) => p.id === row.id && p.productType === row.productType)
-          if (idx >= 0) {
-            const existing = currentSource.value[idx]
-            if (existing) currentSource.value[idx] = { ...existing, status: 'DELETED' }
-          }
-        } catch (e: any) {
-          batchProgress.failed++
-          throw e
-        } finally {
-          batchProgress.done++
-          progressMsg.content = `批量移除中 ${batchProgress.done}/${rows.length}`
-        }
-      })
-
-      const results = await runWithConcurrency(tasks, 5)
-      progressMsg.destroy()
-
-      const failures: Array<{ id: number; reason: string }> = []
-      results.forEach((r, i) => {
-        if (r.ok) return
-        const failedRow = rows[i]
-        if (!failedRow) return
-        failures.push({ id: failedRow.id, reason: r.reason?.statusMessage || r.reason?.message || '未知错误' })
-      })
-
-      if (failures.length === 0) {
-        message.success(`批量移除完成，成功 ${batchProgress.success} 条`)
-      } else {
-        message.warning(`批量移除完成：成功 ${batchProgress.success}，失败 ${failures.length}`)
-        failures.forEach((f) => {
-          message.error(`ID ${f.id} 失败：${f.reason}`, { duration: 5000 })
-        })
+      try {
+        const result = await api.deleteProducts(ids)
+        message.success(`已移除 ${result.deleted} 条商品`)
+        await loadProducts()
+      } catch (error) {
+        message.error(`批量移除失败：${errorMessage(error)}`)
+      } finally {
+        batchRunning.value = false
       }
-      checkedRowKeys.value = []
-      batchRunning.value = false
     },
   })
 }
 
-/* ===================== 表格列定义 ===================== */
-
-const columns = computed<DataTableColumns<ProductListItem>>(() => [
-  { type: 'selection' },
-  {
-    title: '图片',
-    key: 'image',
-    width: 70,
-    render: (row) => {
-      const url = firstImage(row)
-      if (!url) return h('span', { style: 'color: #c0c4cc' }, '无图')
-      return h(NImage, { src: url, width: 44, height: 44, objectFit: 'cover', previewDisabled: true })
+function batchPermanentDelete() {
+  const ids = selectedDeleted.value.map(row => row.id)
+  if (ids.length === 0) {
+    message.info('没有可永久删除的商品')
+    return
+  }
+  confirmDeleteRequest({
+    tone: 'error',
+    title: '批量永久删除商品',
+    content: `确认永久删除选中的 ${ids.length} 条商品？商品、关联评价和购物车项会从数据库移除，且无法恢复。`,
+    positiveText: '永久删除',
+    onConfirm: async () => {
+      batchRunning.value = true
+      try {
+        const result = await api.permanentlyDeleteProducts(ids)
+        message.success(`已永久删除 ${result.deleted} 条商品`)
+        await loadProducts()
+      } catch (error) {
+        message.error(`批量永久删除失败：${errorMessage(error)}`)
+      } finally {
+        batchRunning.value = false
+      }
     },
+  })
+}
+
+async function batchRestore() {
+  const ids = selectedDeleted.value.map(row => row.id)
+  if (ids.length === 0) {
+    message.info('没有可恢复的商品')
+    return
+  }
+  batchRunning.value = true
+  try {
+    const result = await api.restoreProducts(ids)
+    message.success(`已恢复 ${result.restored} 条商品`)
+    await loadProducts()
+  } catch (error) {
+    message.error(`批量恢复失败：${errorMessage(error)}`)
+  } finally {
+    batchRunning.value = false
+  }
+}
+
+function handleRowAction(key: string, row: ProductListItem) {
+  if (key === 'stock') openStock(row)
+  if (key === 'status') void toggleStatus(row)
+  if (key === 'delete') confirmDelete(row)
+  if (key === 'permanent-delete') confirmPermanentDelete(row)
+  if (key === 'restore') void restore(row)
+}
+
+const columns: DataTableColumns<ProductListItem> = [
+  { type: 'selection', width: 44 },
+  {
+    title: '商品',
+    key: 'product',
+    minWidth: 250,
+    fixed: 'left',
+    render: row => h('div', { class: 'product-cell' }, [
+      row.images[0]
+        ? h(NImage, {
+            src: row.images[0],
+            width: 48,
+            height: 48,
+            objectFit: 'cover',
+            previewDisabled: true,
+            class: 'product-thumb',
+          })
+        : h('div', { class: 'product-thumb product-thumb-empty' }, '无图'),
+      h('div', { class: 'product-main' }, [
+        h('div', { class: 'product-name', title: row.name }, row.name),
+        h('div', { class: 'product-meta' }, `#${row.id} · ${row.color} · ${variantLabel(row)}`),
+      ]),
+    ]),
   },
-  { title: '名称', key: 'name', minWidth: 160, ellipsis: { tooltip: true } },
-  { title: '颜色', key: 'color', width: 100 },
+  {
+    title: '标签',
+    key: 'tags',
+    minWidth: 160,
+    render: row => row.tags.length === 0
+      ? '-'
+      : h('div', { class: 'product-tags' }, [
+          ...row.tags.slice(0, 2).map(tag => h(
+            NTag,
+            {
+              size: 'small',
+              bordered: false,
+              color: tag.color
+                ? { color: `${tag.color}1A`, textColor: tag.color, borderColor: tag.color }
+                : undefined,
+            },
+            { default: () => tag.name },
+          )),
+          row.tags.length > 2
+            ? h(NTag, { size: 'small', bordered: false }, { default: () => `+${row.tags.length - 2}` })
+            : null,
+        ]),
+  },
   {
     title: '价格',
     key: 'price',
-    width: 100,
-    render: (row) => `¥${formatPrice(row.price)}`,
+    width: 110,
+    align: 'right',
+    render: row => formatPrice(row.price),
   },
-  { title: '库存', key: 'warehouseVolume', width: 80 },
-  { title: '销量', key: 'salesVolume', width: 80 },
+  {
+    title: '库存',
+    key: 'warehouseVolume',
+    width: 90,
+    align: 'right',
+    render: row => h(
+      'span',
+      { class: row.status !== 'DELETED' && row.warehouseVolume <= filters.lowStockThreshold ? 'low-stock' : undefined },
+      String(row.warehouseVolume),
+    ),
+  },
+  { title: '销量', key: 'salesVolume', width: 90, align: 'right' },
   {
     title: '状态',
     key: 'status',
     width: 90,
-    render: (row) =>
-      h(NTag, { type: statusTagType(row.status), size: 'small', round: true }, { default: () => statusLabel(row.status) }),
+    render: row => h(
+      NTag,
+      { type: statusTagType(row.status), size: 'small', bordered: false },
+      { default: () => statusLabel(row.status) },
+    ),
   },
   {
     title: '评分',
     key: 'score',
-    width: 70,
-    render: (row) => (row.score != null ? row.score.toFixed(1) : '-'),
+    width: 76,
+    align: 'right',
+    render: row => row.score == null ? '-' : row.score.toFixed(1),
   },
   {
     title: '更新时间',
     key: 'updatedAt',
-    width: 150,
-    render: (row) => formatTime(row.updatedAt),
+    width: 180,
+    render: row => formatTime(row.updatedAt),
   },
   {
     title: '操作',
     key: 'actions',
-    width: 200,
+    width: 150,
     fixed: 'right',
-    render: (row) => {
-      const children: ReturnType<typeof h>[] = []
-      children.push(
+    render: row => {
+      const deleted = row.status === 'DELETED'
+      const options = deleted
+        ? [
+            { label: '恢复', key: 'restore' },
+            { label: '永久删除', key: 'permanent-delete' },
+          ]
+        : [
+            { label: '调整库存', key: 'stock' },
+            { label: row.status === 'ACTIVE' ? '下架' : '上架', key: 'status' },
+            { label: '移除', key: 'delete' },
+          ]
+      return h('div', { class: 'row-actions' }, [
         h(
           NButton,
-          { size: 'small', tertiary: true, disabled: batchRunning.value, onClick: () => openEdit(row) },
+          {
+            size: 'small',
+            tertiary: true,
+            disabled: deleted || batchRunning.value || busyIds.value.has(row.id),
+            onClick: () => openEdit(row),
+          },
           { default: () => '编辑' },
         ),
-      )
-      if (row.status !== 'DELETED') {
-        children.push(
-          h(
-            NButton,
-            {
-              size: 'small',
-              tertiary: true,
-              type: row.status === 'ACTIVE' ? 'warning' : 'success',
-              loading: isToggling(row.id),
-              disabled: batchRunning.value,
-              onClick: () => toggleStatus(row),
-            },
-            { default: () => (row.status === 'ACTIVE' ? '下架' : '上架') },
-          ),
-        )
-        // 已 DELETED 行不渲染移除按钮（DELETE 仅软删除，重复删除无意义）
-        children.push(
-          h(
-            NButton,
-            {
-              size: 'small',
-              tertiary: true,
-              type: 'error',
-              disabled: batchRunning.value,
-              onClick: () => confirmDelete(row),
-            },
-            { default: () => '移除' },
-          ),
-        )
-      }
-      return h(NSpace, { size: 4 }, () => children)
+        h(
+          NDropdown,
+          {
+            options,
+            trigger: 'click',
+            disabled: batchRunning.value || busyIds.value.has(row.id),
+            onSelect: (key: string) => handleRowAction(key, row),
+          },
+          {
+            default: () => h(
+              NButton,
+              { size: 'small', tertiary: true, loading: busyIds.value.has(row.id) },
+              { default: () => '更多' },
+            ),
+          },
+        ),
+      ])
     },
   },
-])
+]
+
+const tagManagerOpen = ref(false)
 </script>
 
 <template>
   <div class="products-page">
-    <NTabs v-model:value="activeCategory" type="line" animated>
-      <NTabPane v-for="cat in CATEGORIES" :key="cat.type" :name="cat.type" :tab="cat.label">
-        <!-- 筛选栏 -->
-        <NCard size="small" :bordered="false" class="filter-bar">
-          <NSpace align="center" wrap>
+    <NSpace vertical :size="12">
+      <div class="page-heading">
+        <div>
+          <h2>商品管理</h2>
+          <NText depth="3">{{ resultSummary }}</NText>
+        </div>
+        <NSpace>
+          <NButton @click="tagManagerOpen = true">
+            <template #icon><Tags :size="16" /></template>
+            标签管理
+          </NButton>
+          <NButton type="primary" @click="openCreate">
+            <template #icon><Plus :size="16" /></template>
+            新增商品
+          </NButton>
+        </NSpace>
+      </div>
+
+      <NTabs v-model:value="activeCategory" type="line" animated>
+        <NTabPane v-for="category in CATEGORIES" :key="category.type" :name="category.type" :tab="category.label" />
+      </NTabs>
+
+      <NCard size="small" :bordered="false">
+        <div class="filter-grid">
+          <NFormItem label="商品状态">
             <NSelect
-              v-model:value="statusFilter"
+              v-model:value="filters.status"
               :options="statusOptions"
-              style="width: 140px"
-              placeholder="状态"
-            />
-            <NInput
-              v-model:value="keyword"
-              placeholder="按名称模糊搜索"
               clearable
-              style="width: 240px"
-              @keyup.enter="pagination.page = 1"
+              placeholder="全部状态"
             />
-            <NButton type="primary" @click="pagination.page = 1">搜索</NButton>
-            <NButton @click="resetFilter">重置</NButton>
-            <NButton quaternary @click="loadCurrentCategory(true)">刷新</NButton>
-          </NSpace>
-        </NCard>
+          </NFormItem>
+          <NFormItem label="关键词">
+            <NInput
+              v-model:value="filters.keyword"
+              maxlength="200"
+              clearable
+              placeholder="名称、颜色或商品 ID"
+              @keyup.enter="searchProducts"
+            />
+          </NFormItem>
+          <NFormItem label="库存">
+            <NSpace align="center" :wrap="false">
+              <ClientOnly>
+                <NCheckbox v-model:checked="filters.lowStock">低库存</NCheckbox>
+                <template #fallback><span>低库存</span></template>
+              </ClientOnly>
+              <NInputNumber
+                v-model:value="filters.lowStockThreshold"
+                :min="0"
+                :max="1000000"
+                :precision="0"
+                :disabled="!filters.lowStock"
+                style="width: 110px"
+              />
+            </NSpace>
+          </NFormItem>
+          <NFormItem label="排序">
+            <NInputGroup>
+              <NSelect v-model:value="filters.sortBy" :options="sortOptions" style="min-width: 120px" />
+              <NRadioGroup v-model:value="filters.ascending" size="small">
+                <NRadioButton :value="false">降序</NRadioButton>
+                <NRadioButton :value="true">升序</NRadioButton>
+              </NRadioGroup>
+            </NInputGroup>
+          </NFormItem>
+        </div>
+        <NSpace justify="end">
+          <NButton :disabled="loading" @click="resetFilters">重置</NButton>
+          <NButton type="primary" :loading="loading" @click="searchProducts">查询</NButton>
+        </NSpace>
+      </NCard>
 
-        <!-- 操作栏 -->
-        <NCard size="small" :bordered="false" class="action-bar">
-          <NSpace align="center">
-            <NButton type="primary" @click="openCreate">新增商品</NButton>
-            <NButton :disabled="!hasChecked || batchRunning" @click="batchChangeStatus('ACTIVE')">
-              批量上架
-            </NButton>
-            <NButton :disabled="!hasChecked || batchRunning" @click="batchChangeStatus('INACTIVE')">
-              批量下架
-            </NButton>
-            <NButton :disabled="!hasChecked || batchRunning" type="error" ghost @click="batchDelete">
-              批量移除
-            </NButton>
-            <span v-if="hasChecked" class="checked-tip">已选 {{ checkedRowKeys.length }} 项</span>
-          </NSpace>
-        </NCard>
+      <NCard size="small" :bordered="false">
+        <template #header>
+          <div class="table-header">
+            <NSpace align="center">
+              <span>商品列表</span>
+              <NText v-if="checkedRowKeys.length" depth="3">已选 {{ checkedRowKeys.length }} 项</NText>
+            </NSpace>
+            <NSpace>
+              <NButton
+                size="small"
+                :disabled="selectedAvailable.length === 0 || batchRunning"
+                @click="batchChangeStatus('ACTIVE')"
+              >
+                批量上架
+              </NButton>
+              <NButton
+                size="small"
+                :disabled="selectedAvailable.length === 0 || batchRunning"
+                @click="batchChangeStatus('INACTIVE')"
+              >
+                批量下架
+              </NButton>
+              <NButton
+                size="small"
+                :disabled="selectedDeleted.length === 0 || batchRunning"
+                @click="batchRestore"
+              >
+                批量恢复
+              </NButton>
+              <NButton
+                size="small"
+                type="error"
+                ghost
+                :disabled="selectedDeleted.length === 0 || batchRunning"
+                @click="batchPermanentDelete"
+              >
+                <template #icon><Trash2 :size="15" /></template>
+                永久删除
+              </NButton>
+              <NButton
+                size="small"
+                type="error"
+                ghost
+                :disabled="selectedAvailable.length === 0 || batchRunning"
+                @click="batchDelete"
+              >
+                批量移除
+              </NButton>
+            </NSpace>
+          </div>
+        </template>
 
-        <!-- 数据表 -->
         <NDataTable
           :columns="columns"
-          :data="pagedData"
+          :data="products"
           :row-key="rowKey"
-          :loading="loading"
-          :pagination="pagination"
+          :loading="loading || batchRunning"
+          :pagination="false"
           :checked-row-keys="checkedRowKeys"
-          :remote="false"
-          :scroll-x="1100"
+          :scroll-x="1280"
           size="small"
           @update:checked-row-keys="handleCheck"
         />
-      </NTabPane>
-    </NTabs>
 
-    <!-- 新增/编辑抽屉（Nuxt 自动导入 app/components 下组件） -->
+        <div class="pagination-bar">
+          <NPagination
+            :page="pagination.page"
+            :page-size="pagination.pageSize"
+            :item-count="pagination.totalItems"
+            :page-sizes="pageSizeOptions"
+            show-size-picker
+            :disabled="loading || batchRunning"
+            @update:page="changePage"
+            @update:page-size="changePageSize"
+          />
+        </div>
+      </NCard>
+    </NSpace>
+
     <ProductFormDrawer
       v-model:open="drawerVisible"
       :category="activeCategory"
       :product="editingProduct"
       :tags="tags"
-      @submitted="onDrawerSaved"
+      @submitted="onDrawerSubmitted"
     />
+
+    <TagManagerDrawer
+      v-model:open="tagManagerOpen"
+      @changed="handleTagsChanged"
+    />
+
+    <NModal
+      v-model:show="stockOpen"
+      preset="card"
+      title="调整库存"
+      :style="{ width: 'min(460px, calc(100vw - 32px))' }"
+      :mask-closable="!stockLoading"
+      :closable="!stockLoading"
+    >
+      <template v-if="stockProduct">
+        <NDescriptions :column="2" bordered size="small" label-placement="top">
+          <NDescriptionsItem label="商品">{{ stockProduct.name }}</NDescriptionsItem>
+          <NDescriptionsItem label="当前库存">{{ stockProduct.warehouseVolume }}</NDescriptionsItem>
+        </NDescriptions>
+        <NForm ref="stockFormRef" :model="stockForm" :rules="stockRules" label-placement="top" class="stock-form">
+          <NFormItem label="操作">
+            <NRadioGroup v-model:value="stockForm.mode">
+              <NRadioButton value="IN">入库</NRadioButton>
+              <NRadioButton value="OUT">出库</NRadioButton>
+            </NRadioGroup>
+          </NFormItem>
+          <NFormItem label="数量" path="quantity">
+            <NInputNumber
+              v-model:value="stockForm.quantity"
+              :min="1"
+              :max="1000000"
+              :precision="0"
+              style="width: 100%"
+            />
+          </NFormItem>
+        </NForm>
+      </template>
+
+      <template #footer>
+        <NSpace justify="end">
+          <NButton :disabled="stockLoading" @click="stockOpen = false">取消</NButton>
+          <NButton type="primary" :loading="stockLoading" @click="submitStockAdjustment">确认</NButton>
+        </NSpace>
+      </template>
+    </NModal>
   </div>
 </template>
 
@@ -684,16 +812,97 @@ const columns = computed<DataTableColumns<ProductListItem>>(() => [
   flex-direction: column;
 }
 
-.filter-bar {
-  margin-bottom: 12px;
+.page-heading,
+.table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.action-bar {
-  margin-bottom: 12px;
+.page-heading h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
 }
 
-.checked-tip {
-  color: #909399;
-  font-size: 13px;
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  column-gap: 12px;
+  row-gap: 4px;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.stock-form {
+  margin-top: 16px;
+}
+
+:deep(.product-cell),
+:deep(.product-tags),
+:deep(.row-actions) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:deep(.product-thumb) {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+:deep(.product-thumb-empty) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8b8b94;
+  background: #f1f1f3;
+  font-size: 12px;
+}
+
+:deep(.product-main) {
+  min-width: 0;
+}
+
+:deep(.product-name) {
+  max-width: 220px;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.product-meta) {
+  margin-top: 3px;
+  color: #8b8b94;
+  font-size: 12px;
+}
+
+:deep(.product-tags) {
+  flex-wrap: wrap;
+}
+
+:deep(.low-stock) {
+  color: #d03050;
+  font-weight: 650;
+}
+
+@media (max-width: 720px) {
+  .page-heading,
+  .table-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .table-header > :last-child {
+    flex-wrap: wrap;
+  }
 }
 </style>

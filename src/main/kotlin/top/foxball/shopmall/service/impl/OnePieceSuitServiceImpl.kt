@@ -31,6 +31,7 @@ class OnePieceSuitServiceImpl(
 
     @Transactional
     override fun create(source: OnePieceSuit, tagIds: Collection<Long>): OnePieceSuit {
+        source.prepareForCreate()
         source.applyTags(tagRepository, tagIds)
         return hydrate(onePieceSuitRepository.save(source))
     }
@@ -38,6 +39,7 @@ class OnePieceSuitServiceImpl(
     @Transactional
     override fun update(id: Long, source: OnePieceSuit, tagIds: Collection<Long>): OnePieceSuit? {
         val target = onePieceSuitRepository.findById(id).orElse(null) ?: return null
+        target.requireNotDeletedForUpdate()
         target.applyChangesFrom(source)
         target.applyTags(tagRepository, tagIds)
         return hydrate(target)

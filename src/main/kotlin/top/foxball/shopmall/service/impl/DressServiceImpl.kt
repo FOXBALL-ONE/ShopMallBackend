@@ -30,6 +30,7 @@ class DressServiceImpl(
 
     @Transactional
     override fun create(source: Dress, tagIds: Collection<Long>): Dress {
+        source.prepareForCreate()
         source.applyTags(tagRepository, tagIds)
         return hydrate(dressRepository.save(source))
     }
@@ -37,6 +38,7 @@ class DressServiceImpl(
     @Transactional
     override fun update(id: Long, source: Dress, tagIds: Collection<Long>): Dress? {
         val target = dressRepository.findById(id).orElse(null) ?: return null
+        target.requireNotDeletedForUpdate()
         target.applyChangesFrom(source)
         target.applyTags(tagRepository, tagIds)
         return hydrate(target)

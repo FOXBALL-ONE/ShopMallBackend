@@ -15,6 +15,9 @@ export type ProductStatus = "ACTIVE" | "INACTIVE" | "DELETED";
 /** 商品品类鉴别字段，用于在联合类型中区分具体品类。 */
 export type ProductType = "BIKINI" | "ONE_PIECE" | "DRESS" | "COVER_UP";
 
+/** 管理端商品列表允许的排序字段。 */
+export type ProductSortBy = "CREATED_AT" | "UPDATED_AT" | "NAME" | "PRICE" | "STOCK" | "SALES";
+
 /* ===================== 各品类枚举（string literal union） ===================== */
 
 /** Dress 尺寸。 */
@@ -117,6 +120,14 @@ export interface Tag {
     updatedAt?: string;
 }
 
+export interface TagMutation {
+    name: string;
+    description?: string;
+    color?: string;
+    sortOrder: number;
+    active: boolean;
+}
+
 /** 文件元数据响应，对齐后端 FileMetadataResponse。 */
 export interface FileMetadataResponse {
     id: string;
@@ -144,7 +155,7 @@ export interface ProductBase {
     price: number;
     /** 库存（≥0）。 */
     warehouseVolume: number;
-    /** 累计销量（≥0，新增时给 0；管理员表单可编辑但通常只读展示）。 */
+    /** 累计销量（≥0，由订单流程维护，管理端只读）。 */
     salesVolume: number;
     /** 状态，默认 ACTIVE。 */
     status: ProductStatus;
@@ -315,6 +326,36 @@ export interface CoverUpItemResponse {
 export interface ProductDeleteResponse {
     id: number;
     deleted: boolean;
+}
+
+export interface ProductListQuery {
+    product_type?: ProductType;
+    status?: ProductStatus;
+    keyword?: string;
+    low_stock?: boolean;
+    low_stock_threshold?: number;
+    sort_by?: ProductSortBy;
+    ascending?: boolean;
+    page: number;
+    size: number;
+}
+
+export interface ProductPagination {
+    page: number;
+    size: number;
+    totalItems: number;
+    totalPages: number;
+}
+
+export interface ProductPage {
+    list: ProductListItem[];
+    pagination: ProductPagination;
+}
+
+export interface StockAdjustmentResponse {
+    id: number;
+    adjustment: number;
+    warehouseVolume: number;
 }
 
 /* ===================== 联合类型（便于列表统一处理） ===================== */

@@ -9,24 +9,31 @@ import type {
 } from "naive-ui";
 import type {
   BackStyle,
+  BikiniSuitEditable,
   BikiniSize,
   Coverage,
+  CoverUpEditable,
   CoverUpSize,
   CoverUpStyle,
   DressLength,
+  DressEditable,
   DressNeckline,
   DressSilhouette,
   DressSize,
   DressSleeveType,
   OnePieceNeckline,
+  OnePieceSuitEditable,
   OnePieceSize,
+  ProductListItem,
   ProductStatus,
   ProductType,
+  ProductUpsertRequest,
   SheerLevel,
   SupportLevel,
+  Tag,
   TorsoFit,
 } from "~/types/product";
-import { getCategoryConfig, useProductApi } from "~/composables/useProductApi";
+import { useProductApi } from "~/composables/useProductApi";
 
 /**
  * 商品新增/编辑抽屉表单。
@@ -176,9 +183,9 @@ const props = defineProps<{
   /** 当前品类。 */
   category: ProductType;
   /** 编辑时传入现有 Response；新增时为 null。 */
-  product: any | null;
+  product: ProductListItem | null;
   /** 父级已加载的标签列表。 */
-  tags: { id: number; name: string }[];
+  tags: Tag[];
 }>();
 
 const emit = defineEmits<{
@@ -276,15 +283,22 @@ const model = reactive<FormModel>(createDefaultModel());
 
 const formRef = ref<FormInst | null>(null);
 const loading = ref(false);
-const uploading = ref(false);
+const pendingUploads = ref(0);
+const uploading = computed(() => pendingUploads.value > 0);
 /** 编辑时商品 id（新增时为 null）。 */
 const editingId = ref<number | null>(null);
+const isEditing = computed(() => editingId.value !== null);
 
 const message = useMessage();
 const productApi = useProductApi();
 
-/** 当前品类配置，用于提交时取 singularKey 与路径。 */
-const categoryConfig = computed(() => getCategoryConfig(props.category));
+function errorMessage(error: unknown): string {
+  if (error && typeof error === "object") {
+    const value = error as { statusMessage?: string; message?: string };
+    return value.statusMessage || value.message || "未知错误";
+  }
+  return String(error || "未知错误");
+}
 
 /* ===================== 校验规则 ===================== */
 
@@ -295,6 +309,22 @@ function maxLengthArray(max: number, fieldLabel: string) {
     validator: (_rule: unknown, value: unknown) => {
       const len = Array.isArray(value) ? value.length : 0;
       return len <= max ? true : new Error(`${fieldLabel}最多 ${max} 项`);
+    },
+  };
+}
+
+function textArrayRule(max: number, itemMax: number, fieldLabel: string) {
+  return {
+    trigger: ["change", "blur"],
+    validator: (_rule: unknown, value: unknown) => {
+      if (!Array.isArray(value)) return true;
+      if (value.length > max) return new Error(`${fieldLabel}最多 ${max} 项`);
+      if (value.some((item) => typeof item !== "string" || !item.trim())) {
+        return new Error(`${fieldLabel}不能包含空项`);
+      }
+      return value.some((item) => item.length > itemMax)
+        ? new Error(`${fieldLabel}每项不超过 ${itemMax} 字符`)
+        : true;
     },
   };
 }
@@ -318,7 +348,12 @@ const rules = computed<FormRules>(() => {
       },
       {
         validator: (_rule: unknown, value: number | null) =>
-          value !== null && value > 0 ? true : new Error("价格必须大于 0"),
+          value !== null
+          && value > 0
+          && value <= 99_999_999.99
+          && Math.abs(value * 100 - Math.round(value * 100)) < 1e-8
+            ? true
+            : new Error("价格需大于 0、最多两位小数且不超过 99999999.99"),
         trigger: ["blur", "change"],
       },
     ],
@@ -331,22 +366,18 @@ const rules = computed<FormRules>(() => {
       },
       {
         validator: (_rule: unknown, value: number | null) =>
-          value !== null && value >= 0 ? true : new Error("库存不能为负"),
-        trigger: ["blur", "change"],
-      },
-    ],
-    salesVolume: [
-      {
-        type: "number",
-        message: "请输入销量",
+          value !== null && Number.isInteger(value) && value >= 0
+            ? true
+            : new Error("库存必须是非负整数"),
         trigger: ["blur", "change"],
       },
     ],
     status: [{ required: true, message: "请选择状态", trigger: ["change"] }],
-    highlight: [maxLengthArray(10, "卖点")],
-    images: [maxLengthArray(12, "图片")],
-    designAndExtras: [maxLengthArray(12, "设计细节")],
-    careInstructions: [maxLengthArray(12, "洗护说明")],
+    highlight: [textArrayRule(10, 255, "卖点")],
+    images: [textArrayRule(12, 512, "图片地址")],
+    designAndExtras: [textArrayRule(12, 255, "设计细节")],
+    careInstructions: [textArrayRule(12, 255, "洗护说明")],
+    tagIds: [maxLengthArray(20, "标签")],
     fitSense: [{ max: 255, message: "不超过 255 字符", trigger: ["blur", "input"] }],
     description: [{ max: 4000, message: "不超过 4000 字符", trigger: ["blur", "input"] }],
     fabric: [{ max: 100, message: "不超过 100 字符", trigger: ["blur", "input"] }],
@@ -359,6 +390,11 @@ const rules = computed<FormRules>(() => {
     r.onePieceSize = [{ required: true, message: "请选择尺码", trigger: ["change"] }];
   } else if (props.category === "COVER_UP") {
     r.coverUpSize = [{ required: true, message: "请选择尺码", trigger: ["change"] }];
+  } else if (props.category === "BIKINI") {
+    r.topSize = [{
+      validator: () => model.topSize || model.bottomSize ? true : new Error("上装和下装尺码至少选择一项"),
+      trigger: ["change"],
+    }];
   }
 
   return r;
@@ -366,7 +402,11 @@ const rules = computed<FormRules>(() => {
 
 /** 标签下拉选项，由父级传入的 Tag[] 映射。 */
 const tagOptions = computed(() =>
-  props.tags.map((t) => ({ label: t.name, value: t.id })),
+  props.tags.map((t) => ({
+    label: t.active ? t.name : `${t.name}（已停用）`,
+    value: t.id,
+    disabled: !t.active && !model.tagIds.includes(t.id),
+  })),
 );
 
 /* ===================== 编辑回填 ===================== */
@@ -397,17 +437,17 @@ watch(
       // tags → tagIds
       model.tagIds = Array.isArray(p.tags) ? p.tags.map((t: { id: number }) => t.id) : [];
       // 专属字段（按品类回填，避免空赋值造成噪音）
-      if (props.category === "DRESS") {
+      if (p.productType === "DRESS") {
         model.dressSize = p.size ?? null;
         model.dressLength = p.length ?? null;
         model.dressSilhouette = p.silhouette ?? null;
         model.dressNeckline = p.neckline ?? null;
         model.dressSleeveType = p.sleeveType ?? null;
         model.fabric = p.fabric ?? "";
-      } else if (props.category === "BIKINI") {
+      } else if (p.productType === "BIKINI") {
         model.topSize = p.topSize ?? null;
         model.bottomSize = p.bottomSize ?? null;
-      } else if (props.category === "ONE_PIECE") {
+      } else if (p.productType === "ONE_PIECE") {
         model.onePieceSize = p.size ?? null;
         model.supportLevel = p.supportLevel ?? null;
         model.coverage = p.coverage ?? null;
@@ -416,7 +456,7 @@ watch(
         model.backStyle = p.backStyle ?? null;
         model.tummyControl = !!p.tummyControl;
         model.removablePadding = !!p.removablePadding;
-      } else if (props.category === "COVER_UP") {
+      } else if (p.productType === "COVER_UP") {
         model.coverUpStyle = p.style ?? null;
         model.sheerLevel = p.sheerLevel ?? null;
         model.coverUpSize = p.size ?? "ONE_SIZE";
@@ -443,12 +483,12 @@ async function handleUploadRequest({
     return;
   }
   // 已达上限直接拒绝（multiple 并发场景下，push 前再次校验作为最终闸门）
-  if (model.images.length >= 12) {
+  if (model.images.length + pendingUploads.value >= 12) {
     message.warning("图片最多 12 张，请先移除已有图片");
     onError();
     return;
   }
-  uploading.value = true;
+  pendingUploads.value += 1;
   try {
     const result = await productApi.uploadImages([rawFile]);
     const url = result[0]?.stableUrl;
@@ -464,11 +504,11 @@ async function handleUploadRequest({
     }
     model.images.push(url);
     onFinish();
-  } catch (e: any) {
-    message.error(`图片上传失败：${e?.message ?? e}`);
+  } catch (error) {
+    message.error(`图片上传失败：${errorMessage(error)}`);
     onError();
   } finally {
-    uploading.value = false;
+    pendingUploads.value -= 1;
   }
 }
 
@@ -480,12 +520,12 @@ function removeImage(index: number) {
 /* ===================== 提交 ===================== */
 
 /** 组装 UpsertRequest：仅拾取当前品类所需字段。 */
-function buildPayload(): Record<string, unknown> {
-  const base: Record<string, unknown> = {
+function buildPayload(): ProductUpsertRequest {
+  const base = {
     name: model.name,
     color: model.color,
-    price: model.price,
-    warehouseVolume: model.warehouseVolume,
+    price: model.price!,
+    warehouseVolume: model.warehouseVolume ?? 0,
     salesVolume: model.salesVolume,
     status: model.status,
     highlight: model.highlight,
@@ -496,42 +536,55 @@ function buildPayload(): Record<string, unknown> {
     careInstructions: model.careInstructions,
   };
 
-  const singularKey = categoryConfig.value.singularKey;
-  const editable: Record<string, unknown> = { ...base };
-
   if (props.category === "DRESS") {
-    editable.size = model.dressSize;
-    editable.length = model.dressLength || undefined;
-    editable.silhouette = model.dressSilhouette || undefined;
-    editable.neckline = model.dressNeckline || undefined;
-    editable.sleeveType = model.dressSleeveType || undefined;
-    editable.fabric = model.fabric || undefined;
-  } else if (props.category === "BIKINI") {
-    editable.topSize = model.topSize || undefined;
-    editable.bottomSize = model.bottomSize || undefined;
-  } else if (props.category === "ONE_PIECE") {
-    editable.size = model.onePieceSize;
-    editable.supportLevel = model.supportLevel || undefined;
-    editable.coverage = model.coverage || undefined;
-    editable.torsoFit = model.torsoFit || undefined;
-    editable.neckline = model.onePieceNeckline || undefined;
-    editable.backStyle = model.backStyle || undefined;
-    editable.tummyControl = model.tummyControl;
-    editable.removablePadding = model.removablePadding;
-  } else if (props.category === "COVER_UP") {
-    editable.style = model.coverUpStyle || undefined;
-    editable.sheerLevel = model.sheerLevel || undefined;
-    editable.fabric = model.fabric || undefined;
-    editable.size = model.coverUpSize;
+    const dress: DressEditable = {
+      ...base,
+      size: model.dressSize!,
+      length: model.dressLength || undefined,
+      silhouette: model.dressSilhouette || undefined,
+      neckline: model.dressNeckline || undefined,
+      sleeveType: model.dressSleeveType || undefined,
+      fabric: model.fabric || undefined,
+    };
+    return { dress, tagIds: model.tagIds };
   }
-
-  return {
-    [singularKey]: editable,
-    tagIds: model.tagIds,
+  if (props.category === "BIKINI") {
+    const bikiniSuit: BikiniSuitEditable = {
+      ...base,
+      topSize: model.topSize || undefined,
+      bottomSize: model.bottomSize || undefined,
+    };
+    return { bikiniSuit, tagIds: model.tagIds };
+  }
+  if (props.category === "ONE_PIECE") {
+    const onePieceSuit: OnePieceSuitEditable = {
+      ...base,
+      size: model.onePieceSize!,
+      supportLevel: model.supportLevel || undefined,
+      coverage: model.coverage || undefined,
+      torsoFit: model.torsoFit || undefined,
+      neckline: model.onePieceNeckline || undefined,
+      backStyle: model.backStyle || undefined,
+      tummyControl: model.tummyControl,
+      removablePadding: model.removablePadding,
+    };
+    return { onePieceSuit, tagIds: model.tagIds };
+  }
+  const coverUp: CoverUpEditable = {
+    ...base,
+    style: model.coverUpStyle || undefined,
+    sheerLevel: model.sheerLevel || undefined,
+    fabric: model.fabric || undefined,
+    size: model.coverUpSize!,
   };
+  return { coverUp, tagIds: model.tagIds };
 }
 
 async function handleSubmit() {
+  if (uploading.value) {
+    message.warning("图片仍在上传中");
+    return;
+  }
   try {
     await formRef.value?.validate();
   } catch {
@@ -543,16 +596,15 @@ async function handleSubmit() {
   try {
     const payload = buildPayload();
     if (editingId.value !== null) {
-      await productApi.update(props.category, editingId.value, payload as never);
+      await productApi.update(props.category, editingId.value, payload);
     } else {
-      await productApi.create(props.category, payload as never);
+      await productApi.create(props.category, payload);
     }
     message.success(editingId.value !== null ? "已保存" : "已创建");
     emit("submitted");
     closeDrawer();
-  } catch (e: any) {
-    const msg = e?.statusMessage ?? e?.message ?? "提交失败";
-    message.error(msg);
+  } catch (error) {
+    message.error(errorMessage(error));
   } finally {
     loading.value = false;
   }
@@ -563,11 +615,11 @@ function closeDrawer() {
   emit("update:open", false);
 }
 
-/** 抽屉宽度（720）。 */
-const drawerWidth = 720;
+/** 抽屉在窄屏下不超出视口。 */
+const drawerWidth = "min(720px, 100vw)";
 
 /** 图片网格样式占位（内联避免 scoped 全局污染）。 */
-const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 1px solid #e0e0e6; border-radius: 8px; overflow: hidden;";
+const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 1px solid #e0e0e6; border-radius: 6px; overflow: hidden;";
 </script>
 
 <template>
@@ -592,17 +644,17 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
       >
         <!-- 公共字段区 -->
         <NDivider title-placement="left">基础信息</NDivider>
-        <NGrid :cols="2" :x-gap="16" responsive="screen">
-          <NFormItem label="商品名称" path="name" :span="2">
+        <NGrid cols="1 s:2" :x-gap="16" responsive="screen">
+          <NFormItemGi label="商品名称" path="name" :span="2">
             <NInput v-model:value="model.name" placeholder="不超过 200 字符" clearable maxlength="200" show-count />
-          </NFormItem>
-          <NFormItem label="颜色" path="color">
+          </NFormItemGi>
+          <NFormItemGi label="颜色" path="color">
             <NInput v-model:value="model.color" placeholder="如：黑色 / 海军蓝" clearable maxlength="50" />
-          </NFormItem>
-          <NFormItem label="状态" path="status">
+          </NFormItemGi>
+          <NFormItemGi v-if="!isEditing" label="初始状态" path="status">
             <NSelect v-model:value="model.status" :options="STATUS_OPTIONS" placeholder="选择状态" />
-          </NFormItem>
-          <NFormItem label="价格" path="price">
+          </NFormItemGi>
+          <NFormItemGi label="价格" path="price">
             <NInputNumber
               v-model:value="model.price"
               :min="0.01"
@@ -611,8 +663,8 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
               placeholder="大于 0"
               style="width: 100%"
             />
-          </NFormItem>
-          <NFormItem label="库存" path="warehouseVolume">
+          </NFormItemGi>
+          <NFormItemGi v-if="!isEditing" label="初始库存" path="warehouseVolume">
             <NInputNumber
               v-model:value="model.warehouseVolume"
               :min="0"
@@ -620,24 +672,19 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
               placeholder="≥0"
               style="width: 100%"
             />
-          </NFormItem>
-          <NFormItem v-if="editingId !== null" label="累计销量" path="salesVolume">
-            <NInputNumber
-              v-model:value="model.salesVolume"
-              :min="0"
-              :step="1"
-              placeholder="≥0"
-              style="width: 100%"
-            />
-          </NFormItem>
+          </NFormItemGi>
         </NGrid>
+        <NDescriptions v-if="isEditing" :column="2" bordered size="small" label-placement="top">
+          <NDescriptionsItem label="当前库存">{{ model.warehouseVolume }}</NDescriptionsItem>
+          <NDescriptionsItem label="累计销量">{{ model.salesVolume }}</NDescriptionsItem>
+        </NDescriptions>
 
         <!-- 描述与卖点 -->
         <NGrid :cols="1" :x-gap="16" responsive="screen">
-          <NFormItem label="版型感受" path="fitSense">
+          <NFormItemGi label="版型感受" path="fitSense">
             <NInput v-model:value="model.fitSense" placeholder="可选，不超过 255 字符" clearable maxlength="255" />
-          </NFormItem>
-          <NFormItem label="描述" path="description">
+          </NFormItemGi>
+          <NFormItemGi label="描述" path="description">
             <NInput
               v-model:value="model.description"
               type="textarea"
@@ -646,16 +693,16 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
               maxlength="4000"
               show-count
             />
-          </NFormItem>
-          <NFormItem label="卖点" path="highlight">
+          </NFormItemGi>
+          <NFormItemGi label="卖点" path="highlight">
             <NDynamicTags v-model:value="model.highlight" :max="10" type="success" />
-          </NFormItem>
-          <NFormItem label="设计细节" path="designAndExtras">
+          </NFormItemGi>
+          <NFormItemGi label="设计细节" path="designAndExtras">
             <NDynamicTags v-model:value="model.designAndExtras" :max="12" type="info" />
-          </NFormItem>
-          <NFormItem label="洗护说明" path="careInstructions">
+          </NFormItemGi>
+          <NFormItemGi label="洗护说明" path="careInstructions">
             <NDynamicTags v-model:value="model.careInstructions" :max="12" type="warning" />
-          </NFormItem>
+          </NFormItemGi>
         </NGrid>
 
         <!-- 图片上传区 -->
@@ -723,85 +770,85 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
 
         <!-- Dress -->
         <template v-if="category === 'DRESS'">
-          <NGrid :cols="2" :x-gap="16" responsive="screen">
-            <NFormItem label="尺码" path="dressSize">
+          <NGrid cols="1 s:2" :x-gap="16" responsive="screen">
+            <NFormItemGi label="尺码" path="dressSize">
               <NSelect v-model:value="model.dressSize" :options="DRESS_SIZE_OPTIONS" placeholder="必选" />
-            </NFormItem>
-            <NFormItem label="裙长" path="dressLength">
+            </NFormItemGi>
+            <NFormItemGi label="裙长" path="dressLength">
               <NSelect v-model:value="model.dressLength" :options="DRESS_LENGTH_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="轮廓" path="dressSilhouette">
+            </NFormItemGi>
+            <NFormItemGi label="轮廓" path="dressSilhouette">
               <NSelect v-model:value="model.dressSilhouette" :options="DRESS_SILHOUETTE_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="领口" path="dressNeckline">
+            </NFormItemGi>
+            <NFormItemGi label="领口" path="dressNeckline">
               <NSelect v-model:value="model.dressNeckline" :options="DRESS_NECKLINE_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="袖型" path="dressSleeveType">
+            </NFormItemGi>
+            <NFormItemGi label="袖型" path="dressSleeveType">
               <NSelect v-model:value="model.dressSleeveType" :options="DRESS_SLEEVE_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="面料" path="fabric">
+            </NFormItemGi>
+            <NFormItemGi label="面料" path="fabric">
               <NInput v-model:value="model.fabric" placeholder="可选，≤100 字符" clearable maxlength="100" />
-            </NFormItem>
+            </NFormItemGi>
           </NGrid>
         </template>
 
         <!-- Bikini -->
         <template v-else-if="category === 'BIKINI'">
-          <NGrid :cols="2" :x-gap="16" responsive="screen">
-            <NFormItem label="上装尺码" path="topSize">
+          <NGrid cols="1 s:2" :x-gap="16" responsive="screen">
+            <NFormItemGi label="上装尺码" path="topSize">
               <NSelect v-model:value="model.topSize" :options="BIKINI_SIZE_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="下装尺码" path="bottomSize">
+            </NFormItemGi>
+            <NFormItemGi label="下装尺码" path="bottomSize">
               <NSelect v-model:value="model.bottomSize" :options="BIKINI_SIZE_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
+            </NFormItemGi>
           </NGrid>
         </template>
 
         <!-- OnePiece -->
         <template v-else-if="category === 'ONE_PIECE'">
-          <NGrid :cols="2" :x-gap="16" responsive="screen">
-            <NFormItem label="尺码" path="onePieceSize">
+          <NGrid cols="1 s:2" :x-gap="16" responsive="screen">
+            <NFormItemGi label="尺码" path="onePieceSize">
               <NSelect v-model:value="model.onePieceSize" :options="ONE_PIECE_SIZE_OPTIONS" placeholder="必选" />
-            </NFormItem>
-            <NFormItem label="支撑等级" path="supportLevel">
+            </NFormItemGi>
+            <NFormItemGi label="支撑等级" path="supportLevel">
               <NSelect v-model:value="model.supportLevel" :options="SUPPORT_LEVEL_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="覆盖度" path="coverage">
+            </NFormItemGi>
+            <NFormItemGi label="覆盖度" path="coverage">
               <NSelect v-model:value="model.coverage" :options="COVERAGE_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="躯干版型" path="torsoFit">
+            </NFormItemGi>
+            <NFormItemGi label="躯干版型" path="torsoFit">
               <NSelect v-model:value="model.torsoFit" :options="TORSO_FIT_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="领口" path="onePieceNeckline">
+            </NFormItemGi>
+            <NFormItemGi label="领口" path="onePieceNeckline">
               <NSelect v-model:value="model.onePieceNeckline" :options="ONE_PIECE_NECKLINE_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="背型" path="backStyle">
+            </NFormItemGi>
+            <NFormItemGi label="背型" path="backStyle">
               <NSelect v-model:value="model.backStyle" :options="BACK_STYLE_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="收腹控制" path="tummyControl">
+            </NFormItemGi>
+            <NFormItemGi label="收腹控制" path="tummyControl">
               <NSwitch v-model:value="model.tummyControl" />
-            </NFormItem>
-            <NFormItem label="可拆卸胸垫" path="removablePadding">
+            </NFormItemGi>
+            <NFormItemGi label="可拆卸胸垫" path="removablePadding">
               <NSwitch v-model:value="model.removablePadding" />
-            </NFormItem>
+            </NFormItemGi>
           </NGrid>
         </template>
 
         <!-- CoverUp -->
         <template v-else-if="category === 'COVER_UP'">
-          <NGrid :cols="2" :x-gap="16" responsive="screen">
-            <NFormItem label="风格" path="coverUpStyle">
+          <NGrid cols="1 s:2" :x-gap="16" responsive="screen">
+            <NFormItemGi label="风格" path="coverUpStyle">
               <NSelect v-model:value="model.coverUpStyle" :options="COVER_UP_STYLE_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="透视度" path="sheerLevel">
+            </NFormItemGi>
+            <NFormItemGi label="透视度" path="sheerLevel">
               <NSelect v-model:value="model.sheerLevel" :options="SHEER_LEVEL_OPTIONS" clearable placeholder="可选" />
-            </NFormItem>
-            <NFormItem label="面料" path="fabric">
+            </NFormItemGi>
+            <NFormItemGi label="面料" path="fabric">
               <NInput v-model:value="model.fabric" placeholder="可选，≤100 字符" clearable maxlength="100" />
-            </NFormItem>
-            <NFormItem label="尺码" path="coverUpSize">
+            </NFormItemGi>
+            <NFormItemGi label="尺码" path="coverUpSize">
               <NSelect v-model:value="model.coverUpSize" :options="COVER_UP_SIZE_OPTIONS" placeholder="必选" />
-            </NFormItem>
+            </NFormItemGi>
           </NGrid>
         </template>
       </NForm>
@@ -809,7 +856,7 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
       <template #footer>
         <NSpace>
           <NButton @click="closeDrawer">取消</NButton>
-          <NButton type="primary" :loading="loading" @click="handleSubmit">
+          <NButton type="primary" :loading="loading" :disabled="uploading" @click="handleSubmit">
             {{ editingId !== null ? "保存" : "创建" }}
           </NButton>
         </NSpace>

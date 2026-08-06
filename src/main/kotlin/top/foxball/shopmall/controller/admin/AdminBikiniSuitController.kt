@@ -178,7 +178,6 @@ class AdminBikiniSuitController(
      * @param color 颜色
      * @param price 价格
      * @param warehouseVolume 库存数量
-     * @param salesVolume 销售数量
      * @param status 商品状态
      * @param highlight 商品卖点
      * @param images 商品图片
@@ -197,7 +196,6 @@ class AdminBikiniSuitController(
         @RequestParam("color") @NotBlank @Size(max = 50) color: String,
         @RequestParam("price") @DecimalMin("0.01") price: BigDecimal,
         @RequestParam("warehouse_volume", defaultValue = "0") @Min(0) warehouseVolume: Int,
-        @RequestParam("sales_volume", defaultValue = "0") @Min(0) salesVolume: Int,
         @RequestParam("status", defaultValue = "ACTIVE") status: Product.Status,
         @RequestParam("highlight", required = false) @Size(max = 10) highlight: List<String>?,
         @RequestParam("images", required = false) @Size(max = 12) images: List<String>?,
@@ -221,7 +219,6 @@ class AdminBikiniSuitController(
             this.color = color
             this.price = price
             this.warehouseVolume = warehouseVolume
-            this.salesVolume = salesVolume
             this.status = status
             this.highlight = highlight.orEmpty().toMutableList()
             this.images = images.orEmpty().toMutableList()
@@ -248,9 +245,6 @@ class AdminBikiniSuitController(
      * @param bottomSize 下装尺码
      * @param color 颜色
      * @param price 价格
-     * @param warehouseVolume 库存数量
-     * @param salesVolume 销售数量
-     * @param status 商品状态
      * @param highlight 商品卖点
      * @param images 商品图片
      * @param fitSense 穿着感受
@@ -268,9 +262,6 @@ class AdminBikiniSuitController(
         @RequestParam("bottom_size", required = false) bottomSize: BikiniSuit.Size?,
         @RequestParam("color") @NotBlank @Size(max = 50) color: String,
         @RequestParam("price") @DecimalMin("0.01") price: BigDecimal,
-        @RequestParam("warehouse_volume") @Min(0) warehouseVolume: Int,
-        @RequestParam("sales_volume") @Min(0) salesVolume: Int,
-        @RequestParam("status") status: Product.Status,
         @RequestParam("highlight", required = false) @Size(max = 10) highlight: List<String>?,
         @RequestParam("images", required = false) @Size(max = 12) images: List<String>?,
         @RequestParam("fit_sense", required = false) @Size(max = 255) fitSense: String?,
@@ -292,9 +283,6 @@ class AdminBikiniSuitController(
             this.name = name
             this.color = color
             this.price = price
-            this.warehouseVolume = warehouseVolume
-            this.salesVolume = salesVolume
-            this.status = status
             this.highlight = highlight.orEmpty().toMutableList()
             this.images = images.orEmpty().toMutableList()
             this.fitSense = fitSense

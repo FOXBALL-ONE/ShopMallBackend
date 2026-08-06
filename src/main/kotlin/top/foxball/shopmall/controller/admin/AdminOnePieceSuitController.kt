@@ -212,7 +212,6 @@ class AdminOnePieceSuitController(
      * @param color 颜色
      * @param price 价格
      * @param warehouseVolume 库存数量
-     * @param salesVolume 销售数量
      * @param supportLevel 支撑程度
      * @param coverage 覆盖程度
      * @param torsoFit 躯干版型
@@ -234,7 +233,6 @@ class AdminOnePieceSuitController(
         @RequestParam("color") @NotBlank @Size(max = 50) color: String,
         @RequestParam("price") @DecimalMin("0.01") price: BigDecimal,
         @RequestParam("warehouse_volume", defaultValue = "0") @Min(0) warehouseVolume: Int,
-        @RequestParam("sales_volume", defaultValue = "0") @Min(0) salesVolume: Int,
         @RequestParam("support_level", required = false) supportLevel: OnePieceSuit.SupportLevel?,
         @RequestParam("coverage", required = false) coverage: OnePieceSuit.Coverage?,
         @RequestParam("torso_fit", required = false) torsoFit: OnePieceSuit.TorsoFit?,
@@ -274,7 +272,6 @@ class AdminOnePieceSuitController(
             this.color = color
             this.price = price
             this.warehouseVolume = warehouseVolume
-            this.salesVolume = salesVolume
             this.status = status
             this.highlight = highlight.orEmpty().toMutableList()
             this.images = images.orEmpty().toMutableList()
@@ -295,8 +292,6 @@ class AdminOnePieceSuitController(
      * @param size 尺码
      * @param color 颜色
      * @param price 价格
-     * @param warehouseVolume 库存数量
-     * @param salesVolume 销售数量
      * @param supportLevel 支撑程度
      * @param coverage 覆盖程度
      * @param torsoFit 躯干版型
@@ -304,7 +299,6 @@ class AdminOnePieceSuitController(
      * @param backStyle 后背设计
      * @param tummyControl 是否腹部塑形
      * @param removablePadding 是否可拆卸胸垫
-     * @param status 商品状态
      * @param highlight 商品卖点
      * @param images 商品图片
      * @param description 商品描述
@@ -318,8 +312,6 @@ class AdminOnePieceSuitController(
         @RequestParam("size") size: OnePieceSuit.Size,
         @RequestParam("color") @NotBlank @Size(max = 50) color: String,
         @RequestParam("price") @DecimalMin("0.01") price: BigDecimal,
-        @RequestParam("warehouse_volume") @Min(0) warehouseVolume: Int,
-        @RequestParam("sales_volume") @Min(0) salesVolume: Int,
         @RequestParam("support_level", required = false) supportLevel: OnePieceSuit.SupportLevel?,
         @RequestParam("coverage", required = false) coverage: OnePieceSuit.Coverage?,
         @RequestParam("torso_fit", required = false) torsoFit: OnePieceSuit.TorsoFit?,
@@ -327,7 +319,6 @@ class AdminOnePieceSuitController(
         @RequestParam("back_style", required = false) backStyle: OnePieceSuit.BackStyle?,
         @RequestParam("tummy_control") tummyControl: Boolean,
         @RequestParam("removable_padding") removablePadding: Boolean,
-        @RequestParam("status") status: Product.Status,
         @RequestParam("highlight", required = false) @Size(max = 10) highlight: List<String>?,
         @RequestParam("images", required = false) @Size(max = 12) images: List<String>?,
         @RequestParam("fit_sense", required = false) @Size(max = 255) fitSense: String?,
@@ -358,9 +349,6 @@ class AdminOnePieceSuitController(
             this.name = name
             this.color = color
             this.price = price
-            this.warehouseVolume = warehouseVolume
-            this.salesVolume = salesVolume
-            this.status = status
             this.highlight = highlight.orEmpty().toMutableList()
             this.images = images.orEmpty().toMutableList()
             this.fitSense = fitSense

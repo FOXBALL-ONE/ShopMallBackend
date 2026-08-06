@@ -30,6 +30,7 @@ class CoverUpServiceImpl(
 
     @Transactional
     override fun create(source: CoverUp, tagIds: Collection<Long>): CoverUp {
+        source.prepareForCreate()
         source.applyTags(tagRepository, tagIds)
         return hydrate(coverUpRepository.save(source))
     }
@@ -37,6 +38,7 @@ class CoverUpServiceImpl(
     @Transactional
     override fun update(id: Long, source: CoverUp, tagIds: Collection<Long>): CoverUp? {
         val target = coverUpRepository.findById(id).orElse(null) ?: return null
+        target.requireNotDeletedForUpdate()
         target.applyChangesFrom(source)
         target.applyTags(tagRepository, tagIds)
         return hydrate(target)
