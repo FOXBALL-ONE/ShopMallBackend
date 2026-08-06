@@ -12,6 +12,8 @@ export default defineNuxtConfig({
       apiBase: 'http://127.0.0.1:8080/api',
       // 纯管理员 API 基址；可用 NUXT_PUBLIC_ADMIN_API_BASE 覆盖
       adminApiBase: 'http://127.0.0.1:8080/admin/api',
+      // 是否启用管理后台的登录验证路由守卫
+      loginAuthEnabled: false,
     },
   },
   vite: {

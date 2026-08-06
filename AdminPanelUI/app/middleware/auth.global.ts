@@ -1,6 +1,9 @@
 import type { UserInfo } from "~/types/http";
 
 export default defineNuxtRouteMiddleware((to) => {
+    const runtimeConfig = useRuntimeConfig();
+    if (!runtimeConfig.public.loginAuthEnabled) return;
+
     const token = useCookie<string | null>("admin_auth_token");
     const user = useCookie<UserInfo | null>("admin_user_info");
     const authenticated = Boolean(token.value && user.value?.role === "ADMIN");
