@@ -8,19 +8,28 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.entity.jdbc.CarrierCode
+import top.foxball.shopmall.entity.jdbc.AllocationStatus
+import top.foxball.shopmall.entity.jdbc.NormalizedTrackingStatus
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.entity.jdbc.Role
 import top.foxball.shopmall.entity.jdbc.ShipmentStatus
+import top.foxball.shopmall.entity.jdbc.ShipmentTrack
+import top.foxball.shopmall.entity.jdbc.TrackSource
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ShipmentRepository
+import top.foxball.shopmall.repository.ShipmentItemRepository
+import top.foxball.shopmall.repository.ShipmentTrackRepository
 import top.foxball.shopmall.repository.UserRepository
 import java.math.BigDecimal
+import java.time.Instant
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -31,6 +40,8 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
     private val shipmentRepository: ShipmentRepository,
+    private val shipmentItemRepository: ShipmentItemRepository,
+    private val shipmentTrackRepository: ShipmentTrackRepository,
     private val jdbcTemplate: JdbcTemplate,
 ) {
     @BeforeEach
@@ -109,6 +120,72 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
 
         assertEquals(ShipmentStatus.LABEL_CREATED, replacement.shipment.status)
         assertEquals(2, shipmentRepository.findAllByOrderIdOrderByCreatedAtAsc(fixture.orderId).size)
+    }
+
+    @Test
+    fun `shipment is logically deleted before it can be permanently deleted`() {
+        val fixture = createFixture("delete-lifecycle")
+        val created = shipmentService.createShipment(
+            orderNo = fixture.orderNo,
+            carrierCode = CarrierCode.MANUAL,
+            trackingNo = "TRACK-DELETE",
+            orderItemIds = listOf(fixture.orderItemId),
+            quantities = listOf(1),
+            note = null,
+            adminId = fixture.adminId,
+            idempotencyKey = "create-delete",
+        )
+        val shipmentId = requireNotNull(created.shipment.id)
+        created.shipment.status = ShipmentStatus.DELIVERED
+        shipmentRepository.saveAndFlush(created.shipment)
+        shipmentTrackRepository.saveAndFlush(
+            ShipmentTrack(
+                shipment = created.shipment,
+                carrierEventId = "delete-track",
+                statusCode = "IN_TRANSIT",
+                normalizedStatus = NormalizedTrackingStatus.IN_TRANSIT,
+                source = TrackSource.MANUAL,
+                occurredAt = Instant.parse("2026-08-01T00:00:00Z"),
+            ),
+        )
+
+        val deleted = shipmentService.deleteShipment(created.shipment.shipmentNo, fixture.adminId)
+
+        assertEquals(ShipmentStatus.DELETED, deleted.status)
+        assertEquals(
+            AllocationStatus.RELEASED,
+            shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId).single().allocationStatus,
+        )
+        assertEquals(emptyList(), shipmentService.listCustomer(fixture.orderNo, 100L))
+
+        shipmentService.permanentlyDeleteShipment(created.shipment.shipmentNo, fixture.adminId)
+
+        assertFalse(shipmentRepository.existsById(shipmentId))
+        assertEquals(emptyList(), shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId))
+        assertEquals(emptyList(), shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId))
+    }
+
+    @Test
+    fun `permanent shipment deletion rejects a shipment that is not logically deleted`() {
+        val fixture = createFixture("delete-guard")
+        val created = shipmentService.createShipment(
+            orderNo = fixture.orderNo,
+            carrierCode = CarrierCode.MANUAL,
+            trackingNo = "TRACK-DELETE-GUARD",
+            orderItemIds = listOf(fixture.orderItemId),
+            quantities = listOf(1),
+            note = null,
+            adminId = fixture.adminId,
+            idempotencyKey = "create-delete-guard",
+        )
+
+        assertFailsWith<top.foxball.shopmall.handler.ShipmentStatusException> {
+            shipmentService.deleteShipment(created.shipment.shipmentNo, fixture.adminId)
+        }
+        assertFailsWith<top.foxball.shopmall.handler.ShipmentStatusException> {
+            shipmentService.permanentlyDeleteShipment(created.shipment.shipmentNo, fixture.adminId)
+        }
+        assertEquals(ShipmentStatus.LABEL_CREATED, shipmentRepository.findById(requireNotNull(created.shipment.id)).get().status)
     }
 
     private fun createFixture(suffix: String): Fixture {

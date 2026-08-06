@@ -12,6 +12,7 @@ import org.springframework.security.authentication.TestingAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
@@ -145,6 +146,32 @@ class ShipmentControllerTest {
             .andExpect(jsonPath("$.data.pagination.total_pages").value(2))
 
         verify(shipmentService).listAdmin(99L, query)
+    }
+
+    @Test
+    fun `admin shipment delete uses separate logical and permanent endpoints`() {
+        authenticate(99L)
+        val deleted = Shipment(
+            id = 21L,
+            shipmentNo = "SHP-1",
+            orderId = 31L,
+            status = ShipmentStatus.DELETED,
+            createdBy = 99L,
+        )
+        `when`(shipmentService.deleteShipment("SHP-1", 99L)).thenReturn(deleted)
+
+        mockMvc.perform(delete("/admin/api/shipments/SHP-1"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.shipment_no").value("SHP-1"))
+            .andExpect(jsonPath("$.data.status").value("DELETED"))
+
+        mockMvc.perform(delete("/admin/api/shipments/SHP-1/permanent"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.shipment_no").value("SHP-1"))
+            .andExpect(jsonPath("$.data.physically_deleted").value(true))
+
+        verify(shipmentService).deleteShipment("SHP-1", 99L)
+        verify(shipmentService).permanentlyDeleteShipment("SHP-1", 99L)
     }
 
     private fun authenticate(userId: Long) {

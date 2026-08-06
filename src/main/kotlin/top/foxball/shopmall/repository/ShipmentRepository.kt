@@ -20,15 +20,22 @@ interface ShipmentRepository : JpaRepository<Shipment, Long> {
 
     fun findByShipmentNo(shipmentNo: String): Shipment?
 
+    fun findByShipmentNoAndStatusNot(shipmentNo: String, status: ShipmentStatus): Shipment?
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from Shipment s where s.id = :id")
     fun findByIdForUpdate(@Param("id") id: Long): Shipment?
 
     fun findAllByOrderIdOrderByCreatedAtAsc(orderId: Long): List<Shipment>
 
+    fun findAllByOrderIdAndStatusNotOrderByCreatedAtAsc(
+        orderId: Long,
+        status: ShipmentStatus,
+    ): List<Shipment>
+
     @Query(
         "select s from Shipment s where " +
-            "(:status is null or s.status = :status) and " +
+            "((:status is null and s.status <> :deleted) or s.status = :status) and " +
             "(:carrier is null or s.carrierCode = :carrier) and " +
             "(:orderNo is null or s.orderId in " +
             "(select o.id from OrderEntity o where o.orderNo = :orderNo)) and " +
@@ -39,6 +46,7 @@ interface ShipmentRepository : JpaRepository<Shipment, Long> {
     )
     fun findAllForAdmin(
         @Param("status") status: ShipmentStatus?,
+        @Param("deleted") deleted: ShipmentStatus,
         @Param("carrier") carrier: CarrierCode?,
         @Param("orderNo") orderNo: String?,
         @Param("trackingNo") trackingNo: String?,
@@ -51,6 +59,12 @@ interface ShipmentRepository : JpaRepository<Shipment, Long> {
         trackingNoNormalized: String,
     ): Shipment?
 
+    fun findByCarrierCodeAndTrackingNoNormalizedAndStatusNot(
+        carrierCode: CarrierCode,
+        trackingNoNormalized: String,
+        status: ShipmentStatus,
+    ): Shipment?
+
     @Query(
         "select s from Shipment s where s.nextTrackPollAt is not null " +
             "and s.nextTrackPollAt <= :now and s.status in :statuses order by s.nextTrackPollAt",
@@ -60,6 +74,13 @@ interface ShipmentRepository : JpaRepository<Shipment, Long> {
         @Param("statuses") statuses: Collection<ShipmentStatus>,
         pageable: Pageable,
     ): List<Shipment>
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from Shipment s where s.id = :id and s.status = :status")
+    fun deleteByIdAndStatus(
+        @Param("id") id: Long,
+        @Param("status") status: ShipmentStatus,
+    ): Int
 
     // 条件 UPDATE 是权威幂等与防回退点：只接受单向前进的源状态，重复/乱序事件返回 0 行。
     // clearAutomatically=true 会清空持久化上下文，调用方不得再用旧实体生成 payload 或响应。

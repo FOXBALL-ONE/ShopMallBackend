@@ -27,11 +27,13 @@ const router = useRouter()
 const api = useShipmentApi()
 const orderApi = useOrderApi()
 const message = useMessage()
+const { confirmDeleteRequest } = useDeleteConfirmation()
 const loading = ref(false)
 const detailLoading = ref(false)
 const orderLoading = ref(false)
 const creating = ref(false)
 const actionLoading = ref(false)
+const deletingShipmentNo = ref<string | null>(null)
 const orderNo = ref(typeof route.query.order_no === 'string' ? route.query.order_no : '')
 const trackingNoFilter = ref('')
 const statusFilter = ref<ShipmentStatus | null>(null)
@@ -61,6 +63,7 @@ const statusOptions = [
   { label: '派送中', value: 'OUT_FOR_DELIVERY' },
   { label: '已签收', value: 'DELIVERED' },
   { label: '已取消', value: 'CANCELLED' },
+  { label: '已删除', value: 'DELETED' },
 ]
 
 const errorOptions = [
@@ -129,6 +132,7 @@ function statusLabel(status: ShipmentStatus): string {
     OUT_FOR_DELIVERY: '派送中',
     DELIVERED: '已签收',
     CANCELLED: '已取消',
+    DELETED: '已删除',
   }
   return labels[status]
 }
@@ -142,6 +146,7 @@ function statusTagType(status: ShipmentStatus): TagProps['type'] {
     OUT_FOR_DELIVERY: 'warning',
     DELIVERED: 'success',
     CANCELLED: 'error',
+    DELETED: 'default',
   }
   return types[status]
 }
@@ -197,7 +202,45 @@ function canCancel(shipment: AdminShipment): boolean {
 
 function canMarkDelivered(shipment: AdminShipment): boolean {
   const { carrier, status } = shipment.shipment
-  return carrier === 'manual' && !['DELIVERED', 'CANCEL_PENDING', 'CANCELLED'].includes(status)
+  return carrier === 'manual' && !['DELIVERED', 'CANCEL_PENDING', 'CANCELLED', 'DELETED'].includes(status)
+}
+
+function canDeleteShipment(shipment: AdminShipment): boolean {
+  return ['DELIVERED', 'CANCELLED', 'DELETED'].includes(shipment.shipment.status)
+}
+
+function confirmDeleteShipment(shipment: AdminShipment) {
+  const shipmentNo = shipment.shipment.shipment_no
+  const permanent = shipment.shipment.status === 'DELETED'
+  confirmDeleteRequest({
+    tone: permanent ? 'error' : 'warning',
+    title: permanent ? '永久删除运单' : '删除运单',
+    content: permanent
+      ? `确认永久删除运单 ${shipmentNo}？相关商品行和物流轨迹将从数据库移除，且无法恢复。`
+      : `确认删除运单 ${shipmentNo}？本次仅逻辑删除，并释放仍占用的订单商品行。`,
+    positiveText: permanent ? '永久删除' : '删除',
+    onConfirm: async () => {
+      deletingShipmentNo.value = shipmentNo
+      try {
+        if (permanent) {
+          await api.permanentlyDeleteShipment(shipmentNo)
+          message.success(`运单 ${shipmentNo} 已永久删除`)
+        } else {
+          await api.deleteShipment(shipmentNo)
+          message.success(`运单 ${shipmentNo} 已逻辑删除`)
+        }
+        if (selectedShipment.value?.shipment.shipment_no === shipmentNo) {
+          selectedShipment.value = null
+          detailOpen.value = false
+        }
+        await loadShipments()
+      } catch (error) {
+        message.error(`${permanent ? '永久删除' : '删除'}失败：${errorMessage(error)}`)
+      } finally {
+        deletingShipmentNo.value = null
+      }
+    },
+  })
 }
 
 function resetCreateForm() {
@@ -550,7 +593,7 @@ const columns: DataTableColumns<AdminShipment> = [
   {
     title: '操作',
     key: 'actions',
-    width: 280,
+    width: 370,
     fixed: 'right',
     render: row => h('div', { class: 'table-actions' }, [
       h(
@@ -590,6 +633,18 @@ const columns: DataTableColumns<AdminShipment> = [
           onClick: () => openAction('cancel', row),
         },
         { default: () => '取消' },
+      ),
+      h(
+        NButton,
+        {
+          size: 'small',
+          tertiary: true,
+          type: 'error',
+          disabled: !canDeleteShipment(row),
+          loading: deletingShipmentNo.value === row.shipment.shipment_no,
+          onClick: () => confirmDeleteShipment(row),
+        },
+        { default: () => row.shipment.status === 'DELETED' ? '永久删除' : '删除' },
       ),
     ]),
   },
@@ -681,7 +736,7 @@ onMounted(() => {
           :data="shipments"
           :loading="loading"
           :pagination="false"
-          :scroll-x="1450"
+          :scroll-x="1540"
           :row-key="row => row.shipment.shipment_no"
           size="small"
         />
@@ -778,6 +833,15 @@ onMounted(() => {
         <template #footer>
           <NSpace justify="end">
             <NButton @click="detailOpen = false">关闭</NButton>
+            <NButton
+              v-if="selectedShipment"
+              type="error"
+              :disabled="!canDeleteShipment(selectedShipment)"
+              :loading="deletingShipmentNo === selectedShipment.shipment.shipment_no"
+              @click="confirmDeleteShipment(selectedShipment)"
+            >
+              {{ selectedShipment.shipment.status === 'DELETED' ? '永久删除' : '删除运单' }}
+            </NButton>
             <NButton
               v-if="selectedShipment && canDispatch(selectedShipment)"
               type="primary"

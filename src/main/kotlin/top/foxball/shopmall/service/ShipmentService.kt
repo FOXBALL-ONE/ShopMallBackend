@@ -45,6 +45,10 @@ interface ShipmentService {
 
     fun getAdmin(shipmentNo: String, adminId: Long): ShipmentDetails
 
+    fun deleteShipment(shipmentNo: String, adminId: Long): Shipment
+
+    fun permanentlyDeleteShipment(shipmentNo: String, adminId: Long)
+
     fun listCustomer(orderNo: String, userId: Long): List<ShipmentDetails>
 
     fun getCustomer(orderNo: String, shipmentNo: String, userId: Long): ShipmentDetails

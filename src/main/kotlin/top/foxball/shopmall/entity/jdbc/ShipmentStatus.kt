@@ -8,6 +8,7 @@ enum class ShipmentStatus {
     OUT_FOR_DELIVERY,
     DELIVERED,
     CANCELLED,
+    DELETED,
 }
 
 enum class AllocationStatus { ALLOCATED, RELEASED }

@@ -1,6 +1,9 @@
 package top.foxball.shopmall.repository
 
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import top.foxball.shopmall.entity.jdbc.ShipmentTrack
@@ -13,6 +16,10 @@ interface ShipmentTrackRepository : JpaRepository<ShipmentTrack, Long>, Shipment
     fun findAllByShipment_IdInOrderByShipment_IdAscOccurredAtAscCarrierEventIdAsc(
         shipmentIds: Collection<Long>,
     ): List<ShipmentTrack>
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from ShipmentTrack t where t.shipment.id = :shipmentId")
+    fun deleteAllByShipmentId(@Param("shipmentId") shipmentId: Long): Int
 }
 
 interface ShipmentTrackInsertRepository {

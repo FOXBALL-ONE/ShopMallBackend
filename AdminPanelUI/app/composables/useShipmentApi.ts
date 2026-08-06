@@ -8,6 +8,8 @@ import type {
     ShipmentListQuery,
     ShipmentPageResponse,
     ShipmentMutationResponse,
+    ShipmentDeleteResponse,
+    ShipmentPermanentDeleteResponse,
 } from "~/types/shipment";
 
 export const CARRIER_OPTIONS: Array<{ label: string; value: CarrierCode }> = [
@@ -21,7 +23,7 @@ export const CARRIER_OPTIONS: Array<{ label: string; value: CarrierCode }> = [
 export const useShipmentApi = () => {
     const config = useRuntimeConfig();
     const adminApiBase = (config.public.adminApiBase as string) || "http://127.0.0.1:8080/admin/api";
-    const { get, post } = useHttp(adminApiBase);
+    const { get, post, delete: remove } = useHttp(adminApiBase);
 
     function createIdempotencyKey(operation: string): string {
         const randomPart = globalThis.crypto?.randomUUID?.()
@@ -83,6 +85,16 @@ export const useShipmentApi = () => {
                     payloadMode: "query",
                     headers: { "Idempotency-Key": createIdempotencyKey("delivered") },
                 },
+            );
+        },
+
+        deleteShipment(shipmentNo: string) {
+            return remove<ShipmentDeleteResponse>(`/shipments/${encodeURIComponent(shipmentNo)}`);
+        },
+
+        permanentlyDeleteShipment(shipmentNo: string) {
+            return remove<ShipmentPermanentDeleteResponse>(
+                `/shipments/${encodeURIComponent(shipmentNo)}/permanent`,
             );
         },
     };

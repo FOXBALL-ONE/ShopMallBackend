@@ -236,6 +236,7 @@ class ShipmentServiceImpl(
         val trackingNo = query.trackingNo?.trim()?.takeIf(String::isNotEmpty)
         val shipments = shipmentRepository.findAllForAdmin(
             status = query.status,
+            deleted = ShipmentStatus.DELETED,
             carrier = query.carrier,
             orderNo = orderNo,
             trackingNo = trackingNo,
@@ -280,9 +281,59 @@ class ShipmentServiceImpl(
         )
     }
 
+    @Transactional
+    override fun deleteShipment(shipmentNo: String, adminId: Long): Shipment {
+        adminAccessService.requireAdmin(adminId)
+        val identity = shipmentRepository.findByShipmentNo(shipmentNo) ?: throw ShipmentNotFoundException()
+        val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id))
+            ?: throw ShipmentNotFoundException()
+        if (shipment.status == ShipmentStatus.DELETED) {
+            return shipment
+        }
+        if (shipment.status !in setOf(ShipmentStatus.CANCELLED, ShipmentStatus.DELIVERED)) {
+            throw ShipmentStatusException("运单需先取消或完成签收才能删除")
+        }
+
+        val shipmentId = requireNotNull(shipment.id)
+        shipment.status = ShipmentStatus.DELETED
+        shipment.nextTrackPollAt = null
+        shipment.pollLeaseOwner = null
+        shipment.pollLeaseUntil = null
+        shipmentRepository.saveAndFlush(shipment)
+        shipmentItemRepository.releaseAllocatedByShipmentId(
+            shipmentId = shipmentId,
+            at = clock.instant(),
+            reason = "SHIPMENT_DELETED",
+        )
+        entityManager.clear()
+        return shipmentRepository.findById(shipmentId).orElse(null) ?: throw ShipmentNotFoundException()
+    }
+
+    @Transactional
+    override fun permanentlyDeleteShipment(shipmentNo: String, adminId: Long) {
+        adminAccessService.requireAdmin(adminId)
+        val identity = shipmentRepository.findByShipmentNo(shipmentNo) ?: throw ShipmentNotFoundException()
+        val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id))
+            ?: throw ShipmentNotFoundException()
+        if (shipment.status != ShipmentStatus.DELETED) {
+            throw ShipmentStatusException("只有已逻辑删除的运单才能永久删除")
+        }
+
+        val shipmentId = requireNotNull(shipment.id)
+        shipmentTrackRepository.deleteAllByShipmentId(shipmentId)
+        shipmentItemRepository.deleteAllByShipmentId(shipmentId)
+        entityManager.clear()
+        if (shipmentRepository.deleteByIdAndStatus(shipmentId, ShipmentStatus.DELETED) != 1) {
+            throw ShipmentStatusException("只有已逻辑删除的运单才能永久删除")
+        }
+    }
+
     override fun listCustomer(orderNo: String, userId: Long): List<ShipmentDetails> {
         val order = orderRepository.findByOrderNoAndCustomerId(orderNo, userId) ?: throw OrderNotFoundException()
-        return shipmentRepository.findAllByOrderIdOrderByCreatedAtAsc(requireNotNull(order.id))
+        return shipmentRepository.findAllByOrderIdAndStatusNotOrderByCreatedAtAsc(
+            requireNotNull(order.id),
+            ShipmentStatus.DELETED,
+        )
             .map { shipment ->
                 val shipmentId = requireNotNull(shipment.id)
                 ShipmentDetails(
@@ -297,7 +348,7 @@ class ShipmentServiceImpl(
 
     override fun getCustomer(orderNo: String, shipmentNo: String, userId: Long): ShipmentDetails {
         val order = orderRepository.findByOrderNoAndCustomerId(orderNo, userId) ?: throw OrderNotFoundException()
-        val shipment = shipmentRepository.findByShipmentNo(shipmentNo)
+        val shipment = shipmentRepository.findByShipmentNoAndStatusNot(shipmentNo, ShipmentStatus.DELETED)
             ?.takeIf { it.orderId == order.id }
             ?: throw ShipmentNotFoundException()
         val shipmentId = requireNotNull(shipment.id)
@@ -315,9 +366,10 @@ class ShipmentServiceImpl(
         userId: Long,
     ): ShipmentDetails {
         val carrier = carrierRegistry.find(carrierCode) ?: throw ShipmentNotFoundException()
-        val shipment = shipmentRepository.findByCarrierCodeAndTrackingNoNormalized(
+        val shipment = shipmentRepository.findByCarrierCodeAndTrackingNoNormalizedAndStatusNot(
             carrierCode,
             carrier.normalizeTrackingNo(trackingNo),
+            ShipmentStatus.DELETED,
         ) ?: throw ShipmentNotFoundException()
         val order = orderRepository.findById(shipment.orderId).orElse(null) ?: throw ShipmentNotFoundException()
         if (order.customerId != userId && !adminAccessService.isAdmin(userId)) {
@@ -519,9 +571,10 @@ class ShipmentServiceImpl(
             return
         }
         val normalizedTrackingNo = carrier.normalizeTrackingNo(event.trackingNo)
-        val shipmentIdentity = shipmentRepository.findByCarrierCodeAndTrackingNoNormalized(
+        val shipmentIdentity = shipmentRepository.findByCarrierCodeAndTrackingNoNormalizedAndStatusNot(
             carrierCode,
             normalizedTrackingNo,
+            ShipmentStatus.DELETED,
         ) ?: run {
             logger.warn(
                 "Ignoring tracking event {} for unknown shipment {}:{}",

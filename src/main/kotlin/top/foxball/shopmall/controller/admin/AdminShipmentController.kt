@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.validation.annotation.Validated
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -724,6 +725,57 @@ class AdminShipmentController(
             cancelReason = shipment.cancelReason,
             consecutiveTrackFailures = shipment.consecutiveTrackFailures,
             lastTrackError = shipment.lastTrackError,
+        )
+        return builder.ok()
+            .data(rs)
+            .build()
+    }
+
+    /**
+     * @api 逻辑删除运单
+     * @param shipmentNo 运单编号
+     */
+    @DeleteMapping("/shipments/{shipment_no}")
+    fun deleteShipment(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("shipment_no") shipmentNo: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("shipment_no")
+            val shipmentNo: String,
+            val status: String,
+        )
+
+        val deleted = shipmentService.deleteShipment(shipmentNo, adminId)
+        val rs = Response(
+            shipmentNo = deleted.shipmentNo,
+            status = deleted.status.name,
+        )
+        return builder.ok()
+            .data(rs)
+            .build()
+    }
+
+    /**
+     * @api 永久删除运单
+     * @param shipmentNo 运单编号
+     */
+    @DeleteMapping("/shipments/{shipment_no}/permanent")
+    fun permanentlyDeleteShipment(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("shipment_no") shipmentNo: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("shipment_no")
+            val shipmentNo: String,
+            @param:JsonProperty("physically_deleted")
+            val physicallyDeleted: Boolean,
+        )
+
+        shipmentService.permanentlyDeleteShipment(shipmentNo, adminId)
+        val rs = Response(
+            shipmentNo = shipmentNo,
+            physicallyDeleted = true,
         )
         return builder.ok()
             .data(rs)

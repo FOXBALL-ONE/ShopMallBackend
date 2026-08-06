@@ -42,7 +42,12 @@ class ShipmentOutboxProcessor(
     private fun createRemoteLabel(shipmentId: Long) {
         val task = transactions.execute {
             val shipment = shipmentRepository.findById(shipmentId).orElse(null) ?: return@execute null
-            if (shipment.status in setOf(ShipmentStatus.LABEL_CREATED, ShipmentStatus.CANCELLED)) {
+            if (shipment.status in setOf(
+                    ShipmentStatus.LABEL_CREATED,
+                    ShipmentStatus.CANCELLED,
+                    ShipmentStatus.DELETED,
+                )
+            ) {
                 return@execute null
             }
             if (shipment.status !in setOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.CANCEL_PENDING)) {
@@ -79,7 +84,12 @@ class ShipmentOutboxProcessor(
             val identity = shipmentRepository.findById(shipmentId).orElse(null) ?: return@executeWithoutResult
             orderRepository.lockById(identity.orderId) ?: throw ShipmentNotFoundException()
             val shipment = shipmentRepository.findByIdForUpdate(shipmentId) ?: throw ShipmentNotFoundException()
-            if (shipment.status in setOf(ShipmentStatus.LABEL_CREATED, ShipmentStatus.CANCELLED)) {
+            if (shipment.status in setOf(
+                    ShipmentStatus.LABEL_CREATED,
+                    ShipmentStatus.CANCELLED,
+                    ShipmentStatus.DELETED,
+                )
+            ) {
                 return@executeWithoutResult
             }
             if (shipment.status !in setOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.CANCEL_PENDING)) {
@@ -124,7 +134,7 @@ class ShipmentOutboxProcessor(
     private fun cancelRemoteLabel(shipmentId: Long) {
         val task = transactions.execute {
             val shipment = shipmentRepository.findById(shipmentId).orElse(null) ?: return@execute null
-            if (shipment.status == ShipmentStatus.CANCELLED) return@execute null
+            if (shipment.status in setOf(ShipmentStatus.CANCELLED, ShipmentStatus.DELETED)) return@execute null
             if (shipment.status != ShipmentStatus.CANCEL_PENDING) {
                 throw ShipmentStatusException("当前运单不在远程取消状态")
             }
@@ -152,7 +162,9 @@ class ShipmentOutboxProcessor(
             val identity = shipmentRepository.findById(shipmentId).orElse(null) ?: return@executeWithoutResult
             orderRepository.lockById(identity.orderId) ?: throw ShipmentNotFoundException()
             val shipment = shipmentRepository.findByIdForUpdate(shipmentId) ?: throw ShipmentNotFoundException()
-            if (shipment.status == ShipmentStatus.CANCELLED) return@executeWithoutResult
+            if (shipment.status in setOf(ShipmentStatus.CANCELLED, ShipmentStatus.DELETED)) {
+                return@executeWithoutResult
+            }
             if (shipment.status != ShipmentStatus.CANCEL_PENDING) {
                 throw ShipmentStatusException("远程取消结果与当前运单状态冲突")
             }

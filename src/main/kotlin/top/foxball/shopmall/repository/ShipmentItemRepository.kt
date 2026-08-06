@@ -18,6 +18,10 @@ interface ShipmentItemRepository : JpaRepository<ShipmentItem, Long> {
 
     fun findAllByShipment_IdInOrderByShipment_IdAscIdAsc(shipmentIds: Collection<Long>): List<ShipmentItem>
 
+    @Modifying(flushAutomatically = true)
+    @Query("delete from ShipmentItem i where i.shipment.id = :shipmentId")
+    fun deleteAllByShipmentId(@Param("shipmentId") shipmentId: Long): Int
+
     @Query(
         "select i.orderItemId as orderItemId, sum(i.quantity) as allocatedQuantity " +
             "from ShipmentItem i where i.orderItemId in :ids and i.allocationStatus = :status " +

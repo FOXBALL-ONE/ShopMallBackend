@@ -7,7 +7,8 @@ export type ShipmentStatus =
     | "IN_TRANSIT"
     | "OUT_FOR_DELIVERY"
     | "DELIVERED"
-    | "CANCELLED";
+    | "CANCELLED"
+    | "DELETED";
 
 export type AllocationStatus = "ALLOCATED" | "RELEASED";
 export type NormalizedTrackingStatus = "IN_TRANSIT" | "OUT_FOR_DELIVERY" | "DELIVERED" | "EXCEPTION" | "UNKNOWN";
@@ -81,6 +82,16 @@ export interface ShipmentPageResponse extends ShipmentListResponse {
 }
 
 export type ShipmentMutationResponse = AdminShipment;
+
+export interface ShipmentDeleteResponse {
+    shipment_no: string;
+    status: "DELETED";
+}
+
+export interface ShipmentPermanentDeleteResponse {
+    shipment_no: string;
+    physically_deleted: boolean;
+}
 
 export interface CreateShipmentPayload {
     carrier_code: CarrierCode;
