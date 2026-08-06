@@ -8,6 +8,7 @@ import type { OrderDetail, OrderListItem, OrderListQuery, OrderStatus } from '~/
 definePageMeta({ layout: 'default' })
 
 const api = useOrderApi()
+const { confirmDeleteRequest } = useDeleteConfirmation()
 const message = useMessage()
 const loading = ref(false)
 const orders = ref<OrderListItem[]>([])
@@ -17,6 +18,7 @@ const detailLoading = ref(false)
 const detailOpen = ref(false)
 const refundOpen = ref(false)
 const refundLoading = ref(false)
+const deletingOrderNo = ref<string | null>(null)
 const refundFormRef = ref<FormInst | null>(null)
 
 const filters = reactive<{
@@ -74,6 +76,7 @@ function statusTagType(status: OrderStatus): TagProps['type'] {
     DELIVERED: 'success',
     COMPLETED: 'success',
     CANCELLED: 'error',
+    DELETED: 'default',
   }
   return types[status]
 }
@@ -241,6 +244,41 @@ async function submitRefund() {
   }
 }
 
+function confirmDelete(order: OrderListItem) {
+  const physicallyDelete = order.status === 'DELETED'
+  confirmDeleteRequest({
+    tone: physicallyDelete ? 'error' : 'warning',
+    title: physicallyDelete ? '永久删除订单' : '删除订单',
+    content: physicallyDelete
+      ? `订单 ${order.order_no} 已处于删除状态，再次删除会从数据库永久移除且无法恢复。`
+      : `确认删除订单 ${order.order_no}？本次只会将订单标记为已删除。`,
+    positiveText: physicallyDelete ? '永久删除' : '删除',
+    onConfirm: async () => {
+      deletingOrderNo.value = order.order_no
+      try {
+        if (physicallyDelete) {
+          await api.permanentlyDeleteOrder(order.order_no)
+        } else {
+          await api.deleteOrder(order.order_no)
+        }
+        detailOpen.value = false
+        selectedOrder.value = null
+        selectedOrderDetail.value = null
+        message.success(physicallyDelete ? '订单已永久删除' : '订单已标记为删除')
+        await loadOrders()
+      } catch (error) {
+        message.error(`${physicallyDelete ? '永久删除' : '删除'}失败：${errorMessage(error)}`)
+      } finally {
+        deletingOrderNo.value = null
+      }
+    },
+  })
+}
+
+function canDeleteOrder(order: OrderListItem): boolean {
+  return ['CANCELLED', 'DELIVERED', 'COMPLETED', 'DELETED'].includes(order.status)
+}
+
 function exportCurrentPage() {
   if (orders.value.length === 0) {
     message.warning('当前没有可导出的订单')
@@ -320,7 +358,7 @@ const columns: DataTableColumns<OrderListItem> = [
   {
     title: '操作',
     key: 'actions',
-    width: 230,
+    width: 310,
     fixed: 'right',
     render: row => h('div', { class: 'table-actions' }, [
       h(
@@ -345,9 +383,22 @@ const columns: DataTableColumns<OrderListItem> = [
           size: 'small',
           tertiary: true,
           type: 'primary',
+          disabled: row.status === 'DELETED',
           onClick: () => navigateTo({ path: '/shipments', query: { order_no: row.order_no } }),
         },
         { default: () => '物流' },
+      ),
+      h(
+        NButton,
+        {
+          size: 'small',
+          tertiary: true,
+          type: 'error',
+          disabled: !canDeleteOrder(row),
+          loading: deletingOrderNo.value === row.order_no,
+          onClick: () => confirmDelete(row),
+        },
+        { default: () => row.status === 'DELETED' ? '永久删除' : '删除' },
       ),
     ]),
   },
@@ -451,7 +502,7 @@ onMounted(() => {
           :data="orders"
           :loading="loading"
           :pagination="false"
-          :scroll-x="1100"
+          :scroll-x="1190"
           :row-key="row => row.id"
           size="small"
         />
@@ -501,6 +552,14 @@ onMounted(() => {
               :bordered="false"
             >
               已取消订单不能再次退款或进入后续履约流程。
+            </NAlert>
+            <NAlert
+              v-else-if="selectedOrder.status === 'DELETED'"
+              title="订单已逻辑删除"
+              type="warning"
+              :bordered="false"
+            >
+              再次删除会永久移除订单；存在关联运单或售后工单时，后端会拒绝永久删除。
             </NAlert>
 
             <NDescriptions label-placement="top" bordered :column="2">
@@ -595,7 +654,7 @@ onMounted(() => {
                       : selectedOrder.status === 'SHIPPED' ? 3
                         : selectedOrder.status === 'DELIVERED' || selectedOrder.status === 'COMPLETED' ? 4
                           : 1"
-                  :status="selectedOrder.status === 'CANCELLED' ? 'error' : 'process'"
+                  :status="selectedOrder.status === 'CANCELLED' || selectedOrder.status === 'DELETED' ? 'error' : 'process'"
                   size="small"
                 >
                   <NStep title="下单" />
@@ -618,6 +677,14 @@ onMounted(() => {
               @click="selectedOrder && openRefund(selectedOrder)"
             >
               退款
+            </NButton>
+            <NButton
+              type="error"
+              :disabled="!selectedOrder || !canDeleteOrder(selectedOrder)"
+              :loading="deletingOrderNo === selectedOrder?.order_no"
+              @click="selectedOrder && confirmDelete(selectedOrder)"
+            >
+              {{ selectedOrder?.status === 'DELETED' ? '永久删除' : '删除' }}
             </NButton>
           </NSpace>
         </template>

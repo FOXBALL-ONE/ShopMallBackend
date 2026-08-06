@@ -23,6 +23,8 @@ import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.handler.IdempotencyKeyInvalidException
 import top.foxball.shopmall.handler.InsufficientStockException
 import top.foxball.shopmall.handler.OrderWindowLimitException
+import top.foxball.shopmall.handler.OrderStatusException
+import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ProductRepository
@@ -219,6 +221,29 @@ class OrderServiceImplTest {
     }
 
     @Test
+    fun `customer cancellation hides a logically deleted order`() {
+        val order = OrderEntity(
+            id = 103,
+            orderNo = "ORDER-103",
+            customerId = 5,
+            status = OrderStatus.DELETED,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+
+        assertFailsWith<OrderNotFoundException> {
+            service.cancel(5, order.orderNo, null)
+        }
+
+        verify(orderRepository, never()).markCancelled(
+            103,
+            OrderStatus.PENDING_PAYMENT,
+            OrderStatus.CANCELLED,
+            clock.instant(),
+            null,
+        )
+    }
+
+    @Test
     fun `refund restores stock and sales only after paid transition succeeds`() {
         val order = OrderEntity(
             id = 100,
@@ -257,6 +282,118 @@ class OrderServiceImplTest {
         verify(productRepository).restock(10, 2)
         verify(productRepository).decrementSales(10, 2)
         verify(paymentService).cancelOrRefund(order, "admin-refund")
+    }
+
+    @Test
+    fun `admin deletion only marks order as deleted`() {
+        val order = OrderEntity(
+            id = 301,
+            orderNo = "ORDER-301",
+            customerId = 5,
+            status = OrderStatus.COMPLETED,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+
+        val result = service.delete(9, order.orderNo)
+
+        assertEquals(order.orderNo, result.orderNo)
+        assertEquals(OrderStatus.DELETED, order.status)
+        verify(adminAccessService).requireAdmin(9)
+        verify(orderRepository, never()).delete(any(OrderEntity::class.java))
+        verify(orderItemRepository, never()).deleteAllByOrderId(301)
+    }
+
+    @Test
+    fun `admin deletion rejects an active order`() {
+        val order = OrderEntity(
+            id = 306,
+            orderNo = "ORDER-306",
+            customerId = 5,
+            status = OrderStatus.PAID,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+
+        val ex = assertFailsWith<OrderStatusException> { service.delete(9, order.orderNo) }
+
+        assertEquals("订单需先取消或完成履约才能删除", ex.message)
+        assertEquals(OrderStatus.PAID, order.status)
+        verify(orderRepository, never()).delete(any(OrderEntity::class.java))
+    }
+
+    @Test
+    fun `permanent deletion physically removes deleted order and items`() {
+        val order = OrderEntity(
+            id = 302,
+            orderNo = "ORDER-302",
+            customerId = 5,
+            status = OrderStatus.DELETED,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(orderRepository.countShipmentsByOrderId(302)).thenReturn(0)
+        `when`(orderRepository.countSupportTicketsByOrderId(302)).thenReturn(0)
+
+        service.permanentlyDelete(9, order.orderNo)
+
+        val deletionOrder = inOrder(orderItemRepository, orderRepository)
+        deletionOrder.verify(orderItemRepository).deleteAllByOrderId(302)
+        deletionOrder.verify(orderRepository).delete(order)
+        deletionOrder.verify(orderRepository).flush()
+    }
+
+    @Test
+    fun `permanent deletion rejects an order that is not logically deleted`() {
+        val order = OrderEntity(
+            id = 305,
+            orderNo = "ORDER-305",
+            customerId = 5,
+            status = OrderStatus.COMPLETED,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+
+        val ex = assertFailsWith<OrderStatusException> {
+            service.permanentlyDelete(9, order.orderNo)
+        }
+
+        assertEquals("只有已逻辑删除的订单才能永久删除", ex.message)
+        verify(orderItemRepository, never()).deleteAllByOrderId(305)
+        verify(orderRepository, never()).delete(any(OrderEntity::class.java))
+    }
+
+    @Test
+    fun `physical deletion rejects an order with shipments`() {
+        val order = OrderEntity(
+            id = 303,
+            orderNo = "ORDER-303",
+            customerId = 5,
+            status = OrderStatus.DELETED,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(orderRepository.countShipmentsByOrderId(303)).thenReturn(1)
+
+        val ex = assertFailsWith<OrderStatusException> { service.permanentlyDelete(9, order.orderNo) }
+
+        assertEquals("订单仍有关联运单，请先永久删除关联运单", ex.message)
+        verify(orderItemRepository, never()).deleteAllByOrderId(303)
+        verify(orderRepository, never()).delete(any(OrderEntity::class.java))
+    }
+
+    @Test
+    fun `physical deletion rejects an order linked by a support ticket`() {
+        val order = OrderEntity(
+            id = 304,
+            orderNo = "ORDER-304",
+            customerId = 5,
+            status = OrderStatus.DELETED,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(orderRepository.countShipmentsByOrderId(304)).thenReturn(0)
+        `when`(orderRepository.countSupportTicketsByOrderId(304)).thenReturn(1)
+
+        val ex = assertFailsWith<OrderStatusException> { service.permanentlyDelete(9, order.orderNo) }
+
+        assertEquals("订单仍有关联售后工单，不能永久删除", ex.message)
+        verify(orderItemRepository, never()).deleteAllByOrderId(304)
+        verify(orderRepository, never()).delete(any(OrderEntity::class.java))
     }
 
     @Test

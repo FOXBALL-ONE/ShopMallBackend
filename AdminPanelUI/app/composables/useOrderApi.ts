@@ -4,6 +4,8 @@ import type {
     OrderDetail,
     OrderStatus,
     RefundOrderResponse,
+    DeleteOrderResponse,
+    PermanentDeleteOrderResponse,
 } from "~/types/order";
 
 export const ORDER_STATUS_OPTIONS: Array<{ label: string; value: OrderStatus }> = [
@@ -13,12 +15,13 @@ export const ORDER_STATUS_OPTIONS: Array<{ label: string; value: OrderStatus }> 
     {label: "已送达", value: "DELIVERED"},
     {label: "已完成", value: "COMPLETED"},
     {label: "已取消 / 已退款", value: "CANCELLED"},
+    {label: "已删除", value: "DELETED"},
 ];
 
 export const useOrderApi = () => {
     const config = useRuntimeConfig();
     const adminApiBase = (config.public.adminApiBase as string) || "http://127.0.0.1:8080/admin/api";
-    const {get, post} = useHttp(adminApiBase);
+    const {get, post, delete: deleteRequest} = useHttp(adminApiBase);
 
     function list(query: OrderListQuery): Promise<OrderListResponse> {
         return get<OrderListResponse>("/orders", {...query});
@@ -32,9 +35,19 @@ export const useOrderApi = () => {
         return get<OrderDetail>(`/orders/${encodeURIComponent(orderNo)}`);
     }
 
+    function deleteOrder(orderNo: string): Promise<DeleteOrderResponse> {
+        return deleteRequest<DeleteOrderResponse>(`/orders/${encodeURIComponent(orderNo)}`);
+    }
+
+    function permanentlyDeleteOrder(orderNo: string): Promise<PermanentDeleteOrderResponse> {
+        return deleteRequest<PermanentDeleteOrderResponse>(`/orders/${encodeURIComponent(orderNo)}/permanent`);
+    }
+
     return {
         list,
         detail,
         refund,
+        deleteOrder,
+        permanentlyDeleteOrder,
     };
 };

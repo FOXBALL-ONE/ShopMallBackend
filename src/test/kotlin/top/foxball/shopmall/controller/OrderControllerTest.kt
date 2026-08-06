@@ -13,6 +13,7 @@ import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -224,6 +225,33 @@ class OrderControllerTest {
             .andExpect(jsonPath("$.data.items[0].remaining_quantity").value(0))
 
         verify(orderService).getAdmin(99L, "ORD-API-1")
+    }
+
+    @Test
+    fun `admin deletion reports logical deletion`() {
+        authenticate(99L)
+        `when`(orderService.delete(99L, "ORD-API-1")).thenReturn(
+            OrderEntity(orderNo = "ORD-API-1", status = OrderStatus.DELETED),
+        )
+
+        mockMvc.perform(delete("/admin/api/orders/ORD-API-1"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.status").value("DELETED"))
+
+        verify(orderService).delete(99L, "ORD-API-1")
+    }
+
+    @Test
+    fun `admin permanent deletion uses explicit endpoint`() {
+        authenticate(99L)
+
+        mockMvc.perform(delete("/admin/api/orders/ORD-API-1/permanent"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.physically_deleted").value(true))
+
+        verify(orderService).permanentlyDelete(99L, "ORD-API-1")
     }
 
     private fun authenticate(userId: Long) {

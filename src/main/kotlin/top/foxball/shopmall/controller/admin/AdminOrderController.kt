@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
@@ -272,6 +273,57 @@ class AdminOrderController(
             status = order.status.name,
             cancelReason = order.cancelReason,
             updatedAt = order.updatedAt,
+        )
+        return builder.ok()
+            .data(rs)
+            .build()
+    }
+
+    /**
+     * @api 逻辑删除订单
+     * @param orderNo 订单编号
+     */
+    @DeleteMapping("/{order_no}")
+    fun deleteOrder(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("order_no") orderNo: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("order_no")
+            val orderNo: String,
+            val status: String,
+        )
+
+        val deleted = orderService.delete(adminId, orderNo)
+        val rs = Response(
+            orderNo = deleted.orderNo,
+            status = deleted.status.name,
+        )
+        return builder.ok()
+            .data(rs)
+            .build()
+    }
+
+    /**
+     * @api 永久删除订单
+     * @param orderNo 订单编号
+     */
+    @DeleteMapping("/{order_no}/permanent")
+    fun permanentlyDeleteOrder(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("order_no") orderNo: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("order_no")
+            val orderNo: String,
+            @param:JsonProperty("physically_deleted")
+            val physicallyDeleted: Boolean,
+        )
+
+        orderService.permanentlyDelete(adminId, orderNo)
+        val rs = Response(
+            orderNo = orderNo,
+            physicallyDeleted = true,
         )
         return builder.ok()
             .data(rs)

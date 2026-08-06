@@ -25,9 +25,25 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
 
     fun findByOrderNo(orderNo: String): OrderEntity?
 
-    fun findByOrderNoAndCustomerId(orderNo: String, customerId: Long): OrderEntity?
+    @Query(
+        "select o from OrderEntity o where o.orderNo = :orderNo and o.customerId = :customerId " +
+            "and o.status <> :excludedStatus",
+    )
+    fun findByOrderNoAndCustomerId(
+        @Param("orderNo") orderNo: String,
+        @Param("customerId") customerId: Long,
+        @Param("excludedStatus") excludedStatus: OrderStatus = OrderStatus.DELETED,
+    ): OrderEntity?
 
-    fun findByCustomerIdOrderByCreatedAtDesc(customerId: Long, pageable: Pageable): Page<OrderEntity>
+    @Query(
+        "select o from OrderEntity o where o.customerId = :customerId and o.status <> :excludedStatus " +
+            "order by o.createdAt desc",
+    )
+    fun findByCustomerIdOrderByCreatedAtDesc(
+        @Param("customerId") customerId: Long,
+        pageable: Pageable,
+        @Param("excludedStatus") excludedStatus: OrderStatus = OrderStatus.DELETED,
+    ): Page<OrderEntity>
 
     @Query(
         "select o from OrderEntity o where " +
@@ -42,6 +58,12 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
         @Param("orderNo") orderNo: String?,
         pageable: Pageable,
     ): Page<OrderEntity>
+
+    @Query("select count(s) from Shipment s where s.orderId = :orderId")
+    fun countShipmentsByOrderId(@Param("orderId") orderId: Long): Long
+
+    @Query("select count(t) from SupportTicket t where t.order.id = :orderId")
+    fun countSupportTicketsByOrderId(@Param("orderId") orderId: Long): Long
 
     fun findByPaymentIntentId(paymentIntentId: String): OrderEntity?
 

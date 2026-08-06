@@ -323,7 +323,7 @@ class OrderServiceImpl(
     override fun cancel(customerId: Long, orderNo: String, reason: String?): OrderView {
         val normalizedReason = normalizeReason(reason, required = false)
         val order = orderRepository.lockByOrderNo(orderNo)
-            ?.takeIf { it.customerId == customerId }
+            ?.takeIf { it.customerId == customerId && it.status != OrderStatus.DELETED }
             ?: throw OrderNotFoundException()
         val orderId = requireNotNull(order.id)
         val items = orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(orderId)
@@ -405,6 +405,37 @@ class OrderServiceImpl(
         }
         paymentService.cancelOrRefund(order, "admin-refund")
         return view(reload(orderId))
+    }
+
+    @Transactional
+    override fun delete(adminId: Long, orderNo: String): OrderEntity {
+        adminAccessService.requireAdmin(adminId)
+        val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
+        if (order.status == OrderStatus.DELETED) return order
+        if (order.status !in setOf(OrderStatus.CANCELLED, OrderStatus.DELIVERED, OrderStatus.COMPLETED)) {
+            throw OrderStatusException("订单需先取消或完成履约才能删除")
+        }
+        order.status = OrderStatus.DELETED
+        return order
+    }
+
+    @Transactional
+    override fun permanentlyDelete(adminId: Long, orderNo: String) {
+        adminAccessService.requireAdmin(adminId)
+        val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
+        if (order.status != OrderStatus.DELETED) {
+            throw OrderStatusException("只有已逻辑删除的订单才能永久删除")
+        }
+        val orderId = requireNotNull(order.id)
+        if (orderRepository.countShipmentsByOrderId(orderId) > 0) {
+            throw OrderStatusException("订单仍有关联运单，请先永久删除关联运单")
+        }
+        if (orderRepository.countSupportTicketsByOrderId(orderId) > 0) {
+            throw OrderStatusException("订单仍有关联售后工单，不能永久删除")
+        }
+        orderItemRepository.deleteAllByOrderId(orderId)
+        orderRepository.delete(order)
+        orderRepository.flush()
     }
 
     private fun consumeIssuedKey(customerId: Long, clientKey: String) {

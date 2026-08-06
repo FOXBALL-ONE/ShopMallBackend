@@ -7,4 +7,5 @@ enum class OrderStatus {
     DELIVERED,
     COMPLETED,
     CANCELLED,
+    DELETED,
 }

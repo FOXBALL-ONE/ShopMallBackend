@@ -85,4 +85,10 @@ interface OrderService {
 
     /** 由管理员取消可退款订单、恢复库存，并登记第三方支付退款补偿任务。 */
     fun refund(adminId: Long, orderNo: String, reason: String): OrderView
+
+    /** 将订单标记为已删除；重复调用保持逻辑删除状态，不执行物理删除。 */
+    fun delete(adminId: Long, orderNo: String): OrderEntity
+
+    /** 物理移除已标记删除且没有外部业务关联的订单及明细。 */
+    fun permanentlyDelete(adminId: Long, orderNo: String)
 }

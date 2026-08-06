@@ -4,7 +4,8 @@ export type OrderStatus =
     | "SHIPPED"
     | "DELIVERED"
     | "COMPLETED"
-    | "CANCELLED";
+    | "CANCELLED"
+    | "DELETED";
 
 export interface OrderListQuery {
     page: number;
@@ -39,6 +40,16 @@ export interface RefundOrderResponse {
     status: OrderStatus;
     cancel_reason: string | null;
     updated_at: string | null;
+}
+
+export interface DeleteOrderResponse {
+    order_no: string;
+    status: "DELETED";
+}
+
+export interface PermanentDeleteOrderResponse {
+    order_no: string;
+    physically_deleted: boolean;
 }
 
 export interface OrderDetailItem {

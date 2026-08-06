@@ -1,6 +1,7 @@
 package top.foxball.shopmall.repository
 
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import top.foxball.shopmall.entity.jdbc.OrderItem
@@ -19,4 +20,8 @@ interface OrderItemRepository : JpaRepository<OrderItem, Long> {
             "order by i.order.id, i.productId, i.id",
     )
     fun findAllByOrderIds(@Param("orderIds") orderIds: Collection<Long>): List<OrderItem>
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from OrderItem i where i.order.id = :orderId")
+    fun deleteAllByOrderId(@Param("orderId") orderId: Long): Int
 }
