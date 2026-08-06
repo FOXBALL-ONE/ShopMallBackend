@@ -124,14 +124,31 @@ async function handleLogout() {
                 <div class="header-title">管理后台</div>
                 <NSpace>
                   <NText depth="3" class="administrator-name">{{ administratorName }}</NText>
-                  <NButton @click="$router.go(0)">
-                    <template #icon><RefreshCw :size="16" /></template>
+                  <NTooltip>
+                    <template #trigger>
+                      <NButton class="header-action" aria-label="刷新" @click="$router.go(0)">
+                        <template #icon><RefreshCw :size="16" /></template>
+                        <span class="header-action-label">刷新</span>
+                      </NButton>
+                    </template>
                     刷新
-                  </NButton>
-                  <NButton type="primary" tertiary :loading="logoutLoading" @click="handleLogout">
-                    <template #icon><LogOut :size="16" /></template>
+                  </NTooltip>
+                  <NTooltip>
+                    <template #trigger>
+                      <NButton
+                        class="header-action"
+                        type="primary"
+                        tertiary
+                        aria-label="退出登录"
+                        :loading="logoutLoading"
+                        @click="handleLogout"
+                      >
+                        <template #icon><LogOut :size="16" /></template>
+                        <span class="header-action-label">退出登录</span>
+                      </NButton>
+                    </template>
                     退出登录
-                  </NButton>
+                  </NTooltip>
                 </NSpace>
               </NLayoutHeader>
 
@@ -185,6 +202,26 @@ async function handleLogout() {
 
   .content {
     padding: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header {
+    padding: 0 8px;
+  }
+
+  .header-title {
+    font-size: 14px;
+    white-space: nowrap;
+  }
+
+  .header-action {
+    width: 32px;
+    padding: 0;
+  }
+
+  .header-action-label {
+    display: none;
   }
 }
 </style>

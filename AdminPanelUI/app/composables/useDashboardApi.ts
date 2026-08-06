@@ -1,4 +1,8 @@
-import type { DashboardSummary } from "~/types/dashboard";
+import type {
+    DashboardOperationsReport,
+    DashboardSummary,
+    DashboardSystemStatus,
+} from "~/types/dashboard";
 
 export const useDashboardApi = () => {
     const config = useRuntimeConfig();
@@ -8,6 +12,12 @@ export const useDashboardApi = () => {
     return {
         summary(lowStockThreshold = 10) {
             return get<DashboardSummary>("/dashboard/summary", { low_stock_threshold: lowStockThreshold });
+        },
+        operations(days = 14) {
+            return get<DashboardOperationsReport>("/dashboard/operations", { days });
+        },
+        systemStatus() {
+            return get<DashboardSystemStatus>("/dashboard/system-status");
         },
     };
 };
