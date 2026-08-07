@@ -11,7 +11,7 @@ export interface OrderListQuery {
     page: number;
     size: number;
     status?: OrderStatus;
-    customer_id?: number;
+    customer_username?: string;
     order_no?: string;
 }
 
@@ -19,6 +19,7 @@ export interface OrderListItem {
     id: number;
     order_no: string;
     customer_id: number;
+    customer_username: string;
     status: OrderStatus;
     total_amount: number | string;
     currency: string;
@@ -83,6 +84,7 @@ export interface OrderDetail {
     id: number;
     order_no: string;
     customer_id: number;
+    customer_username: string;
     status: OrderStatus;
     items_subtotal: number | string;
     shipping_fee: number | string;

@@ -780,7 +780,7 @@ onMounted(() => {
               <NDescriptionsItem label="追踪号">{{ selected.tracking_no ?? '-' }}</NDescriptionsItem>
               <NDescriptionsItem label="已发货时间">{{ formatDate(selected.shipped_at) }}</NDescriptionsItem>
               <NDescriptionsItem label="签收时间">{{ formatDate(selected.delivered_at) }}</NDescriptionsItem>
-              <NDescriptionsItem label="创建人">{{ selectedShipment.created_by }}</NDescriptionsItem>
+              <NDescriptionsItem label="创建人">{{ selectedShipment.created_by_username }}</NDescriptionsItem>
               <NDescriptionsItem label="连续同步失败">{{ selectedShipment.consecutive_track_failures }}</NDescriptionsItem>
               <NDescriptionsItem label="运单备注" :span="2">{{ selectedShipment.note ?? '-' }}</NDescriptionsItem>
             </NDescriptions>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ClipboardList, LayoutDashboard, LifeBuoy, LogOut, Package, RefreshCw, Truck } from '@lucide/vue'
+import { ClipboardList, LayoutDashboard, LifeBuoy, LogOut, Package, RefreshCw, Truck, Users } from '@lucide/vue'
 import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Component } from 'vue'
 import type { MenuOption } from 'naive-ui'
@@ -13,6 +13,7 @@ function renderMenuIcon(icon: Component) {
 
 const menuOptions: MenuOption[] = [
   { label: '仪表盘', key: 'dashboard', icon: renderMenuIcon(LayoutDashboard) },
+  { label: '用户管理', key: 'users', icon: renderMenuIcon(Users) },
   { label: '商品管理', key: 'products', icon: renderMenuIcon(Package) },
   { label: '订单管理', key: 'orders', icon: renderMenuIcon(ClipboardList) },
   { label: '物流管理', key: 'shipments', icon: renderMenuIcon(Truck) },
@@ -20,6 +21,7 @@ const menuOptions: MenuOption[] = [
 ]
 
 const activeMenuKey = computed(() => {
+  if (route.path.startsWith('/users')) return 'users'
   if (route.path.startsWith('/products')) return 'products'
   if (route.path.startsWith('/orders')) return 'orders'
   if (route.path.startsWith('/shipments')) return 'shipments'
@@ -30,6 +32,8 @@ const activeMenuKey = computed(() => {
 function handleMenuSelect(key: string) {
   if (key === 'dashboard') {
     navigateTo('/')
+  } else if (key === 'users') {
+    navigateTo('/users')
   } else if (key === 'products') {
     navigateTo('/products')
   } else if (key === 'orders') {

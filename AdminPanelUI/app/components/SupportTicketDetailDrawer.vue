@@ -246,8 +246,8 @@ watch([open, () => props.ticketId], ([visible, ticketId]) => {
                 <NDescriptionsItem label="主题" :span="2">
                   {{ detail.subject }}
                 </NDescriptionsItem>
-                <NDescriptionsItem label="客户 ID">
-                  {{ detail.customer_id }}
+                <NDescriptionsItem label="客户用户名">
+                  {{ detail.customer_username }}
                 </NDescriptionsItem>
                 <NDescriptionsItem label="服务类型">
                   {{ serviceTypeLabel(detail.service_type) }}
@@ -256,7 +256,7 @@ watch([open, () => props.ticketId], ([visible, ticketId]) => {
                   {{ detail.order_no || '-' }}
                 </NDescriptionsItem>
                 <NDescriptionsItem label="处理人">
-                  {{ detail.handled_by ?? '-' }}
+                  {{ detail.handled_by_username ?? '-' }}
                 </NDescriptionsItem>
                 <NDescriptionsItem label="创建时间">
                   {{ formatDate(detail.created_at) }}
@@ -310,7 +310,7 @@ watch([open, () => props.ticketId], ([visible, ticketId]) => {
               <NSpace vertical :size="12">
                 <div v-if="showInitialMessage" class="message-row customer-message">
                   <div class="message-meta">
-                    <span>客户 #{{ detail.customer_id }} · 初始问题</span>
+                    <span>客户 {{ detail.customer_username }} · 初始问题</span>
                     <span>{{ formatDate(detail.created_at) }}</span>
                   </div>
                   <div class="message-bubble">
@@ -326,7 +326,7 @@ watch([open, () => props.ticketId], ([visible, ticketId]) => {
                 >
                   <div class="message-meta">
                     <span>
-                      {{ item.sender_type === 'ADMIN' ? '管理员' : '客户' }} #{{ item.sender_id }}
+                      {{ item.sender_type === 'ADMIN' ? '管理员' : '客户' }} {{ item.sender_username }}
                     </span>
                     <span>{{ formatDate(item.created_at) }}</span>
                   </div>

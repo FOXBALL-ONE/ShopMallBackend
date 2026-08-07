@@ -23,11 +23,11 @@ const refundFormRef = ref<FormInst | null>(null)
 
 const filters = reactive<{
   status: OrderStatus | null
-  customerId: number | null
+  customerUsername: string
   orderNo: string
 }>({
   status: null,
-  customerId: null,
+  customerUsername: '',
   orderNo: '',
 })
 
@@ -118,7 +118,7 @@ async function loadOrders() {
       size: pagination.pageSize,
     }
     if (filters.status) query.status = filters.status
-    if (filters.customerId) query.customer_id = filters.customerId
+    if (filters.customerUsername.trim()) query.customer_username = filters.customerUsername.trim()
     if (filters.orderNo.trim()) query.order_no = filters.orderNo.trim()
 
     const data = await api.list(query)
@@ -149,7 +149,7 @@ async function searchOrders() {
 
 async function resetFilters() {
   filters.status = null
-  filters.customerId = null
+  filters.customerUsername = ''
   filters.orderNo = ''
   pagination.page = 1
   await loadOrders()
@@ -287,10 +287,10 @@ function exportCurrentPage() {
 
   const escapeCsv = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`
   const rows = [
-    ['订单号', '客户 ID', '状态', '订单金额', '币种', '创建时间', '更新时间'],
+    ['订单号', '客户用户名', '状态', '订单金额', '币种', '创建时间', '更新时间'],
     ...orders.value.map(order => [
       order.order_no,
-      order.customer_id,
+      order.customer_username,
       statusLabel(order.status),
       order.total_amount,
       order.currency,
@@ -322,9 +322,9 @@ const columns: DataTableColumns<OrderListItem> = [
     ),
   },
   {
-    title: '客户 ID',
-    key: 'customer_id',
-    width: 100,
+    title: '客户用户名',
+    key: 'customer_username',
+    width: 140,
   },
   {
     title: '状态',
@@ -460,14 +460,12 @@ onMounted(() => {
               placeholder="全部状态"
             />
           </NFormItemGi>
-          <NFormItemGi label="客户 ID">
-            <NInputNumber
-              v-model:value="filters.customerId"
-              :min="1"
-              :show-button="false"
+          <NFormItemGi label="客户用户名">
+            <NInput
+              v-model:value="filters.customerUsername"
+              maxlength="50"
               clearable
               placeholder="精确查询"
-              style="width: 100%"
               @keyup.enter="searchOrders"
             />
           </NFormItemGi>
@@ -563,8 +561,8 @@ onMounted(() => {
             </NAlert>
 
             <NDescriptions label-placement="top" bordered :column="2">
-              <NDescriptionsItem label="客户 ID">
-                {{ selectedOrder.customer_id }}
+              <NDescriptionsItem label="客户用户名">
+                {{ selectedOrder.customer_username }}
               </NDescriptionsItem>
               <NDescriptionsItem label="订单 ID">
                 {{ selectedOrder.id }}
@@ -704,7 +702,7 @@ onMounted(() => {
           确认对订单 <strong>{{ refundOrder.order_no }}</strong> 发起退款？该操作会取消订单并恢复库存。
         </NAlert>
         <NDescriptions :column="2" label-placement="top" size="small">
-          <NDescriptionsItem label="客户 ID">{{ refundOrder.customer_id }}</NDescriptionsItem>
+          <NDescriptionsItem label="客户用户名">{{ refundOrder.customer_username }}</NDescriptionsItem>
           <NDescriptionsItem label="退款金额">
             {{ formatAmount(refundOrder.total_amount, refundOrder.currency) }}
           </NDescriptionsItem>

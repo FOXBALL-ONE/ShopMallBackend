@@ -23,6 +23,8 @@ export interface LoginResponse {
 export type UserRole = "CUSTOMER" | "ADMIN";
 
 export interface UserInfo {
+    /** 登录响应中的 user_id；管理员会话接口也以 id 返回。 */
+    id?: number;
     username: string;
     email: string;
     first_name: string;

@@ -9,19 +9,21 @@ export interface SupportTicketListQuery {
     status?: SupportTicketStatus;
     service_type?: SupportServiceType;
     priority?: SupportTicketPriority;
-    customer_id?: number;
+    customer_username?: string;
     order_no?: string;
 }
 
 export interface SupportTicketListItem {
     id: number;
     customer_id: number;
+    customer_username: string;
     service_type: SupportServiceType;
     priority: SupportTicketPriority;
     order_no: string | null;
     subject: string;
     status: SupportTicketStatus;
     handled_by: number | null;
+    handled_by_username: string | null;
     created_at: string | null;
     updated_at: string | null;
 }
@@ -47,6 +49,7 @@ export interface SupportTicketAttachment {
 export interface SupportTicketMessage {
     id: number;
     sender_id: number;
+    sender_username: string;
     sender_type: SupportTicketMessageSender;
     content: string | null;
     attachments: SupportTicketAttachment[];
@@ -60,6 +63,7 @@ export interface SupportTicketMessageResponse extends SupportTicketMessage {
 export interface SupportTicketDetail {
     id: number;
     customer_id: number;
+    customer_username: string;
     service_type: SupportServiceType;
     priority: SupportTicketPriority;
     order_no: string | null;
@@ -68,6 +72,7 @@ export interface SupportTicketDetail {
     status: SupportTicketStatus;
     admin_reply: string | null;
     handled_by: number | null;
+    handled_by_username: string | null;
     replied_at: string | null;
     resolved_at: string | null;
     closed_at: string | null;

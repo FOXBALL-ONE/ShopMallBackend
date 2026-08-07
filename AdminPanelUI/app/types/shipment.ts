@@ -52,6 +52,7 @@ export interface AdminShipment {
     shipment: Shipment;
     carrier_label_url: string | null;
     created_by: number;
+    created_by_username: string;
     note: string | null;
     cancel_reason: string | null;
     consecutive_track_failures: number;

@@ -38,7 +38,7 @@ async function handleSubmit() {
       errorMessage.value = '该账号没有管理后台权限'
       return
     }
-    setAuth(data.access_token, data.user_info)
+    setAuth(data.access_token, { ...data.user_info, id: data.user_id })
     await navigateTo('/')
   } catch (error: any) {
     clearAuth()

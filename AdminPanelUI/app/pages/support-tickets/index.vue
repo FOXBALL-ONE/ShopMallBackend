@@ -28,13 +28,13 @@ const filters = reactive<{
   status: SupportTicketStatus | null
   serviceType: SupportServiceType | null
   priority: SupportTicketPriority | null
-  customerId: number | null
+  customerUsername: string
   orderNo: string
 }>({
   status: null,
   serviceType: null,
   priority: null,
-  customerId: null,
+  customerUsername: '',
   orderNo: '',
 })
 
@@ -107,7 +107,7 @@ async function loadTickets() {
     if (filters.status) query.status = filters.status
     if (filters.serviceType) query.service_type = filters.serviceType
     if (filters.priority) query.priority = filters.priority
-    if (filters.customerId) query.customer_id = filters.customerId
+    if (filters.customerUsername.trim()) query.customer_username = filters.customerUsername.trim()
     if (filters.orderNo.trim()) query.order_no = filters.orderNo.trim()
 
     const data = await api.list(query)
@@ -136,7 +136,7 @@ async function resetFilters() {
   filters.status = null
   filters.serviceType = null
   filters.priority = null
-  filters.customerId = null
+  filters.customerUsername = ''
   filters.orderNo = ''
   pagination.page = 1
   await loadTickets()
@@ -176,9 +176,9 @@ const columns: DataTableColumns<SupportTicketListItem> = [
     ellipsis: { tooltip: true },
   },
   {
-    title: '客户 ID',
-    key: 'customer_id',
-    width: 100,
+    title: '客户用户名',
+    key: 'customer_username',
+    width: 140,
   },
   {
     title: '服务类型',
@@ -215,9 +215,9 @@ const columns: DataTableColumns<SupportTicketListItem> = [
   },
   {
     title: '处理人',
-    key: 'handled_by',
-    width: 90,
-    render: row => row.handled_by ?? '-',
+    key: 'handled_by_username',
+    width: 120,
+    render: row => row.handled_by_username ?? '-',
   },
   {
     title: '更新时间',
@@ -282,14 +282,13 @@ onMounted(() => {
               placeholder="全部优先级"
             />
           </NFormItemGi>
-          <NFormItemGi label="客户 ID">
-            <NInputNumber
-              v-model:value="filters.customerId"
-              :min="1"
-              :show-button="false"
+          <NFormItemGi label="客户用户名">
+            <NInput
+              v-model:value="filters.customerUsername"
+              maxlength="50"
               clearable
               placeholder="精确查询"
-              style="width: 100%"
+              @keyup.enter="searchTickets"
             />
           </NFormItemGi>
           <NFormItemGi label="订单号">
