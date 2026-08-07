@@ -24,6 +24,9 @@ management:
 shopmall:
   mock-data:
     enabled: false
+  rate-limit:
+    enabled: false
+    filter-enabled: false
   order:
     payment-timeout-minutes: 30
     idempotency-ttl-seconds: 60

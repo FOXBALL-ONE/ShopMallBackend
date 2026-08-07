@@ -45,7 +45,7 @@ server:
 
 # RedisCleanupConfig 读取：启动时是否清空 Redis（本地/测试用，生产必须设 false，否则会 flushDb 清空 stream/消费组/幂等键）
 redis:
-  clear-on-startup: "${REDIS_CLEAR_ON_STARTUP:true}"
+  clear-on-startup: "${REDIS_CLEAR_ON_STARTUP:false}"
 
 shopmall:
   mock-data:
@@ -134,6 +134,16 @@ shopmall:
     max-attachment-bytes-per-ticket: "${SUPPORT_TICKET_MAX_ATTACHMENT_BYTES_PER_TICKET:536870912}"
     max-attachments-per-customer: "${SUPPORT_TICKET_MAX_ATTACHMENTS_PER_CUSTOMER:500}"
     max-attachment-bytes-per-customer: "${SUPPORT_TICKET_MAX_ATTACHMENT_BYTES_PER_CUSTOMER:2147483648}"
+  rate-limit:
+    enabled: "${RATE_LIMIT_ENABLED:true}"
+    # 仅用于部署/测试时完全卸载过滤器；运行时开关由 Redis 和管理端控制。
+    filter-enabled: "${RATE_LIMIT_FILTER_ENABLED:true}"
+    window-seconds: 60
+    default-authenticated-requests-per-minute: "${RATE_LIMIT_AUTHENTICATED_REQUESTS_PER_MINUTE:10}"
+    default-anonymous-requests-per-minute: "${RATE_LIMIT_ANONYMOUS_REQUESTS_PER_MINUTE:5}"
+    identity-hash-secret: "${RATE_LIMIT_IDENTITY_HASH_SECRET:}"
+    default-excluded-paths: []
+    trusted-proxy-cidrs: []
   logistics:
     webhook-max-body-bytes: "${LOGISTICS_WEBHOOK_MAX_BODY_BYTES:1048576}"
     # 轮询调度总开关；首期默认 true 以驱动 MANUAL 之外的轮询适配器

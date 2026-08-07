@@ -24,6 +24,7 @@ import org.springframework.web.servlet.NoHandlerFoundException
 import org.springframework.web.servlet.resource.NoResourceFoundException
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
+import top.foxball.shopmall.ratelimit.RateLimitUnavailableException
 import top.foxball.shopmall.service.payMent.PaymentProviderError
 import top.foxball.shopmall.service.payMent.PaymentProviderException
 
@@ -180,6 +181,15 @@ class GlobalExceptionHandler {
     @ExceptionHandler(TransientDataAccessException::class)
     fun onTransientDataAccessException(ex: TransientDataAccessException): ResponseEntity<Response> {
         log.warn("Transient data access error: {}", ex.message)
+        return builder.serviceUnavailable()
+            .retryAfter(1)
+            .message("系统繁忙，请稍后重试")
+            .build()
+    }
+
+    @ExceptionHandler(RateLimitUnavailableException::class)
+    fun onRateLimitUnavailableException(ex: RateLimitUnavailableException): ResponseEntity<Response> {
+        log.error("Rate-limit configuration is unavailable", ex)
         return builder.serviceUnavailable()
             .retryAfter(1)
             .message("系统繁忙，请稍后重试")

@@ -14,7 +14,13 @@ import org.springframework.web.cors.CorsConfigurationSource
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource
 import top.foxball.shopmall.authentication.JwtAuthenticationFilter
 import top.foxball.shopmall.authentication.JwtService
-import top.foxball.shopmall.config.DevTokenManager
+import top.foxball.shopmall.ratelimit.ApiRateLimitFilter
+import top.foxball.shopmall.ratelimit.ApiRateLimitService
+import top.foxball.shopmall.ratelimit.ClientIpResolver
+import top.foxball.shopmall.ratelimit.RateLimitMetrics
+import top.foxball.shopmall.ratelimit.RateLimitProperties
+import top.foxball.shopmall.ratelimit.RateLimitSettingsService
+import tools.jackson.databind.ObjectMapper
 
 /**
  * Spring Security 配置：无状态 JWT（双 Token 模型）。
@@ -36,10 +42,17 @@ import top.foxball.shopmall.config.DevTokenManager
 class SecurityConfig(
     private val jwtService: JwtService,
     private val devTokenManager: DevTokenManager,
+    private val rateLimitProperties: RateLimitProperties,
+    private val rateLimitSettingsService: RateLimitSettingsService,
+    private val apiRateLimitService: ApiRateLimitService,
+    private val clientIpResolver: ClientIpResolver,
+    private val objectMapper: ObjectMapper,
+    private val rateLimitMetrics: RateLimitMetrics,
 ) {
 
     @Bean
     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
+        val jwtAuthenticationFilter = JwtAuthenticationFilter(jwtService, devTokenManager)
         http
             .csrf { it.disable() }   // 无状态 JWT，CSRF 关闭；refresh cookie 靠 SameSite 防 CSRF（§6.3）
             .cors(Customizer.withDefaults())
@@ -109,9 +122,21 @@ class SecurityConfig(
             }
             // 在标准账号密码过滤器前插入 JWT 过滤器：解析 Bearer 令牌并写入 SecurityContext
             .addFilterBefore(
-                JwtAuthenticationFilter(jwtService, devTokenManager),
+                jwtAuthenticationFilter,
                 UsernamePasswordAuthenticationFilter::class.java,
             )
+        if (rateLimitProperties.filterEnabled) {
+            http.addFilterAfter(
+                ApiRateLimitFilter(
+                    settingsService = rateLimitSettingsService,
+                    rateLimitService = apiRateLimitService,
+                    clientIpResolver = clientIpResolver,
+                    objectMapper = objectMapper,
+                    metrics = rateLimitMetrics,
+                ),
+                JwtAuthenticationFilter::class.java,
+            )
+        }
         return http.build()
     }
 
@@ -137,7 +162,7 @@ class SecurityConfig(
                 "Idempotency-Key",
             )
             allowCredentials = true
-            exposedHeaders = listOf("Retry-After")
+            exposedHeaders = listOf("Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining")
             maxAge = 3600
         }
         val source = UrlBasedCorsConfigurationSource()
