@@ -3,6 +3,7 @@ package top.foxball.shopmall.controller
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.ArgumentMatchers.anyList
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
@@ -31,20 +32,25 @@ import top.foxball.shopmall.controller.admin.AdminShipmentQueryController
 import top.foxball.shopmall.service.AdminShipmentQuery
 import top.foxball.shopmall.service.ShipmentDetails
 import top.foxball.shopmall.service.ShipmentService
+import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.time.Instant
 
 class ShipmentControllerTest {
     private lateinit var shipmentService: ShipmentService
+    private lateinit var userService: UserService
     private lateinit var mockMvc: MockMvc
 
     @BeforeEach
     fun setUp() {
         shipmentService = mock(ShipmentService::class.java)
+        userService = mock(UserService::class.java)
+        `when`(userService.getUsernameById(99)).thenReturn("admin")
+        `when`(userService.getUsernamesByIds(anyList())).thenReturn(mapOf(99L to "admin"))
         mockMvc = MockMvcBuilders.standaloneSetup(
             ShipmentController(shipmentService, ResponseBuilder()),
-            AdminShipmentController(shipmentService, ResponseBuilder()),
-            AdminShipmentQueryController(shipmentService, ResponseBuilder()),
+            AdminShipmentController(shipmentService, userService, ResponseBuilder()),
+            AdminShipmentQueryController(shipmentService, userService, ResponseBuilder()),
         )
             .setControllerAdvice(GlobalExceptionHandler())
             .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
@@ -142,6 +148,7 @@ class ShipmentControllerTest {
         )
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.data.list[0].shipment.shipment_no").value("SHP-1"))
+            .andExpect(jsonPath("$.data.list[0].created_by_username").value("admin"))
             .andExpect(jsonPath("$.data.pagination.total_items").value(11))
             .andExpect(jsonPath("$.data.pagination.total_pages").value(2))
 

@@ -6,6 +6,8 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import top.foxball.shopmall.authentication.LoginTokenAuthentication
 import top.foxball.shopmall.entity.jdbc.User
+import top.foxball.shopmall.entity.jdbc.Role
+import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.repository.ShoppingCartRepository
 import top.foxball.shopmall.repository.UserRepository
 import org.springframework.security.crypto.password.PasswordEncoder
@@ -53,5 +55,29 @@ class UserServiceImplTest {
         order.verify(loginTokenAuthentication).revokeAll(5)
         order.verify(loginTokenAuthentication).revokeAll(9)
         verify(userRepository).findAllByIdInForUpdate(listOf(5, 9))
+    }
+
+    @Test
+    fun `changing a user role revokes existing sessions`() {
+        val previous = User(id = 42, role = Role.ADMIN)
+        val updated = User(id = 42, role = Role.CUSTOMER)
+        `when`(userRepository.findById(42)).thenReturn(java.util.Optional.of(previous))
+        `when`(userRepository.save(updated)).thenReturn(updated)
+
+        service.updateUser(updated)
+
+        verify(loginTokenAuthentication).revokeAll(42)
+    }
+
+    @Test
+    fun `deactivating a user revokes existing sessions`() {
+        val previous = User(id = 42, role = Role.CUSTOMER, enabled = true, status = Status.ACTIVE)
+        val updated = User(id = 42, role = Role.CUSTOMER, enabled = false, status = Status.INACTIVE)
+        `when`(userRepository.findById(42)).thenReturn(java.util.Optional.of(previous))
+        `when`(userRepository.save(updated)).thenReturn(updated)
+
+        service.updateUser(updated)
+
+        verify(loginTokenAuthentication).revokeAll(42)
     }
 }

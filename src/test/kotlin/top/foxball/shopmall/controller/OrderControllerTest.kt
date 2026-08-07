@@ -3,6 +3,7 @@ package top.foxball.shopmall.controller
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.ArgumentMatchers.anyList
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
@@ -22,6 +23,7 @@ import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
 import top.foxball.shopmall.entity.jdbc.OrderStatus
+import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.controller.admin.AdminOrderController
 import top.foxball.shopmall.handler.GlobalExceptionHandler
 import top.foxball.shopmall.handler.OrderNotFoundException
@@ -33,6 +35,7 @@ import top.foxball.shopmall.service.OrderCheckoutView
 import top.foxball.shopmall.service.OrderService
 import top.foxball.shopmall.service.OrderView
 import top.foxball.shopmall.service.PlaceOrderCommand
+import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.IssuedKey
 import top.foxball.shopmall.shared.OrderIdempotencyKeyService
 import top.foxball.shopmall.shared.ResponseBuilder
@@ -43,6 +46,7 @@ class OrderControllerTest {
     private lateinit var orderService: OrderService
     private lateinit var orderCheckoutService: OrderCheckoutService
     private lateinit var orderIdempotencyKeyService: OrderIdempotencyKeyService
+    private lateinit var userService: UserService
     private lateinit var mockMvc: MockMvc
 
     @BeforeEach
@@ -50,9 +54,14 @@ class OrderControllerTest {
         orderService = mock(OrderService::class.java)
         orderCheckoutService = mock(OrderCheckoutService::class.java)
         orderIdempotencyKeyService = mock(OrderIdempotencyKeyService::class.java)
+        userService = mock(UserService::class.java)
+        val customer = User(id = 7, username = "customer")
+        `when`(userService.getUsernameById(7)).thenReturn("customer")
+        `when`(userService.getUserByUsername("customer")).thenReturn(customer)
+        `when`(userService.getUsernamesByIds(anyList())).thenReturn(mapOf(7L to "customer"))
         mockMvc = MockMvcBuilders.standaloneSetup(
             OrderController(orderService, orderCheckoutService, orderIdempotencyKeyService, ResponseBuilder()),
-            AdminOrderController(orderService, ResponseBuilder()),
+            AdminOrderController(orderService, userService, ResponseBuilder()),
         )
             .setControllerAdvice(GlobalExceptionHandler())
             .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
@@ -198,12 +207,13 @@ class OrderControllerTest {
                 .param("page", "1")
                 .param("size", "5")
                 .param("status", "PENDING_PAYMENT")
-                .param("customer_id", "7")
+                .param("customer_username", "customer")
                 .param("order_no", "ORD-API"),
         )
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.data.pagination.count").value(2))
             .andExpect(jsonPath("$.data.list[0].order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.list[0].customer_username").value("customer"))
 
         verify(orderService).listAdmin(99L, expectedQuery)
     }
@@ -219,6 +229,7 @@ class OrderControllerTest {
         mockMvc.perform(get("/admin/api/orders/ORD-API-1"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.customer_username").value("customer"))
             .andExpect(jsonPath("$.data.shipping_address.address1").value("1 Main St"))
             .andExpect(jsonPath("$.data.items[0].allocated").value(true))
             .andExpect(jsonPath("$.data.items[0].allocated_quantity").value(1))

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyLong
+import org.mockito.ArgumentMatchers.anyList
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
@@ -29,6 +30,7 @@ import top.foxball.shopmall.entity.jdbc.SupportServiceType
 import top.foxball.shopmall.entity.jdbc.SupportTicketMessageSender
 import top.foxball.shopmall.entity.jdbc.SupportTicketPriority
 import top.foxball.shopmall.entity.jdbc.SupportTicketStatus
+import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.handler.GlobalExceptionHandler
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.SupportTicketRateLimitException
@@ -40,6 +42,7 @@ import top.foxball.shopmall.service.SupportTicketMessageView
 import top.foxball.shopmall.service.SupportTicketService
 import top.foxball.shopmall.service.SupportTicketView
 import top.foxball.shopmall.service.UpdateSupportTicketCommand
+import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.time.Instant
 import java.time.LocalDateTime
@@ -47,14 +50,21 @@ import java.util.UUID
 
 class SupportTicketControllerTest {
     private lateinit var supportTicketService: SupportTicketService
+    private lateinit var userService: UserService
     private lateinit var mockMvc: MockMvc
 
     @BeforeEach
     fun setUp() {
         supportTicketService = mock(SupportTicketService::class.java)
+        userService = mock(UserService::class.java)
+        val customer = User(id = 7, username = "customer")
+        `when`(userService.getUsernameById(7)).thenReturn("customer")
+        `when`(userService.getUsernameById(99)).thenReturn("admin")
+        `when`(userService.getUserByUsername("customer")).thenReturn(customer)
+        `when`(userService.getUsernamesByIds(anyList())).thenReturn(mapOf(7L to "customer", 99L to "admin"))
         mockMvc = MockMvcBuilders.standaloneSetup(
             SupportTicketController(supportTicketService, ResponseBuilder()),
-            AdminSupportTicketController(supportTicketService, ResponseBuilder()),
+            AdminSupportTicketController(supportTicketService, userService, ResponseBuilder()),
         )
             .setControllerAdvice(GlobalExceptionHandler())
             .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
@@ -326,6 +336,7 @@ class SupportTicketControllerTest {
             .andExpect(status().isCreated)
             .andExpect(jsonPath("$.data.ticket_id").value(3))
             .andExpect(jsonPath("$.data.sender_id").value(99))
+            .andExpect(jsonPath("$.data.sender_username").value("admin"))
             .andExpect(jsonPath("$.data.sender_type").value("ADMIN"))
     }
 
@@ -360,6 +371,8 @@ class SupportTicketControllerTest {
             .andExpect(jsonPath("$.data.status").value("RESOLVED"))
             .andExpect(jsonPath("$.data.admin_reply").value("Replacement arranged."))
             .andExpect(jsonPath("$.data.handled_by").value(99))
+            .andExpect(jsonPath("$.data.customer_username").value("customer"))
+            .andExpect(jsonPath("$.data.handled_by_username").value("admin"))
 
         verify(supportTicketService).updateByAdmin(99, 3, command)
     }
