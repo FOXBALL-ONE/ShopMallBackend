@@ -26,6 +26,7 @@ import top.foxball.shopmall.service.AdminSupportTicketQuery
 import top.foxball.shopmall.service.SendSupportTicketMessageCommand
 import top.foxball.shopmall.service.SupportTicketService
 import top.foxball.shopmall.service.UpdateSupportTicketCommand
+import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.time.Instant
@@ -40,6 +41,7 @@ import java.util.UUID
 @RequestMapping("/admin/api/support-tickets")
 class AdminSupportTicketController(
     private val supportTicketService: SupportTicketService,
+    private val userService: UserService,
     private val builder: ResponseBuilder,
 ) {
     /**
@@ -50,6 +52,7 @@ class AdminSupportTicketController(
      * @param serviceType 支持服务类型
      * @param priority 处理优先级
      * @param customerId 客户 ID
+     * @param customerUsername 客户用户名
      * @param orderNo 订单编号
      */
     @GetMapping
@@ -61,12 +64,15 @@ class AdminSupportTicketController(
         @RequestParam("service_type", required = false) serviceType: SupportServiceType?,
         @RequestParam("priority", required = false) priority: SupportTicketPriority?,
         @RequestParam("customer_id", required = false) @Min(1) customerId: Long?,
+        @RequestParam("customer_username", required = false) @Size(max = 50) customerUsername: String?,
         @RequestParam("order_no", required = false) @Size(max = 32) orderNo: String?,
     ): ResponseEntity<Response> {
         data class TicketData(
             val id: Long,
             @param:JsonProperty("customer_id")
             val customerId: Long,
+            @param:JsonProperty("customer_username")
+            val customerUsername: String,
             @param:JsonProperty("service_type")
             val serviceType: String,
             val priority: String,
@@ -76,6 +82,8 @@ class AdminSupportTicketController(
             val status: String,
             @param:JsonProperty("handled_by")
             val handledBy: Long?,
+            @param:JsonProperty("handled_by_username")
+            val handledByUsername: String?,
             @param:JsonProperty("created_at")
             val createdAt: Instant?,
             @param:JsonProperty("updated_at")
@@ -89,6 +97,10 @@ class AdminSupportTicketController(
             val pagination: Pagination,
         )
 
+        val normalizedCustomerUsername = customerUsername?.trim()?.takeIf(String::isNotEmpty)
+        val resolvedCustomerId = normalizedCustomerUsername?.let {
+            userService.getUserByUsername(it)?.id ?: 0L
+        } ?: customerId
         val pagedData = supportTicketService.listAdmin(
             adminId,
             AdminSupportTicketQuery(
@@ -97,20 +109,25 @@ class AdminSupportTicketController(
                 status = status,
                 serviceType = serviceType,
                 priority = priority,
-                customerId = customerId,
+                customerId = resolvedCustomerId,
                 orderNo = orderNo,
             ),
+        )
+        val usernamesById = userService.getUsernamesByIds(
+            pagedData.content.flatMap { listOfNotNull(it.customerId, it.handledBy) }.distinct(),
         )
         val list = pagedData.content.map { ticket ->
             TicketData(
                 id = ticket.id,
                 customerId = ticket.customerId,
+                customerUsername = requireNotNull(usernamesById[ticket.customerId]) { "工单客户不存在" },
                 serviceType = ticket.serviceType.name,
                 priority = ticket.priority.name,
                 orderNo = ticket.orderNo,
                 subject = ticket.subject,
                 status = ticket.status.name,
                 handledBy = ticket.handledBy,
+                handledByUsername = ticket.handledBy?.let(usernamesById::get),
                 createdAt = ticket.createdAt,
                 updatedAt = ticket.updatedAt,
             )
@@ -152,6 +169,8 @@ class AdminSupportTicketController(
             val id: Long,
             @param:JsonProperty("sender_id")
             val senderId: Long,
+            @param:JsonProperty("sender_username")
+            val senderUsername: String,
             @param:JsonProperty("sender_type")
             val senderType: String,
             val content: String?,
@@ -169,6 +188,8 @@ class AdminSupportTicketController(
             val id: Long,
             @param:JsonProperty("customer_id")
             val customerId: Long,
+            @param:JsonProperty("customer_username")
+            val customerUsername: String,
             @param:JsonProperty("service_type")
             val serviceType: String,
             val priority: String,
@@ -181,6 +202,8 @@ class AdminSupportTicketController(
             val adminReply: String?,
             @param:JsonProperty("handled_by")
             val handledBy: Long?,
+            @param:JsonProperty("handled_by_username")
+            val handledByUsername: String?,
             @param:JsonProperty("replied_at")
             val repliedAt: Instant?,
             @param:JsonProperty("resolved_at")
@@ -198,9 +221,17 @@ class AdminSupportTicketController(
 
         val ticket = supportTicketService.getAdmin(adminId, ticketId, messagePage - 1, messageSize)
             ?: return builder.notFound().message("工单不存在").build()
+        val usernamesById = userService.getUsernamesByIds(
+            buildList {
+                add(ticket.customerId)
+                ticket.handledBy?.let(::add)
+                addAll(ticket.messages.map { it.senderId })
+            }.distinct(),
+        )
         val rs = Response(
             id = ticket.id,
             customerId = ticket.customerId,
+            customerUsername = requireNotNull(usernamesById[ticket.customerId]) { "工单客户不存在" },
             serviceType = ticket.serviceType.name,
             priority = ticket.priority.name,
             orderNo = ticket.orderNo,
@@ -209,6 +240,7 @@ class AdminSupportTicketController(
             status = ticket.status.name,
             adminReply = ticket.adminReply,
             handledBy = ticket.handledBy,
+            handledByUsername = ticket.handledBy?.let(usernamesById::get),
             repliedAt = ticket.repliedAt,
             resolvedAt = ticket.resolvedAt,
             closedAt = ticket.closedAt,
@@ -218,6 +250,7 @@ class AdminSupportTicketController(
                 MessageData(
                     id = message.id,
                     senderId = message.senderId,
+                    senderUsername = requireNotNull(usernamesById[message.senderId]) { "消息发送人不存在" },
                     senderType = message.senderType.name,
                     content = message.content,
                     attachments = message.attachments.map { attachment ->
@@ -279,6 +312,8 @@ class AdminSupportTicketController(
             val id: Long,
             @param:JsonProperty("sender_id")
             val senderId: Long,
+            @param:JsonProperty("sender_username")
+            val senderUsername: String,
             @param:JsonProperty("sender_type")
             val senderType: String,
             val content: String?,
@@ -296,10 +331,12 @@ class AdminSupportTicketController(
                 idempotencyKey = idempotencyKey,
             ),
         ) ?: return builder.notFound().message("工单不存在").build()
+        val senderUsername = requireNotNull(userService.getUsernameById(message.senderId)) { "消息发送人不存在" }
         val rs = Response(
             ticketId = ticketId,
             id = message.id,
             senderId = message.senderId,
+            senderUsername = senderUsername,
             senderType = message.senderType.name,
             content = message.content,
             attachments = message.attachments.map { attachment ->
@@ -339,6 +376,8 @@ class AdminSupportTicketController(
             val id: Long,
             @param:JsonProperty("customer_id")
             val customerId: Long,
+            @param:JsonProperty("customer_username")
+            val customerUsername: String,
             @param:JsonProperty("service_type")
             val serviceType: String,
             val priority: String,
@@ -351,6 +390,8 @@ class AdminSupportTicketController(
             val adminReply: String?,
             @param:JsonProperty("handled_by")
             val handledBy: Long?,
+            @param:JsonProperty("handled_by_username")
+            val handledByUsername: String?,
             @param:JsonProperty("replied_at")
             val repliedAt: Instant?,
             @param:JsonProperty("resolved_at")
@@ -373,9 +414,13 @@ class AdminSupportTicketController(
                 idempotencyKey = idempotencyKey,
             ),
         ) ?: return builder.notFound().message("工单不存在").build()
+        val usernamesById = userService.getUsernamesByIds(
+            listOfNotNull(ticket.customerId, ticket.handledBy).distinct(),
+        )
         val rs = Response(
             id = ticket.id,
             customerId = ticket.customerId,
+            customerUsername = requireNotNull(usernamesById[ticket.customerId]) { "工单客户不存在" },
             serviceType = ticket.serviceType.name,
             priority = ticket.priority.name,
             orderNo = ticket.orderNo,
@@ -384,6 +429,7 @@ class AdminSupportTicketController(
             status = ticket.status.name,
             adminReply = ticket.adminReply,
             handledBy = ticket.handledBy,
+            handledByUsername = ticket.handledBy?.let(usernamesById::get),
             repliedAt = ticket.repliedAt,
             resolvedAt = ticket.resolvedAt,
             closedAt = ticket.closedAt,

@@ -2,6 +2,7 @@ package top.foxball.shopmall.service
 
 import org.springframework.stereotype.Service
 import top.foxball.shopmall.entity.jdbc.Role
+import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.repository.UserRepository
 
@@ -35,7 +36,9 @@ class AdminAccessService(
         }
     }
 
-    /** 判断指定用户是否具有管理员角色。 */
+    /** 判断指定用户是否是允许登录且状态正常的管理员。 */
     fun isAdmin(userId: Long): Boolean =
-        userRepository.findById(userId).orElse(null)?.role == Role.ADMIN
+        userRepository.findById(userId).orElse(null)?.let { user ->
+            user.role == Role.ADMIN && user.enabled && user.status == Status.ACTIVE
+        } == true
 }

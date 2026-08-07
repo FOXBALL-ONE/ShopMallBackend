@@ -5,6 +5,7 @@ import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.authentication.LoginTokenAuthentication
+import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.handler.UserDisabledException
 import top.foxball.shopmall.handler.UsernameOrPasswordErrorException
 import top.foxball.shopmall.repository.UserRepository
@@ -34,7 +35,7 @@ class AuthServiceImpl(
             ?: throw UsernameOrPasswordErrorException()
         // 邮箱登录要求邮箱已验证；未验证同样回统一消息，避免泄露"邮箱已注册但未验证"
         if (isEmail && !user.emailVerified) throw UsernameOrPasswordErrorException()
-        if (!user.enabled) throw UserDisabledException()
+        if (!user.enabled || user.status != Status.ACTIVE) throw UserDisabledException()
         if (!passwordEncoder.matches(password, user.password)) {
             throw UsernameOrPasswordErrorException()
         }
@@ -60,7 +61,7 @@ class AuthServiceImpl(
         if (!passwordEncoder.matches(currentPassword, user.password)) {
             throw UsernameOrPasswordErrorException()
         }
-        if (!user.enabled) throw UserDisabledException()
+        if (!user.enabled || user.status != Status.ACTIVE) throw UserDisabledException()
 
         user.password = requireNotNull(passwordEncoder.encode(newPassword)) { "密码编码失败" }
         userRepository.save(user)

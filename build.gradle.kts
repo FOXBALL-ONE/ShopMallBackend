@@ -38,6 +38,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.flywaydb:flyway-core")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.85")
     implementation("tools.jackson.module:jackson-module-kotlin")
     implementation("com.stripe:stripe-java:33.1.1")
     compileOnly("org.projectlombok:lombok")

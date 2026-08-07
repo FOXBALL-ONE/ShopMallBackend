@@ -17,6 +17,7 @@ import top.foxball.shopmall.entity.jdbc.ShipmentStatus
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.service.AdminShipmentQuery
 import top.foxball.shopmall.service.ShipmentService
+import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.time.Instant
@@ -29,6 +30,7 @@ import java.time.Instant
 @RequestMapping("/admin/api/shipments")
 class AdminShipmentQueryController(
     private val shipmentService: ShipmentService,
+    private val userService: UserService,
     private val builder: ResponseBuilder,
 ) {
     /**
@@ -109,6 +111,8 @@ class AdminShipmentQueryController(
             val carrierLabelUrl: String?,
             @param:JsonProperty("created_by")
             val createdBy: Long,
+            @param:JsonProperty("created_by_username")
+            val createdByUsername: String,
             val note: String?,
             @param:JsonProperty("cancel_reason")
             val cancelReason: String?,
@@ -146,6 +150,9 @@ class AdminShipmentQueryController(
                 trackingNo = trackingNo,
                 hasError = hasError,
             ),
+        )
+        val usernamesById = userService.getUsernamesByIds(
+            pagedData.content.map { it.shipment.createdBy }.distinct(),
         )
         val list = pagedData.content.map { details ->
             val shipment = details.shipment
@@ -187,6 +194,7 @@ class AdminShipmentQueryController(
                 ),
                 carrierLabelUrl = shipment.carrierLabelUrl,
                 createdBy = shipment.createdBy,
+                createdByUsername = requireNotNull(usernamesById[shipment.createdBy]) { "运单创建人不存在" },
                 note = shipment.note,
                 cancelReason = shipment.cancelReason,
                 consecutiveTrackFailures = shipment.consecutiveTrackFailures,
@@ -266,6 +274,8 @@ class AdminShipmentQueryController(
             val carrierLabelUrl: String?,
             @param:JsonProperty("created_by")
             val createdBy: Long,
+            @param:JsonProperty("created_by_username")
+            val createdByUsername: String,
             val note: String?,
             @param:JsonProperty("cancel_reason")
             val cancelReason: String?,
@@ -277,6 +287,7 @@ class AdminShipmentQueryController(
 
         val details = shipmentService.getAdmin(shipmentNo, adminId)
         val shipment = details.shipment
+        val createdByUsername = requireNotNull(userService.getUsernameById(shipment.createdBy)) { "运单创建人不存在" }
         val items = details.items.map {
             ItemData(
                 orderItemId = it.orderItemId,
@@ -315,6 +326,7 @@ class AdminShipmentQueryController(
             ),
             carrierLabelUrl = shipment.carrierLabelUrl,
             createdBy = shipment.createdBy,
+            createdByUsername = createdByUsername,
             note = shipment.note,
             cancelReason = shipment.cancelReason,
             consecutiveTrackFailures = shipment.consecutiveTrackFailures,

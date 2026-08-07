@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.service.AdminOrderQuery
 import top.foxball.shopmall.service.OrderService
+import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.math.BigDecimal
@@ -31,6 +32,7 @@ import java.time.Instant
 @RequestMapping("/admin/api/orders")
 class AdminOrderController(
     private val orderService: OrderService,
+    private val userService: UserService,
     private val builder: ResponseBuilder,
 ) {
     /**
@@ -39,6 +41,7 @@ class AdminOrderController(
      * @param pageSize 分页每页数量
      * @param status 订单状态
      * @param customerId 客户 ID
+     * @param customerUsername 客户用户名
      * @param orderNo 订单编号
      */
     @GetMapping
@@ -48,6 +51,7 @@ class AdminOrderController(
         @RequestParam("size", defaultValue = "25") @Min(1) @Max(100) pageSize: Int,
         @RequestParam("status", required = false) status: OrderStatus?,
         @RequestParam("customer_id", required = false) @Min(1) customerId: Long?,
+        @RequestParam("customer_username", required = false) @Size(max = 50) customerUsername: String?,
         @RequestParam("order_no", required = false) @Size(max = 32) orderNo: String?,
     ): ResponseEntity<Response> {
         data class OrderData(
@@ -56,6 +60,8 @@ class AdminOrderController(
             val orderNo: String,
             @param:JsonProperty("customer_id")
             val customerId: Long,
+            @param:JsonProperty("customer_username")
+            val customerUsername: String,
             val status: String,
             @param:JsonProperty("total_amount")
             val totalAmount: BigDecimal,
@@ -73,9 +79,16 @@ class AdminOrderController(
             val pagination: Pagination,
         )
 
+        val normalizedCustomerUsername = customerUsername?.trim()?.takeIf(String::isNotEmpty)
+        val resolvedCustomerId = normalizedCustomerUsername?.let {
+            userService.getUserByUsername(it)?.id ?: 0L
+        } ?: customerId
         val pagedData = orderService.listAdmin(
             adminId,
-            AdminOrderQuery(page - 1, pageSize, status, customerId, orderNo),
+            AdminOrderQuery(page - 1, pageSize, status, resolvedCustomerId, orderNo),
+        )
+        val customerUsernames = userService.getUsernamesByIds(
+            pagedData.content.map { it.order.customerId }.distinct(),
         )
         val list = pagedData.content.map { view ->
             val order = view.order
@@ -83,6 +96,7 @@ class AdminOrderController(
                 id = requireNotNull(order.id),
                 orderNo = order.orderNo,
                 customerId = order.customerId,
+                customerUsername = requireNotNull(customerUsernames[order.customerId]) { "订单客户不存在" },
                 status = order.status.name,
                 totalAmount = order.totalAmount,
                 currency = order.currency,
@@ -148,6 +162,8 @@ class AdminOrderController(
             val orderNo: String,
             @param:JsonProperty("customer_id")
             val customerId: Long,
+            @param:JsonProperty("customer_username")
+            val customerUsername: String,
             val status: String,
             @param:JsonProperty("items_subtotal")
             val itemsSubtotal: BigDecimal,
@@ -187,6 +203,7 @@ class AdminOrderController(
 
         val details = orderService.getAdmin(adminId, orderNo)
         val order = details.order
+        val customerUsername = requireNotNull(userService.getUsernameById(order.customerId)) { "订单客户不存在" }
         val address = order.shippingAddress
         val items = details.items.map { item ->
             val itemId = requireNotNull(item.id)
@@ -208,6 +225,7 @@ class AdminOrderController(
             id = requireNotNull(order.id),
             orderNo = order.orderNo,
             customerId = order.customerId,
+            customerUsername = customerUsername,
             status = order.status.name,
             itemsSubtotal = order.itemsSubtotal,
             shippingFee = order.shippingFee,

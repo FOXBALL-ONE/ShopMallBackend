@@ -3,6 +3,7 @@ package top.foxball.shopmall.authentication
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import top.foxball.shopmall.config.JwtProperties
+import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.handler.TokenInvalidException
 import top.foxball.shopmall.handler.UserDisabledException
@@ -98,7 +99,7 @@ class LoginTokenAuthenticationImpl(
 
         // ② 用户态校验：用户存在且启用
         val user = userRepository.findById(claims.userId).orElse(null) ?: throw TokenInvalidException()
-        if (!user.enabled) throw UserDisabledException()
+        if (!user.enabled || user.status != Status.ACTIVE) throw UserDisabledException()
 
         // ③ 预生成 newJti，让 Lua 能原子写入 replacedBy
         val newJti = UUID.randomUUID().toString()

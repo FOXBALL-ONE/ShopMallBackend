@@ -32,6 +32,17 @@ class UserServiceImpl(
 
     override fun getUserById(id: Long): User? = userRepository.findWithDeliveryAddressById(id)
 
+    override fun getUserByUsername(username: String): User? = userRepository.findByUsername(username)
+
+    override fun getUsernameById(id: Long): String? = userRepository.findById(id).orElse(null)?.username
+
+    override fun getUsernamesByIds(ids: List<Long>): Map<Long, String> =
+        if (ids.isEmpty()) {
+            emptyMap()
+        } else {
+            userRepository.findAllById(ids).associate { requireNotNull(it.id) to it.username }
+        }
+
     override fun getUsersByIds(ids: List<Long>): List<User> =
         usersWithDeliveryAddressInRequestedOrder(ids)
 
@@ -162,8 +173,9 @@ class UserServiceImpl(
     /** 密码、登录准入或账号状态变化后，旧会话均不得继续使用。 */
     private fun shouldRevokeSessions(previousUser: User, updatedUser: User): Boolean =
         previousUser.password != updatedUser.password ||
+            previousUser.role != updatedUser.role ||
             !updatedUser.enabled ||
-            updatedUser.status == Status.DELETED
+            updatedUser.status != Status.ACTIVE
 
     private companion object {
         const val MAX_DELIVERY_ADDRESSES = 20

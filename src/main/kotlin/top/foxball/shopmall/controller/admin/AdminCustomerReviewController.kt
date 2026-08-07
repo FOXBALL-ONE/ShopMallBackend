@@ -21,6 +21,7 @@ import top.foxball.shopmall.entity.jdbc.CustomerReview
 import top.foxball.shopmall.entity.jdbc.ReviewStatus
 import top.foxball.shopmall.service.AdminAccessService
 import top.foxball.shopmall.service.CustomerReviewService
+import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.time.LocalDateTime
@@ -34,6 +35,7 @@ import java.time.LocalDateTime
 class AdminCustomerReviewController(
     private val customerReviewService: CustomerReviewService,
     private val adminAccessService: AdminAccessService,
+    private val userService: UserService,
     private val builder: ResponseBuilder,
 ) {
 
@@ -50,6 +52,8 @@ class AdminCustomerReviewController(
             val productId: Long,
             @param:JsonProperty("customer_id")
             val customerId: Long,
+            @param:JsonProperty("customer_username")
+            val customerUsername: String,
             val rating: Int,
             val title: String?,
             val content: String,
@@ -69,11 +73,14 @@ class AdminCustomerReviewController(
         data class Response(val list: List<ReviewData>)
 
         adminAccessService.requireAdmin(adminId)
-        val list = customerReviewService.listForAdmin().map {
+        val reviews = customerReviewService.listForAdmin()
+        val usernamesById = userService.getUsernamesByIds(reviews.map { it.customerId }.distinct())
+        val list = reviews.map {
             ReviewData(
                 id = requireNotNull(it.id),
                 productId = requireNotNull(it.product?.id),
                 customerId = it.customerId,
+                customerUsername = requireNotNull(usernamesById[it.customerId]) { "评价客户不存在" },
                 rating = it.rating,
                 title = it.title,
                 content = it.content,
@@ -104,6 +111,8 @@ class AdminCustomerReviewController(
             val productId: Long,
             @param:JsonProperty("customer_id")
             val customerId: Long,
+            @param:JsonProperty("customer_username")
+            val customerUsername: String,
             val rating: Int,
             val title: String?,
             val content: String,
@@ -122,10 +131,12 @@ class AdminCustomerReviewController(
 
         adminAccessService.requireAdmin(adminId)
         val review = customerReviewService.getForAdmin(id) ?: return builder.notFound().build()
+        val customerUsername = requireNotNull(userService.getUsernameById(review.customerId)) { "评价客户不存在" }
         val rs = Response(
             id = requireNotNull(review.id),
             productId = requireNotNull(review.product?.id),
             customerId = review.customerId,
+            customerUsername = customerUsername,
             rating = review.rating,
             title = review.title,
             content = review.content,
@@ -158,6 +169,8 @@ class AdminCustomerReviewController(
             val id: Long,
             @param:JsonProperty("customer_id")
             val customerId: Long,
+            @param:JsonProperty("customer_username")
+            val customerUsername: String,
             @param:JsonProperty("verified_purchase")
             val verifiedPurchase: Boolean,
             val status: String,
@@ -172,9 +185,11 @@ class AdminCustomerReviewController(
         adminAccessService.requireAdmin(adminId)
         val review = customerReviewService.moderate(id, status, verifiedPurchase, merchantReply)
             ?: return builder.notFound().build()
+        val customerUsername = requireNotNull(userService.getUsernameById(review.customerId)) { "评价客户不存在" }
         val rs = Response(
             id = requireNotNull(review.id),
             customerId = review.customerId,
+            customerUsername = customerUsername,
             verifiedPurchase = review.verifiedPurchase,
             status = review.status.name,
             merchantReply = review.merchantReply,

@@ -13,6 +13,15 @@ interface UserService {
     /** 按主键查询用户；不存在时返回 `null`。 */
     fun getUserById(id: Long): User?
 
+    /** 按用户名精确查询用户；不存在时返回 `null`。 */
+    fun getUserByUsername(username: String): User?
+
+    /** 按主键查询用户名；不存在时返回 `null`。 */
+    fun getUsernameById(id: Long): String?
+
+    /** 批量查询用户名，以用户主键为键，不加载配送地址。 */
+    fun getUsernamesByIds(ids: List<Long>): Map<Long, String>
+
     /** 按主键集合查询用户，不保证包含所有传入主键。 */
     fun getUsersByIds(ids: List<Long>): List<User>
 
@@ -43,4 +52,3 @@ interface UserService {
     /** 批量删除用户并撤销相关会话。 */
     fun deleteUsersByIds(ids: List<Long>): Boolean
 }
-
