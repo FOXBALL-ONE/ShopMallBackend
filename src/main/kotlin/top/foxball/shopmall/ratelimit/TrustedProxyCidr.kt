@@ -32,15 +32,27 @@ class TrustedProxyCidr private constructor(
             require(parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
                 "Invalid trusted proxy CIDR: $value"
             }
-            val address = parseIpLiteral(parts[0]) ?: throw IllegalArgumentException("Invalid trusted proxy CIDR: $value")
-            val prefixLength = parts[1].toIntOrNull() ?: throw IllegalArgumentException("Invalid trusted proxy CIDR: $value")
+            val parsed = parseLiteral(parts[0]) ?: throw IllegalArgumentException("Invalid trusted proxy CIDR: $value")
+            val suppliedPrefixLength = parts[1].toIntOrNull()
+                ?: throw IllegalArgumentException("Invalid trusted proxy CIDR: $value")
+            val prefixLength = if (parsed.ipv4Mapped) {
+                require(suppliedPrefixLength in IPV4_MAPPED_PREFIX_LENGTH..IPV6_BITS) {
+                    "Invalid IPv4-mapped trusted proxy CIDR prefix: $value"
+                }
+                suppliedPrefixLength - IPV4_MAPPED_PREFIX_LENGTH
+            } else {
+                suppliedPrefixLength
+            }
+            val address = parsed.address
             require(prefixLength in 0..address.address.size * BITS_PER_BYTE) {
                 "Invalid trusted proxy CIDR prefix: $value"
             }
             return TrustedProxyCidr(address.address, prefixLength)
         }
 
-        fun parseIpLiteral(value: String): InetAddress? {
+        fun parseIpLiteral(value: String): InetAddress? = parseLiteral(value)?.address
+
+        private fun parseLiteral(value: String): ParsedLiteral? {
             val candidate = value.trim()
             if (candidate.isEmpty() || candidate.contains('%')) return null
             val isIpv4 = IPV4_LITERAL.matches(candidate)
@@ -49,20 +61,31 @@ class TrustedProxyCidr private constructor(
             if (isIpv4 && candidate.split('.').any { it.toIntOrNull() !in 0..255 }) return null
 
             val parsed = runCatching { InetAddress.getByName(candidate) }.getOrNull() ?: return null
-            if ((isIpv4 && parsed !is Inet4Address) || (isIpv6 && parsed !is Inet6Address)) return null
-            return canonicalize(parsed)
+            if (isIpv4 && parsed !is Inet4Address) return null
+            if (isIpv6 && parsed !is Inet6Address && parsed !is Inet4Address) return null
+            val ipv4Mapped = isIpv6 && (parsed is Inet4Address || isIpv4Mapped(parsed.address))
+            return ParsedLiteral(canonicalize(parsed), ipv4Mapped)
         }
 
         fun canonicalize(address: InetAddress): InetAddress {
             val bytes = address.address
-            val isIpv4Mapped = bytes.size == 16 &&
-                bytes.copyOfRange(0, 10).all { it == 0.toByte() } &&
-                bytes[10] == 0xff.toByte() && bytes[11] == 0xff.toByte()
-            return if (isIpv4Mapped) InetAddress.getByAddress(bytes.copyOfRange(12, 16)) else address
+            return if (isIpv4Mapped(bytes)) InetAddress.getByAddress(bytes.copyOfRange(12, 16)) else address
         }
 
         fun canonicalText(address: InetAddress): String = canonicalize(address).hostAddress.substringBefore('%').lowercase()
 
+        private fun isIpv4Mapped(bytes: ByteArray): Boolean =
+            bytes.size == 16 &&
+                bytes.copyOfRange(0, 10).all { it == 0.toByte() } &&
+                bytes[10] == 0xff.toByte() && bytes[11] == 0xff.toByte()
+
+        private data class ParsedLiteral(
+            val address: InetAddress,
+            val ipv4Mapped: Boolean,
+        )
+
+        private const val IPV4_MAPPED_PREFIX_LENGTH = 96
+        private const val IPV6_BITS = 128
         private val IPV4_LITERAL = Regex("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}")
         private val IPV6_LITERAL = Regex("[0-9A-Fa-f:.]+")
     }

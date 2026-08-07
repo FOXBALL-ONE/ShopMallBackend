@@ -101,7 +101,8 @@ async function changeEnabled(enabled: boolean) {
   switching.value = true
   try {
     const saved = await api.updateEnabled(enabled, current.version)
-    applySettings(saved)
+    settings.value = saved
+    form.enabled = saved.enabled
     message.success(enabled ? '全局限速已启用' : '全局限速已关闭')
   } catch (error) {
     form.enabled = previousEnabled

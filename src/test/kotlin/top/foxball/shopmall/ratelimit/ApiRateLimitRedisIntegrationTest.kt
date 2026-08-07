@@ -82,6 +82,26 @@ class ApiRateLimitRedisIntegrationTest {
     }
 
     @Test
+    fun `switch update creates a complete settings hash from deployment defaults`() {
+        val result = settingsService.updateEnabled(
+            adminId = 42,
+            enabled = false,
+            expectedVersion = 0,
+        )
+
+        val updated = (result as RateLimitSettingsUpdateResult.Updated).settings
+        assertFalse(updated.enabled)
+        assertEquals(1, updated.version)
+        assertEquals(RateLimitSettingsSource.REDIS, updated.source)
+        assertEquals(10, updated.authenticatedRequestsPerMinute)
+        assertEquals(5, updated.anonymousRequestsPerMinute)
+        assertEquals(emptyList(), updated.excludedPaths)
+        assertEquals("false", redis.opsForHash<String, String>().get("rate-limit:settings:v1", "enabled"))
+        assertEquals("10", redis.opsForHash<String, String>().get("rate-limit:settings:v1", "authenticated_requests_per_minute"))
+        assertEquals("5", redis.opsForHash<String, String>().get("rate-limit:settings:v1", "anonymous_requests_per_minute"))
+    }
+
+    @Test
     fun `settings update is versioned and dynamic exclusion matches immediately`() {
         assertEquals(RateLimitSettingsSource.DEFAULT, settingsService.getSettings().source)
 
@@ -117,6 +137,25 @@ class ApiRateLimitRedisIntegrationTest {
             ),
         )
         assertEquals(RateLimitSettingsUpdateResult.Conflict(1), conflict)
+
+        val toggled = settingsService.updateEnabled(
+            adminId = 42,
+            enabled = true,
+            expectedVersion = 1,
+        )
+        val toggledSettings = (toggled as RateLimitSettingsUpdateResult.Updated).settings
+        assertEquals(2, toggledSettings.version)
+        assertTrue(toggledSettings.enabled)
+        assertEquals(12, toggledSettings.authenticatedRequestsPerMinute)
+        assertEquals(6, toggledSettings.anonymousRequestsPerMinute)
+        assertEquals(updated.excludedPaths, toggledSettings.excludedPaths)
+
+        val toggleConflict = settingsService.updateEnabled(
+            adminId = 42,
+            enabled = false,
+            expectedVersion = 1,
+        )
+        assertEquals(RateLimitSettingsUpdateResult.Conflict(2), toggleConflict)
     }
 
     companion object {

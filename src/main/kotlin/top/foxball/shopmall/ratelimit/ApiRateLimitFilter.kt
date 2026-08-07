@@ -32,11 +32,11 @@ class ApiRateLimitFilter(
             return true
         }
         val path = request.requestURI.removePrefix(request.contextPath)
-        if (!isManagedPath(path)) return true
         if (path == "/actuator/health" || path == "/actuator/info" || path == "/error") {
             metrics.exclusion("fixed")
             return true
         }
+        if (!isManagedPath(path)) return true
         val excludedWebhook = request.method.equals(HttpMethod.POST.name(), ignoreCase = true) &&
             (path == "/webhook" || path == "/api/logistics/webhook" || path.startsWith("/api/logistics/webhook/"))
         if (excludedWebhook) metrics.exclusion("fixed")
@@ -136,7 +136,15 @@ class ApiRateLimitFilter(
     }
 
     private fun isManagedPath(path: String): Boolean =
-        path == "/api" || path.startsWith("/api/") || path == "/admin/api" || path.startsWith("/admin/api/")
+        path == "/webhook" || hasManagedNamespace(path, "/api") || hasManagedNamespace(path, "/admin/api")
+
+    private fun hasManagedNamespace(path: String, namespace: String): Boolean {
+        if (!path.startsWith(namespace)) return false
+        if (path.length == namespace.length) return true
+        val boundary = path[namespace.length]
+        return boundary == '/' || boundary == ';' || boundary == '%' || boundary == '\\' ||
+            boundary == '?' || boundary == '#' || boundary.isWhitespace() || boundary.isISOControl()
+    }
 
     private companion object {
         const val HEADER_LIMIT = "X-RateLimit-Limit"

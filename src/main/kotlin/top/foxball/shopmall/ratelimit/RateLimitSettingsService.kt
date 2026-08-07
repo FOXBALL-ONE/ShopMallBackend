@@ -151,6 +151,96 @@ class RateLimitSettingsService(
         }
     }
 
+    /** Atomically updates only the runtime enforcement switch and update metadata. */
+    fun updateEnabled(
+        adminId: Long,
+        enabled: Boolean,
+        expectedVersion: Long,
+    ): RateLimitSettingsUpdateResult {
+        adminAccessService.requireAdmin(adminId)
+        require(expectedVersion >= 0) { "expected_version must not be negative" }
+
+        val previous = getSettings()
+        val defaults = defaultSettings()
+        val updatedAt = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+        val result = try {
+            redis.execute(
+                updateEnabledScript,
+                listOf(SETTINGS_KEY),
+                expectedVersion.toString(),
+                enabled.toString(),
+                defaults.authenticatedRequestsPerMinute.toString(),
+                defaults.anonymousRequestsPerMinute.toString(),
+                defaults.excludedPathsRaw,
+                UUID.randomUUID().toString(),
+                updatedAt,
+                adminId.toString(),
+            )
+        } catch (exception: RuntimeException) {
+            throw RateLimitUnavailableException("Unable to update API rate-limit switch", exception)
+        } ?: throw RateLimitUnavailableException("Redis returned no API rate-limit switch update result")
+
+        val resultParts = result.split('|', limit = ENABLED_UPDATE_RESULT_PARTS)
+        return when (resultParts.firstOrNull()) {
+            UPDATE_RESULT_UPDATED -> {
+                if (resultParts.size != ENABLED_UPDATE_RESULT_PARTS) {
+                    throw RateLimitUnavailableException("Redis returned an invalid API rate-limit switch update result")
+                }
+                try {
+                    val version = resultParts[1].toLongOrNull()?.takeIf { it > 0 }
+                        ?: throw IllegalArgumentException("Invalid settings version")
+                    val settingsId = resultParts[2].takeIf { runCatching { UUID.fromString(it) }.isSuccess }
+                        ?: throw IllegalArgumentException("Invalid settings generation")
+                    val persistedEnabled = parseEnabled(resultParts[3])
+                    require(persistedEnabled == enabled) { "Inconsistent switch state" }
+                    val authenticated = parseQuota(resultParts[4], AUTHENTICATED_FIELD)
+                    val anonymous = parseQuota(resultParts[5], ANONYMOUS_FIELD)
+                    val rawPaths = resultParts[6]
+                    val paths = RateLimitPathRules.parseStored(rawPaths)
+                    val persistedUpdatedAt = LocalDateTime.parse(resultParts[7], DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+                    val persistedUpdatedBy = resultParts[8].toLongOrNull()?.takeIf { it > 0 }
+                        ?: throw IllegalArgumentException("Invalid settings administrator")
+                    require(persistedUpdatedBy == adminId) { "Inconsistent settings administrator" }
+                    val settings = RateLimitSettings(
+                        enabled = persistedEnabled,
+                        windowSeconds = properties.windowSeconds,
+                        authenticatedRequestsPerMinute = authenticated,
+                        anonymousRequestsPerMinute = anonymous,
+                        excludedPaths = paths,
+                        version = version,
+                        source = RateLimitSettingsSource.REDIS,
+                        updatedAt = persistedUpdatedAt,
+                        updatedBy = persistedUpdatedBy,
+                        settingsId = settingsId,
+                        excludedPathsRaw = rawPaths,
+                    )
+                    metrics.settingsUpdated()
+                    log.info(
+                        "Rate-limit switch updated by administrator {}: enabled {} -> {}, version {}",
+                        adminId,
+                        previous.enabled,
+                        persistedEnabled,
+                        version,
+                    )
+                    RateLimitSettingsUpdateResult.Updated(settings)
+                } catch (exception: Exception) {
+                    throw RateLimitUnavailableException("Redis returned an invalid API rate-limit switch snapshot", exception)
+                }
+            }
+
+            UPDATE_RESULT_CONFLICT -> {
+                if (resultParts.size != 2) {
+                    throw RateLimitUnavailableException("Redis returned an invalid rate-limit conflict result")
+                }
+                val actualVersion = resultParts[1].toLongOrNull()?.takeIf { it >= 0 }
+                    ?: throw RateLimitUnavailableException("Redis returned an invalid rate-limit conflict version")
+                RateLimitSettingsUpdateResult.Conflict(actualVersion)
+            }
+
+            else -> throw RateLimitUnavailableException("Redis returned an unknown API rate-limit switch update result")
+        }
+    }
+
     /** Returns true only for a valid current request path and a configured Spring PathPattern match. */
     fun matchesExcludedPath(settings: RateLimitSettings, request: HttpServletRequest): Boolean {
         val rawPath = request.requestURI.removePrefix(request.contextPath)
@@ -291,6 +381,7 @@ class RateLimitSettingsService(
         const val DEFAULT_SETTINGS_ID = "default"
         const val UPDATE_RESULT_UPDATED = "1"
         const val UPDATE_RESULT_CONFLICT = "0"
+        const val ENABLED_UPDATE_RESULT_PARTS = 9
 
         val SETTINGS_FIELDS = listOf(
             ENABLED_FIELD,
@@ -332,6 +423,59 @@ class RateLimitSettingsService(
                     'updated_at', ARGV[7],
                     'updated_by', ARGV[8])
                 return '1|' .. nextVersion .. '|' .. settingsId
+            """.trimIndent(),
+            String::class.java,
+        )
+
+        val updateEnabledScript = DefaultRedisScript(
+            """
+                local exists = redis.call('EXISTS', KEYS[1])
+                local actual
+                local settingsId
+                local authenticated
+                local anonymous
+                local rawPaths
+                if exists == 1 then
+                    actual = tonumber(redis.call('HGET', KEYS[1], 'version'))
+                    settingsId = redis.call('HGET', KEYS[1], 'settings_id')
+                    authenticated = redis.call('HGET', KEYS[1], 'authenticated_requests_per_minute')
+                    anonymous = redis.call('HGET', KEYS[1], 'anonymous_requests_per_minute')
+                    rawPaths = redis.call('HGET', KEYS[1], 'excluded_paths')
+                    if not actual or actual < 1 or not settingsId or not authenticated or not anonymous or not rawPaths then
+                        return 'E'
+                    end
+                else
+                    actual = 0
+                    settingsId = ARGV[6]
+                    authenticated = ARGV[3]
+                    anonymous = ARGV[4]
+                    rawPaths = ARGV[5]
+                end
+                if actual ~= tonumber(ARGV[1]) then
+                    return '0|' .. actual
+                end
+
+                local nextVersion = actual + 1
+                if exists == 1 then
+                    redis.call('HSET', KEYS[1],
+                        'enabled', ARGV[2],
+                        'version', nextVersion,
+                        'updated_at', ARGV[7],
+                        'updated_by', ARGV[8])
+                else
+                    redis.call('HSET', KEYS[1],
+                        'enabled', ARGV[2],
+                        'authenticated_requests_per_minute', authenticated,
+                        'anonymous_requests_per_minute', anonymous,
+                        'excluded_paths', rawPaths,
+                        'settings_id', settingsId,
+                        'version', nextVersion,
+                        'updated_at', ARGV[7],
+                        'updated_by', ARGV[8])
+                end
+                return table.concat({
+                    '1', nextVersion, settingsId, ARGV[2], authenticated, anonymous, rawPaths, ARGV[7], ARGV[8]
+                }, '|')
             """.trimIndent(),
             String::class.java,
         )

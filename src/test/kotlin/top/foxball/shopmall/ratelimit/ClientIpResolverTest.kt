@@ -15,6 +15,11 @@ class ClientIpResolverTest {
     }
 
     @Test
+    fun `direct ipv4 mapped ipv6 address is normalized to ipv4`() {
+        assertEquals("192.0.2.1", resolver().resolve(request("::ffff:192.0.2.1")))
+    }
+
+    @Test
     fun `trusted proxy selects the first non proxy hop from forwarded chain`() {
         val request = request("10.0.0.2").apply {
             addHeader("Forwarded", "for=198.51.100.4, for=10.0.0.1")
@@ -40,6 +45,21 @@ class ClientIpResolverTest {
         }
 
         assertEquals("198.51.100.4", resolver().resolve(request))
+    }
+
+    @Test
+    fun `ipv4 mapped trusted proxy cidr uses mapped prefix semantics`() {
+        val mappedResolver = ClientIpResolver(
+            RateLimitProperties(
+                identityHashSecret = "a".repeat(32),
+                trustedProxyCidrs = listOf("::ffff:10.0.0.0/104"),
+            ),
+        )
+        val request = request("::ffff:10.0.0.2").apply {
+            addHeader("X-Forwarded-For", "::ffff:198.51.100.4, ::ffff:10.0.0.1")
+        }
+
+        assertEquals("198.51.100.4", mappedResolver.resolve(request))
     }
 
     private fun resolver(): ClientIpResolver = ClientIpResolver(

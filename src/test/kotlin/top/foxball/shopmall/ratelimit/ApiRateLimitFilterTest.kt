@@ -124,17 +124,59 @@ class ApiRateLimitFilterTest {
     }
 
     @Test
+    fun `malformed managed path still enters rate limiting`() {
+        val request = request("/api;v=1/products")
+        val response = MockHttpServletResponse()
+        val chain = mock(FilterChain::class.java)
+        val settings = stubSettings()
+        `when`(settingsService.matchesExcludedPath(settings, request)).thenReturn(false)
+        `when`(clientIpResolver.resolve(request)).thenReturn("198.51.100.9")
+        `when`(
+            decisionService.decide(RateLimitIdentityType.ANONYMOUS, "198.51.100.9", 5),
+        ).thenReturn(RateLimitDecision(allowed = true, limit = 5, remaining = 4, retryAfterSeconds = 0))
+
+        filter.doFilter(request, response, chain)
+
+        verify(settingsService).getSettings()
+        verify(decisionService).decide(RateLimitIdentityType.ANONYMOUS, "198.51.100.9", 5)
+        verify(chain).doFilter(request, response)
+    }
+
+    @Test
+    fun `non post root webhook enters rate limiting`() {
+        val request = request("/webhook")
+        val response = MockHttpServletResponse()
+        val chain = mock(FilterChain::class.java)
+        val settings = stubSettings()
+        `when`(settingsService.matchesExcludedPath(settings, request)).thenReturn(false)
+        `when`(clientIpResolver.resolve(request)).thenReturn("198.51.100.9")
+        `when`(
+            decisionService.decide(RateLimitIdentityType.ANONYMOUS, "198.51.100.9", 5),
+        ).thenReturn(RateLimitDecision(allowed = true, limit = 5, remaining = 4, retryAfterSeconds = 0))
+
+        filter.doFilter(request, response, chain)
+
+        verify(settingsService).getSettings()
+        verify(decisionService).decide(RateLimitIdentityType.ANONYMOUS, "198.51.100.9", 5)
+        verify(chain).doFilter(request, response)
+    }
+
+    @Test
     fun `options and fixed webhook exclusions do not access settings`() {
         val optionsRequest = MockHttpServletRequest("OPTIONS", "/api/products")
+        val rootWebhookRequest = MockHttpServletRequest("POST", "/webhook")
         val webhookRequest = MockHttpServletRequest("POST", "/api/logistics/webhook/carrier")
         val optionsResponse = MockHttpServletResponse()
+        val rootWebhookResponse = MockHttpServletResponse()
         val webhookResponse = MockHttpServletResponse()
         val chain = mock(FilterChain::class.java)
 
         filter.doFilter(optionsRequest, optionsResponse, chain)
+        filter.doFilter(rootWebhookRequest, rootWebhookResponse, chain)
         filter.doFilter(webhookRequest, webhookResponse, chain)
 
         verify(chain).doFilter(optionsRequest, optionsResponse)
+        verify(chain).doFilter(rootWebhookRequest, rootWebhookResponse)
         verify(chain).doFilter(webhookRequest, webhookResponse)
         verifyNoInteractions(settingsService, decisionService, clientIpResolver)
     }

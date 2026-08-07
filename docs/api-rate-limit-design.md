@@ -29,7 +29,7 @@
 
 ### 2.1 纳入统计的请求
 
-限速器覆盖 `/api/**` 与 `/admin/api/**` 下的所有业务请求，包括登录、注册、公开查询、管理端操作，以及最终会返回 `401` 或 `403` 的请求。
+限速器覆盖 `/api/**` 与 `/admin/api/**` 下的所有业务请求，包括登录、注册、公开查询、管理端操作，以及最终会返回 `401` 或 `403` 的请求。根路径 `/webhook` 也进入方法级范围判断：只有 `POST` 固定排除，其他方法仍计入限速。
 
 | 请求 | 是否计入 | 原因 |
 | --- | --- | --- |
@@ -246,6 +246,8 @@ redis.call('HSET', KEYS[1],
 return { 1, nextVersion, settingsId }
 ```
 
+专用开关接口使用另一条单字段 CAS 脚本：hash 已存在时只更新 `enabled`、`version`、`updated_at` 与 `updated_by`，额度、路径和 `settings_id` 直接保留 Redis 中的当前值，不经过应用层读出再回写。hash 不存在且期望版本为 `0` 时，脚本在同一次原子操作中用 YAML 默认额度和路径创建完整配置。这样并发额度更新不会被开关请求携带的旧快照覆盖。
+
 设置 hash 不设置 TTL。生产环境必须开启 Redis 持久化，并把现有 `redis.clear-on-startup` 配为 `false`。如果 Redis 被有意清空或从不含该 hash 的备份恢复，服务安全地回退到部署默认 10/5；管理员可重新保存目标设置。这是“不新增数据库迁移”的明确取舍。
 
 ### 6.3 无缓存的动态刷新边界
@@ -301,7 +303,7 @@ return { 1, nextVersion, settingsId }
 .addFilterAfter(apiRateLimitFilter, JwtAuthenticationFilter::class.java)
 ```
 
-`shouldNotFilter` 先跳过 `/api/**`、`/admin/api/**` 以外的路径，再负责第 2.1 节的固定系统排除规则。过滤器在控制器派发和授权判定前短路拒绝：公开请求、非法令牌请求和受保护请求都进入同一个全局限速器，但有效 JWT 仍优先使用用户维度。
+`shouldNotFilter` 先跳过 `/api/**`、`/admin/api/**` 与根 `/webhook` 以外的路径，再负责第 2.1 节的固定系统排除规则。对于 `/api;...`、`/api%2F...` 等可能被容器解释为 API 别名的非规范路径，范围判断保持保守并继续进入限速，但动态免限速规则永不命中。过滤器在控制器派发和授权判定前短路拒绝：公开请求、非法令牌请求和受保护请求都进入同一个全局限速器，但有效 JWT 仍优先使用用户维度。
 
 `ApiRateLimitFilter` 仅通过 `SecurityFilterChain.addFilterAfter` 注册：在 `SecurityConfig` 内使用已注入的 `ApiRateLimitService`、`ClientIpResolver` 和 `ObjectMapper` 直接构造过滤器实例，再传给 `addFilterAfter`。该过滤器不得标注为 Servlet `@Component`、不得声明为自动注册的 `Filter` Bean，也不得通过 `FilterRegistrationBean` 注册；否则同一个请求可能在两个过滤器链中被计算两次。`OncePerRequestFilter` 应只处理 `DispatcherType.REQUEST`，跳过 `ERROR`、`ASYNC` 二次派发，避免一次业务请求因框架派发重复消耗额度。
 
@@ -458,7 +460,7 @@ PUT /admin/api/rate-limit-settings/enabled?enabled=false&expected_version=3
 Authorization: Bearer <access-token>
 ```
 
-该端点也接受 `PATCH` 方法。服务端用同一个 Redis CAS 版本更新脚本保存开关，并返回完整的最新设置快照；额度和免限速路径保持不变。版本不匹配仍返回 `409 Conflict`。关闭后不会删除桶，重新开启时仍按尚未过期的历史记录判断。
+该端点也接受 `PATCH` 方法。服务端使用只更新 `enabled` 和修改元数据的独立 Redis CAS 脚本，并返回该次提交的完整设置快照；额度和免限速路径由脚本直接保留，不做应用层读复制写。版本不匹配仍返回 `409 Conflict`。关闭后不会删除桶，重新开启时仍按尚未过期的历史记录判断。
 
 ## 10. 管理面板设计
 
@@ -480,7 +482,7 @@ Authorization: Bearer <access-token>
 
 页面还提供“免限速路径”可添加/删除列表控件，每项使用文本输入并在前端做与第 2.3 节一致的即时格式提示；服务端校验始终是最终约束。不得用自由文本多行框传递逗号或换行分隔内容，避免 URL 编码、空项和规则含义不清。保存时将每一项作为一个同名 `excluded_path` 查询参数传递；列表为空时不传该参数，明确表示清空动态规则。
 
-固定的 60 秒滑动窗口、当前配置来源、版本、最后修改时间和修改管理员以只读信息展示。页面加载时读取设置；开关变更立即调用 `updateEnabled()` 并携带当前 `expected_version`，额度和路径保存则携带当前开关、两个数值、路径列表与 `expected_version`。两种操作成功后都直接用响应快照刷新本地状态。收到 `409` 时丢弃旧编辑、重新加载服务器快照并提示冲突。手动刷新仅用于查看其他管理员的修改，不承担配置传播职责。
+固定的 60 秒滑动窗口、当前配置来源、版本、最后修改时间和修改管理员以只读信息展示。页面加载时读取设置；开关变更立即调用 `updateEnabled()` 并携带当前 `expected_version`，额度和路径保存则携带当前开关、两个数值、路径列表与 `expected_version`。开关更新成功后只刷新服务器设置基线和开关值，保留表单中尚未保存的额度与路径草稿；完整保存成功后才用响应快照重置整个表单。收到 `409` 时丢弃旧编辑、重新加载服务器快照并提示冲突。手动刷新仅用于查看其他管理员的修改，不承担配置传播职责。
 
 服务端每次请求读取 Redis 设置，因此一次成功保存会对所有节点生效，不需要刷新页面、轮询或重启。
 

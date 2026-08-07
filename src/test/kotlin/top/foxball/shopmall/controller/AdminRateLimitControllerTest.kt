@@ -146,16 +146,8 @@ class AdminRateLimitControllerTest {
     @Test
     fun `dedicated enabled endpoint preserves current quotas and paths`() {
         val current = settings(enabled = true, version = 3)
-        val command = UpdateRateLimitSettingsCommand(
-            enabled = false,
-            authenticatedRequestsPerMinute = current.authenticatedRequestsPerMinute,
-            anonymousRequestsPerMinute = current.anonymousRequestsPerMinute,
-            excludedPaths = current.excludedPaths,
-            expectedVersion = current.version,
-        )
         val updated = current.copy(enabled = false, version = 4)
-        `when`(settingsService.getSettings(99L)).thenReturn(current)
-        `when`(settingsService.updateSettings(99L, command)).thenReturn(RateLimitSettingsUpdateResult.Updated(updated))
+        `when`(settingsService.updateEnabled(99L, false, 3)).thenReturn(RateLimitSettingsUpdateResult.Updated(updated))
 
         mockMvc.perform(
             patch("/admin/api/rate-limit-settings/enabled")
@@ -166,22 +158,12 @@ class AdminRateLimitControllerTest {
             .andExpect(jsonPath("$.data.enabled").value(false))
             .andExpect(jsonPath("$.data.version").value(4))
 
-        verify(settingsService).getSettings(99L)
-        verify(settingsService).updateSettings(99L, command)
+        verify(settingsService).updateEnabled(99L, false, 3)
     }
 
     @Test
     fun `dedicated enabled endpoint returns version conflict`() {
-        val current = settings(enabled = false, version = 4)
-        val command = UpdateRateLimitSettingsCommand(
-            enabled = true,
-            authenticatedRequestsPerMinute = 10,
-            anonymousRequestsPerMinute = 5,
-            excludedPaths = current.excludedPaths,
-            expectedVersion = 3,
-        )
-        `when`(settingsService.getSettings(99L)).thenReturn(current)
-        `when`(settingsService.updateSettings(99L, command)).thenReturn(RateLimitSettingsUpdateResult.Conflict(4))
+        `when`(settingsService.updateEnabled(99L, true, 3)).thenReturn(RateLimitSettingsUpdateResult.Conflict(4))
 
         mockMvc.perform(
             put("/admin/api/rate-limit-settings/enabled")
@@ -190,6 +172,8 @@ class AdminRateLimitControllerTest {
         )
             .andExpect(status().isConflict)
             .andExpect(jsonPath("$.data.actual_version").value(4))
+
+        verify(settingsService).updateEnabled(99L, true, 3)
     }
 
     private fun settings(

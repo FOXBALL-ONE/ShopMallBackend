@@ -142,15 +142,7 @@ class AdminRateLimitController(
             @param:JsonProperty("updated_by") val updatedBy: Long?,
         )
 
-        val current = settingsService.getSettings(adminId)
-        val command = UpdateRateLimitSettingsCommand(
-            enabled = enabled,
-            authenticatedRequestsPerMinute = current.authenticatedRequestsPerMinute,
-            anonymousRequestsPerMinute = current.anonymousRequestsPerMinute,
-            excludedPaths = current.excludedPaths,
-            expectedVersion = expectedVersion,
-        )
-        val result = settingsService.updateSettings(adminId, command)
+        val result = settingsService.updateEnabled(adminId, enabled, expectedVersion)
         if (result is RateLimitSettingsUpdateResult.Conflict) {
             val rs = ConflictResponse(actualVersion = result.actualVersion)
             return builder.status(HttpStatus.CONFLICT)
