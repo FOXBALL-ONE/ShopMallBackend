@@ -46,7 +46,7 @@ watch(activeSlug, () => {
 })
 
 useHead(() => ({
-  title: `${activeCollection.value.englishLabel} | LUNE`,
+  title: `${activeCollection.value.englishLabel} | Pelissa`,
   meta: [
     { name: 'description', content: activeCollection.value.description }
   ]
@@ -140,14 +140,14 @@ useHead(() => ({
       <div v-else class="collection-empty">
         <UIcon name="i-lucide-search-x" />
         <h3>No pieces in this edit yet.</h3>
-        <p>Try another product type or explore the full Lune collection.</p>
+        <p>Try another product type or explore the full Pelissa collection.</p>
         <button class="store-button" type="button" @click="productType = 'ALL'">Clear filter</button>
       </div>
     </section>
 
     <section class="collection-note">
       <div class="collection-note-image">
-        <img src="/lingerie/lace-texture.jpg" alt="Lune lace and fabric detail">
+        <img src="/lingerie/lace-texture.jpg" alt="Pelissa lace and fabric detail">
       </div>
       <div class="collection-note-copy">
         <p class="store-eyebrow">FIT, FEEL, REPEAT</p>

@@ -51,10 +51,10 @@ interface ErrorShape {
 }
 
 useHead({
-  title: 'Sign in or join | LUNE',
+  title: 'Sign in or join | Pelissa',
   meta: [{
     name: 'description',
-    content: 'Sign in to your Lune account or create a new account.'
+    content: 'Sign in to your Pelissa account or create a new account.'
   }]
 })
 
@@ -247,7 +247,7 @@ async function submitRegistration() {
       const session = await authenticate(username, registerForm.password)
       const displayName = session.user_info.first_name.trim() || session.user_info.username
       toast.add({
-        title: `Welcome to LUNE, ${displayName}`,
+        title: `Welcome to PELISSA, ${displayName}`,
         description: 'Your account is verified and your secure session has started.',
         color: 'success'
       })
@@ -285,13 +285,13 @@ onBeforeUnmount(() => {
     </div>
 
     <header class="auth-header">
-      <NuxtLink class="back-link" to="/" aria-label="Return to the Lune home page">
+      <NuxtLink class="back-link" to="/" aria-label="Return to the Pelissa home page">
         <UIcon name="i-lucide-arrow-left" />
         <span>Shop</span>
       </NuxtLink>
 
-      <NuxtLink class="brand" to="/" aria-label="Lune home">
-        <span>LUNE</span><i>°</i>
+      <NuxtLink class="brand" to="/" aria-label="Pelissa home">
+        <span>PELISSA</span><i>°</i>
       </NuxtLink>
 
       <div class="secure-note">
@@ -301,15 +301,15 @@ onBeforeUnmount(() => {
     </header>
 
     <section class="auth-layout">
-      <aside class="story-panel" aria-label="The Lune membership story">
+      <aside class="story-panel" aria-label="The Pelissa membership story">
         <div class="story-shade" />
         <div class="story-number">L / 01</div>
 
         <div class="story-content">
-          <p class="eyebrow">THE LUNE CIRCLE</p>
+          <p class="eyebrow">THE PELISSA CIRCLE</p>
           <h1>Made for every<br><em>version of you.</em></h1>
           <p class="story-copy">
-            Save the pieces you love, move through checkout with ease, and receive a more personal Lune experience.
+            Save the pieces you love, move through checkout with ease, and receive a more personal Pelissa experience.
           </p>
 
           <div class="story-benefits">
@@ -357,7 +357,7 @@ onBeforeUnmount(() => {
               <div class="form-heading">
                 <p class="eyebrow">WELCOME BACK</p>
                 <h2>Your space,<br><em>waiting.</em></h2>
-                <p>Sign in with the username or email you used to join Lune.</p>
+                <p>Sign in with the username or email you used to join Pelissa.</p>
               </div>
 
               <div v-if="formError" class="error-banner" role="alert">
@@ -417,7 +417,7 @@ onBeforeUnmount(() => {
               </button>
 
               <p class="mode-prompt">
-                New to Lune?
+                New to Pelissa?
                 <button type="button" @click="switchMode('register')">Create an account</button>
               </p>
             </form>
@@ -599,7 +599,7 @@ onBeforeUnmount(() => {
               </button>
 
               <p class="mode-prompt">
-                Already part of Lune?
+                Already part of Pelissa?
                 <button type="button" @click="switchMode('login')">Sign in</button>
               </p>
             </form>
@@ -607,7 +607,7 @@ onBeforeUnmount(() => {
 
           <div class="form-footer">
             <span><UIcon name="i-lucide-lock-keyhole" /> Encrypted sign in</span>
-            <span>Need help? hello@lune.com</span>
+            <span>Need help? support@pelissa.com</span>
           </div>
         </div>
       </div>
@@ -680,9 +680,9 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: flex-start;
   color: var(--ink);
-  font-size: 31px;
+  font-size: 28px;
   font-weight: 700;
-  letter-spacing: .145em;
+  letter-spacing: .09em;
   line-height: 1;
   text-decoration: none;
 }
@@ -1135,7 +1135,7 @@ onBeforeUnmount(() => {
   .announcement-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .announcement-bar a { flex: 0 0 auto; }
   .auth-header { height: 68px; padding: 0 17px; }
-  .brand { font-size: 25px; }
+  .brand { font-size: 21px; letter-spacing: .07em; }
   .brand i { font-size: 17px; }
   .back-link span, .secure-note span { display: none; }
   .back-link .iconify, .secure-note .iconify { width: 18px; height: 18px; }

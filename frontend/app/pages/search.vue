@@ -71,9 +71,9 @@ function resetSearch() {
 }
 
 useHead(() => ({
-  title: submittedQuery.value ? `Search: ${submittedQuery.value} | LUNE` : 'Search | LUNE',
+  title: submittedQuery.value ? `Search: ${submittedQuery.value} | Pelissa` : 'Search | Pelissa',
   meta: [
-    { name: 'description', content: 'Search the Lune lingerie, lounge and swim collection.' }
+    { name: 'description', content: 'Search the Pelissa lingerie, lounge and swim collection.' }
   ]
 }))
 </script>
@@ -84,12 +84,12 @@ useHead(() => ({
 
     <section class="search-hero">
       <div class="store-container search-hero-inner">
-        <p class="store-eyebrow">FIND YOUR LUNE</p>
+        <p class="store-eyebrow">FIND YOUR PELISSA</p>
         <h1>Search the collection.</h1>
         <p>Try a mood, fabric, color, or silhouette—lace, satin, swim, lounge, black...</p>
         <form class="search-main-form" role="search" @submit.prevent="submitSearch">
           <UIcon name="i-lucide-search" />
-          <label class="store-sr-only" for="catalog-search">Search the Lune catalog</label>
+          <label class="store-sr-only" for="catalog-search">Search the Pelissa catalog</label>
           <input
             id="catalog-search"
             v-model="queryInput"
@@ -107,7 +107,7 @@ useHead(() => ({
         <div>
           <p class="store-eyebrow">{{ submittedQuery ? 'SEARCH RESULTS' : 'EXPLORE EVERYTHING' }}</p>
           <h2 v-if="submittedQuery">Results for “{{ submittedQuery }}”</h2>
-          <h2 v-else>All Lune pieces</h2>
+          <h2 v-else>All Pelissa pieces</h2>
           <span>{{ searchResults.length }} matches</span>
         </div>
         <p>Search covers the backend product name, color, description, tags, fit notes, highlights, and design details.</p>

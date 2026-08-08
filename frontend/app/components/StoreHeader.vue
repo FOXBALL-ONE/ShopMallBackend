@@ -71,8 +71,8 @@ async function submitSearch() {
           <UIcon :name="isMenuOpen ? 'i-lucide-x' : 'i-lucide-menu'" />
         </button>
 
-        <NuxtLink class="store-brand" to="/" aria-label="Lune home">
-          LUNE<i>°</i>
+        <NuxtLink class="store-brand" to="/" aria-label="Pelissa home">
+          PELISSA<i>°</i>
         </NuxtLink>
 
         <div class="store-header-actions">
@@ -113,7 +113,7 @@ async function submitSearch() {
         <div>
           <span class="store-popover-eyebrow">YOUR BAG</span>
           <strong>Your bag is empty</strong>
-          <p>Your Lune picks will appear here.</p>
+          <p>Your Pelissa picks will appear here.</p>
           <NuxtLink to="/collections/shop" @click="isBagOpen = false">Start shopping</NuxtLink>
         </div>
         <button type="button" aria-label="Close shopping bag" @click="isBagOpen = false"><UIcon name="i-lucide-x" /></button>
@@ -203,9 +203,9 @@ async function submitSearch() {
   display: inline-flex;
   align-items: flex-start;
   color: var(--store-ink);
-  font-size: 31px;
+  font-size: 28px;
   font-weight: 700;
-  letter-spacing: .145em;
+  letter-spacing: .09em;
   line-height: 1;
   text-decoration: none;
 }
@@ -434,7 +434,8 @@ async function submitSearch() {
   }
 
   .store-brand {
-    font-size: 26px;
+    font-size: 22px;
+    letter-spacing: .07em;
   }
 
   .store-mobile-menu {

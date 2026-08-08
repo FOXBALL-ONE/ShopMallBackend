@@ -5,7 +5,7 @@ import { catalogProducts } from '~/data/catalog'
 const router = useRouter()
 
 useHead({
-  title: 'LUNE | Modern lingerie',
+  title: 'Pelissa | Modern lingerie',
   meta: [
     {
       name: 'description',
@@ -173,8 +173,8 @@ onBeforeUnmount(() => {
           <UIcon :name="isMenuOpen ? 'i-lucide-x' : 'i-lucide-menu'" />
         </button>
 
-        <NuxtLink class="brand" to="/" aria-label="Lune home">
-          <span>LUNE</span><i>°</i>
+        <NuxtLink class="brand" to="/" aria-label="Pelissa home">
+          <span>PELISSA</span><i>°</i>
         </NuxtLink>
 
         <div class="header-actions">
@@ -281,7 +281,7 @@ onBeforeUnmount(() => {
 
     <section class="escape-section">
       <div class="escape-image" role="img" aria-label="Soft lingerie and loungewear">
-        <div class="escape-stamp">LUNE<br>AFTER<br>DARK</div>
+        <div class="escape-stamp">PELISSA<br>AFTER<br>DARK</div>
       </div>
       <div class="escape-content">
         <p class="eyebrow">THE LOUNGE EDIT</p>
@@ -296,14 +296,14 @@ onBeforeUnmount(() => {
 
     <section class="editorial-section page-width">
       <div class="editorial-card editorial-copy">
-        <p class="eyebrow">LUNE NOTES</p>
+        <p class="eyebrow">PELISSA NOTES</p>
         <h2>Wear it your way.</h2>
         <p>Fit notes, care rituals, and thoughtful ways to make every layer feel like yours.</p>
         <NuxtLink class="text-link underlined" to="/search?q=fit">Discover our journal <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
       </div>
-      <NuxtLink class="editorial-card editorial-image" to="/search?q=lace" aria-label="Explore the Lune journal">
+      <NuxtLink class="editorial-card editorial-image" to="/search?q=lace" aria-label="Explore the Pelissa journal">
         <div class="editorial-image-inner" />
-        <span>The Lune journal <UIcon name="i-lucide-arrow-up-right" /></span>
+        <span>The Pelissa journal <UIcon name="i-lucide-arrow-up-right" /></span>
       </NuxtLink>
     </section>
 
@@ -324,7 +324,7 @@ onBeforeUnmount(() => {
     <footer class="site-footer">
       <div class="page-width footer-grid">
         <div class="footer-brand">
-          <NuxtLink class="brand" to="/">LUNE<i>°</i></NuxtLink>
+          <NuxtLink class="brand" to="/">PELISSA<i>°</i></NuxtLink>
           <p>Modern intimates for every version of you.</p>
           <div class="social-links">
             <a href="#top" aria-label="Instagram"><UIcon name="i-lucide-instagram" /></a>
@@ -357,7 +357,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="page-width footer-bottom">
-        <span>© 2026 Lune. All rights reserved.</span>
+        <span>© 2026 Pelissa. All rights reserved.</span>
         <div><a href="#top">Privacy</a><a href="#top">Terms</a><button type="button">United States / USD <UIcon name="i-lucide-chevron-down" /></button></div>
       </div>
     </footer>
@@ -400,7 +400,7 @@ a { color: inherit; text-decoration: none; }
 .utility-link .iconify { width: 12px; height: 12px; }
 .utility-help { margin-left: auto; }
 .brand-row { height: 75px; width: min(100% - 64px, 1440px); margin: auto; position: relative; display: flex; justify-content: center; align-items: center; }
-.brand { display: inline-flex; align-items: flex-start; color: var(--ink); font-size: 31px; font-weight: 700; letter-spacing: .145em; line-height: 1; }
+.brand { display: inline-flex; align-items: flex-start; color: var(--ink); font-size: 28px; font-weight: 700; letter-spacing: .09em; line-height: 1; }
 .brand i { margin: -3px 0 0 3px; color: var(--coral); font-family: Georgia, serif; font-size: 21px; font-style: normal; }
 .header-actions { position: absolute; right: 0; display: flex; align-items: center; gap: 4px; }
 .icon-button { position: relative; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 0; background: transparent; cursor: pointer; }
@@ -515,7 +515,7 @@ a { color: inherit; text-decoration: none; }
 
 .site-footer { padding-top: 72px; background: #241d21; color: #fbf7f5; }
 .footer-grid { display: grid; grid-template-columns: 2.1fr repeat(3, 1fr); gap: 36px; padding-bottom: 65px; }
-.footer-brand .brand { color: #fff; font-size: 28px; }
+.footer-brand .brand { color: #fff; font-size: 25px; }
 .footer-brand p { max-width: 250px; margin: 17px 0 22px; color: #bbaeb2; font-size: 13px; line-height: 1.55; }
 .social-links { display: flex; gap: 7px; }
 .social-links a { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #5e5157; border-radius: 50%; }
@@ -539,7 +539,7 @@ a { color: inherit; text-decoration: none; }
 .editorial-image-inner { background-image: url('/lingerie/lace-texture.jpg'); }
 .newsletter-section { background: var(--sea); }
 
-/* Keep the darker utility surfaces within the Lune palette. */
+/* Keep the darker utility surfaces within the Pelissa palette. */
 .utility-row { color: #706469; }
 .search-panel, .bag-popover { box-shadow: 0 10px 22px rgba(36, 29, 33, .12); }
 .hero-shade { background: linear-gradient(90deg, rgba(30, 16, 22, .52) 0%, rgba(30, 16, 22, .17) 53%, rgba(30, 16, 22, .05) 100%); }
@@ -560,7 +560,7 @@ a { color: inherit; text-decoration: none; }
   .utility-help { margin-left: 0; }
   .location-link { display: none; }
   .brand-row { height: 65px; }
-  .brand { font-size: 26px; }
+  .brand { font-size: 22px; letter-spacing: .07em; }
   .brand i { font-size: 18px; }
   .main-nav { position: absolute; top: 99px; left: 0; right: 0; height: auto; display: none; align-items: stretch; gap: 0; padding: 10px 16px 17px; border: 0; background: var(--off-white); box-shadow: 0 8px 16px rgba(28, 37, 32, .1); }
   .main-nav.is-open { display: flex; flex-direction: column; }

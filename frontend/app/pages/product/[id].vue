@@ -117,11 +117,11 @@ onBeforeUnmount(() => {
 })
 
 useHead(() => ({
-  title: product.value ? `${product.value.name} | LUNE` : 'Product not found | LUNE',
+  title: product.value ? `${product.value.name} | Pelissa` : 'Product not found | Pelissa',
   meta: [
     {
       name: 'description',
-      content: product.value?.description || 'Explore the Lune lingerie collection.'
+      content: product.value?.description || 'Explore the Pelissa lingerie collection.'
     }
   ]
 }))

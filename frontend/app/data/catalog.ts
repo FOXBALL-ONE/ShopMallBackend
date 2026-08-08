@@ -88,7 +88,7 @@ export const collectionMeta: Record<CollectionSlug, CollectionMeta> = {
     slug: 'shop',
     label: '全部商品',
     englishLabel: 'Shop all',
-    eyebrow: 'THE LUNE COLLECTION',
+    eyebrow: 'THE PELISSA COLLECTION',
     title: 'Every layer,\nevery mood.',
     subtitle: 'Modern lingerie for the way you move through the day.',
     description: 'Discover soft essentials, sculpting swim, and after-dark silhouettes in one considered edit.',
@@ -113,7 +113,7 @@ export const collectionMeta: Record<CollectionSlug, CollectionMeta> = {
     eyebrow: 'SUN, SALT, SKIN',
     title: 'Made for\nthe water.',
     subtitle: 'Sculpted one-pieces and airy layers with confidence built in.',
-    description: 'Meet the Lune swim edit: supportive shapes, thoughtful coverage, and colors that catch the light.',
+    description: 'Meet the Pelissa swim edit: supportive shapes, thoughtful coverage, and colors that catch the light.',
     image: '/lingerie/lace-green.jpg',
     position: 'center 42%'
   },
@@ -135,7 +135,7 @@ export const collectionMeta: Record<CollectionSlug, CollectionMeta> = {
     eyebrow: 'JUST IN',
     title: 'Fresh from\nthe studio.',
     subtitle: 'New shapes and soft colors, ready for their first wear.',
-    description: 'The latest Lune arrivals bring a little more ease, a little more edge, and a lot of good feeling.',
+    description: 'The latest Pelissa arrivals bring a little more ease, a little more edge, and a lot of good feeling.',
     image: '/lingerie/hero-corset.jpg',
     position: 'center 35%'
   },
@@ -146,7 +146,7 @@ export const collectionMeta: Record<CollectionSlug, CollectionMeta> = {
     eyebrow: 'THE EDIT, LESS',
     title: 'Good things,\nbetter price.',
     subtitle: 'Limited-time prices on pieces you will keep reaching for.',
-    description: 'A considered selection of Lune favorites, marked down while sizes last.',
+    description: 'A considered selection of Pelissa favorites, marked down while sizes last.',
     image: '/lingerie/lace-black.jpg',
     position: 'center 47%'
   }

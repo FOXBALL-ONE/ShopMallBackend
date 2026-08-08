@@ -2,7 +2,7 @@
   <footer class="store-footer">
     <div class="store-container store-footer-grid">
       <div class="store-footer-brand">
-        <NuxtLink class="store-footer-logo" to="/">LUNE<i>°</i></NuxtLink>
+        <NuxtLink class="store-footer-logo" to="/">PELISSA<i>°</i></NuxtLink>
         <p>Modern intimates for every version of you.</p>
         <div class="store-social-links">
           <a href="#" aria-label="Instagram"><UIcon name="i-lucide-instagram" /></a>
@@ -38,7 +38,7 @@
     </div>
 
     <div class="store-container store-footer-bottom">
-      <span>© 2026 Lune. All rights reserved.</span>
+      <span>© 2026 Pelissa. All rights reserved.</span>
       <div>
         <a href="#">Privacy</a>
         <a href="#">Terms</a>
@@ -70,9 +70,9 @@
   display: inline-flex;
   align-items: flex-start;
   color: #fff;
-  font-size: 30px;
+  font-size: 27px;
   font-weight: 700;
-  letter-spacing: .145em;
+  letter-spacing: .09em;
   line-height: 1;
   text-decoration: none;
 }
