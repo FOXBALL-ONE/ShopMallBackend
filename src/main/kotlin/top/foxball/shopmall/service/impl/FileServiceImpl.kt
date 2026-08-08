@@ -9,6 +9,7 @@ import org.springframework.web.multipart.MultipartFile
 import org.springframework.web.util.UriComponentsBuilder
 import top.foxball.shopmall.config.FileProperties
 import top.foxball.shopmall.entity.jdbc.StoredFile
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.ResourceNotFoundException
 import top.foxball.shopmall.repository.StoredFileRepository
@@ -121,8 +122,13 @@ class FileServiceImpl(
     }
 
     override fun delete(ownerId: Long, fileId: UUID) {
-        val stored = fileRepository.findByIdAndOwnerId(fileId, ownerId)
-            ?: throw ResourceNotFoundException("File does not exist or is no longer available.")
+        val stored = fileRepository.findByIdAndOwnerId(fileId, ownerId) ?: run {
+            val existing = fileRepository.findById(fileId).orElse(null)
+            if (existing != null && existing.ownerId != ownerId) {
+                throw ForbiddenException("只能删除自己的文件")
+            }
+            throw ResourceNotFoundException("File does not exist or is no longer available.")
+        }
         deleteStoredFiles(listOf(stored))
     }
 
@@ -157,6 +163,9 @@ class FileServiceImpl(
     private fun findOwnedFiles(ownerId: Long, fileIds: List<UUID>): List<StoredFile> {
         val files = fileRepository.findAllByIdInAndOwnerId(fileIds, ownerId)
         if (files.size != fileIds.size) {
+            if (fileRepository.findAllById(fileIds).any { it.ownerId != ownerId }) {
+                throw ForbiddenException("只能访问自己的文件")
+            }
             throw ResourceNotFoundException("One or more files do not exist or are not available.")
         }
         return files

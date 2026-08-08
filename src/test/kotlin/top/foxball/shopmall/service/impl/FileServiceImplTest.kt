@@ -18,6 +18,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.util.UriComponentsBuilder
 import top.foxball.shopmall.config.FileProperties
 import top.foxball.shopmall.entity.jdbc.StoredFile
+import top.foxball.shopmall.handler.ForbiddenException
+import top.foxball.shopmall.handler.ResourceNotFoundException
 import top.foxball.shopmall.repository.StoredFileRepository
 import top.foxball.shopmall.service.FileLinkSigner
 import top.foxball.shopmall.service.SUPPORT_TICKET_DOWNLOAD_SCOPE
@@ -196,6 +198,39 @@ class FileServiceImplTest {
             Instant.parse("2026-07-15T00:16:39Z").epochSecond,
             query.getFirst("expires")!!.toLong(),
         )
+    }
+
+    @Test
+    fun `rejects batch link issuance for another users file`() {
+        val stored = storedFile().apply { ownerId = 43 }
+        Mockito.`when`(repository.findAllByIdInAndOwnerId(listOf(stored.id), 42)).thenReturn(emptyList())
+        Mockito.`when`(repository.findAllById(listOf(stored.id))).thenReturn(listOf(stored))
+
+        assertFailsWith<ForbiddenException> {
+            service.createDownloadLinks(42, listOf(stored.id), null)
+        }
+    }
+
+    @Test
+    fun `returns not found when a batch link file does not exist`() {
+        val missingId = UUID.randomUUID()
+        Mockito.`when`(repository.findAllByIdInAndOwnerId(listOf(missingId), 42)).thenReturn(emptyList())
+        Mockito.`when`(repository.findAllById(listOf(missingId))).thenReturn(emptyList())
+
+        assertFailsWith<ResourceNotFoundException> {
+            service.createDownloadLinks(42, listOf(missingId), null)
+        }
+    }
+
+    @Test
+    fun `rejects deletion of another users file`() {
+        val stored = storedFile().apply { ownerId = 43 }
+        Mockito.`when`(repository.findByIdAndOwnerId(stored.id, 42)).thenReturn(null)
+        Mockito.`when`(repository.findById(stored.id)).thenReturn(Optional.of(stored))
+
+        assertFailsWith<ForbiddenException> {
+            service.delete(42, stored.id)
+        }
     }
 
     @Test

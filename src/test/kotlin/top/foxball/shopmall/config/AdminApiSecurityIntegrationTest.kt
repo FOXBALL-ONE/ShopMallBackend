@@ -44,6 +44,13 @@ class AdminApiSecurityIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `anonymous request to a protected customer api is unauthorized`() {
+        mockMvc.perform(get("/api/support-tickets/options"))
+            .andExpect(status().isUnauthorized)
+            .andExpect(jsonPath("$.status").value(401))
+    }
+
+    @Test
     fun `customer access token cannot access admin api`() {
         mockMvc.perform(
             get("/admin/api/security-probe")

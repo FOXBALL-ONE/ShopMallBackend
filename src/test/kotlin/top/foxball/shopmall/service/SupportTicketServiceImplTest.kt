@@ -23,6 +23,7 @@ import top.foxball.shopmall.entity.jdbc.SupportTicketMessageAttachment
 import top.foxball.shopmall.entity.jdbc.SupportTicketMessageSender
 import top.foxball.shopmall.entity.jdbc.SupportTicketPriority
 import top.foxball.shopmall.entity.jdbc.SupportTicketStatus
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.SupportTicketStatusException
@@ -145,7 +146,7 @@ class SupportTicketServiceImplTest {
     }
 
     @Test
-    fun `after sales ticket rejects missing or foreign order`() {
+    fun `after sales ticket rejects a missing order`() {
         `when`(orderRepository.findByOrderNoAndCustomerId("ORD-99", 7)).thenReturn(null)
 
         assertFailsWith<OrderNotFoundException> {
@@ -154,6 +155,28 @@ class SupportTicketServiceImplTest {
                 CreateSupportTicketCommand(
                     serviceType = SupportServiceType.AFTER_SALES,
                     orderNo = "ORD-99",
+                    subject = "Order issue",
+                    content = "Please help.",
+                    idempotencyKey = IDEMPOTENCY_KEY,
+                ),
+            )
+        }
+
+        verify(supportTicketRepository, never()).saveAndFlush(any(SupportTicket::class.java))
+    }
+
+    @Test
+    fun `after sales ticket rejects another customers order`() {
+        val foreignOrder = OrderEntity(id = 11, orderNo = "ORD-11", customerId = 8)
+        `when`(orderRepository.findByOrderNoAndCustomerId("ORD-11", 7)).thenReturn(null)
+        `when`(orderRepository.findByOrderNo("ORD-11")).thenReturn(foreignOrder)
+
+        assertFailsWith<ForbiddenException> {
+            service.create(
+                7,
+                CreateSupportTicketCommand(
+                    serviceType = SupportServiceType.AFTER_SALES,
+                    orderNo = "ORD-11",
                     subject = "Order issue",
                     content = "Please help.",
                     idempotencyKey = IDEMPOTENCY_KEY,
@@ -180,10 +203,24 @@ class SupportTicketServiceImplTest {
     }
 
     @Test
-    fun `customer cannot see another customers ticket`() {
+    fun `customer gets null for a missing ticket`() {
         `when`(supportTicketRepository.findByIdAndCustomerId(3, 7)).thenReturn(null)
+        `when`(supportTicketRepository.findWithOrderById(3)).thenReturn(null)
 
         assertNull(service.getCustomer(7, 3))
+        verify(adminAccessService).requireCustomer(7)
+    }
+
+    @Test
+    fun `customer cannot see another customers ticket`() {
+        `when`(supportTicketRepository.findByIdAndCustomerId(3, 7)).thenReturn(null)
+        `when`(supportTicketRepository.findWithOrderById(3)).thenReturn(
+            ticket(status = SupportTicketStatus.OPEN).apply { customerId = 8 },
+        )
+
+        assertFailsWith<ForbiddenException> {
+            service.getCustomer(7, 3)
+        }
         verify(adminAccessService).requireCustomer(7)
     }
 

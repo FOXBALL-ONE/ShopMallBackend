@@ -13,6 +13,7 @@ import top.foxball.shopmall.entity.jdbc.SupportTicketMessageAttachment
 import top.foxball.shopmall.entity.jdbc.SupportTicketMessageSender
 import top.foxball.shopmall.entity.jdbc.SupportTicketStatus
 import top.foxball.shopmall.handler.IdempotencyConflictException
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.SupportTicketRequestInProgressException
@@ -84,7 +85,12 @@ class SupportTicketServiceImpl(
                     requestProtection.requireCreateRateAllowed(customerId)
                     val order = orderNo?.let {
                         orderRepository.findByOrderNoAndCustomerId(it, customerId)
-                            ?: throw OrderNotFoundException("订单不存在或不属于当前用户")
+                            ?: orderRepository.findByOrderNo(it)?.also { order ->
+                                if (order.customerId != customerId) {
+                                    throw ForbiddenException("只能关联自己的订单")
+                                }
+                            }
+                            ?: throw OrderNotFoundException("订单不存在")
                     }
                     val ticket = supportTicketRepository.saveAndFlush(
                         SupportTicket(
@@ -126,7 +132,7 @@ class SupportTicketServiceImpl(
         messageSize: Int,
     ): SupportTicketView? {
         requireCustomerAccess(customerId)
-        val ticket = supportTicketRepository.findByIdAndCustomerId(ticketId, customerId) ?: return null
+        val ticket = customerTicket(ticketId, customerId) ?: return null
         val messages = messagesFor(ticketId, messagePage, messageSize)
         return ticket.toView(messages.content, messages.totalPages, messages.totalElements)
     }
@@ -138,14 +144,14 @@ class SupportTicketServiceImpl(
         command: SendSupportTicketMessageCommand,
     ): SupportTicketMessageView? {
         requireCustomerAccess(customerId)
-        val ticket = supportTicketRepository.findByIdAndCustomerId(ticketId, customerId) ?: return null
+        val ticket = customerTicket(ticketId, customerId) ?: return null
         return sendMessage(ticket, customerId, SupportTicketMessageSender.CUSTOMER, command)
     }
 
     @Transactional
     override fun closeByCustomer(customerId: Long, ticketId: Long): SupportTicketView? {
         requireCustomerAccess(customerId)
-        val ticket = supportTicketRepository.findByIdAndCustomerId(ticketId, customerId) ?: return null
+        val ticket = customerTicket(ticketId, customerId) ?: return null
         if (ticket.status != SupportTicketStatus.CLOSED) {
             ticket.status = SupportTicketStatus.CLOSED
             ticket.closedAt = Instant.now(clock)
@@ -468,6 +474,16 @@ class SupportTicketServiceImpl(
     private fun requireCustomerAccess(customerId: Long) {
         if (customerId <= 0) throw ParamErrorException("用户 ID 无效")
         adminAccessService.requireCustomer(customerId)
+    }
+
+    /** 工单按客户 ID 隔离；已存在但归属其他客户时必须返回 403。 */
+    private fun customerTicket(ticketId: Long, customerId: Long): SupportTicket? {
+        supportTicketRepository.findByIdAndCustomerId(ticketId, customerId)?.let { return it }
+        val ticket = supportTicketRepository.findWithOrderById(ticketId) ?: return null
+        if (ticket.customerId != customerId) {
+            throw ForbiddenException("只能访问自己的工单")
+        }
+        return ticket
     }
 
     private fun normalizeRequiredText(value: String, maxLength: Int, fieldName: String): String {

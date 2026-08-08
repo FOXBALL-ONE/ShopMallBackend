@@ -5,6 +5,7 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.handler.IdempotencyKeyInvalidException
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.repository.OrderIdempotencyRepository
@@ -49,6 +50,13 @@ class OrderCheckoutServiceImpl(
 
         val candidate = requireNotNull(transactions.execute {
             val order = orderRepository.findByOrderNoAndCustomerId(orderNo, customerId)
+                ?: orderRepository.findByOrderNo(orderNo)
+                    ?.takeIf { it.status != OrderStatus.DELETED }
+                    ?.also {
+                        if (it.customerId != customerId) {
+                            throw ForbiddenException("只能访问自己的订单")
+                        }
+                    }
                 ?: throw OrderNotFoundException()
             if (order.status != OrderStatus.PENDING_PAYMENT) {
                 throw OrderStatusException("当前订单不可发起支付")

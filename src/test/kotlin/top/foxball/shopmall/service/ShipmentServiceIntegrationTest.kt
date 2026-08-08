@@ -19,6 +19,7 @@ import top.foxball.shopmall.entity.jdbc.ShipmentStatus
 import top.foxball.shopmall.entity.jdbc.ShipmentTrack
 import top.foxball.shopmall.entity.jdbc.TrackSource
 import top.foxball.shopmall.entity.jdbc.User
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ShipmentRepository
@@ -210,6 +211,28 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
 
         assertEquals(listOf(created.shipment.id), unfiltered.content.map { it.shipment.id })
         assertEquals(listOf(created.shipment.id), filtered.content.map { it.shipment.id })
+    }
+
+    @Test
+    fun `customer cannot read another customers shipment`() {
+        val fixture = createFixture("customer-ownership")
+        val created = shipmentService.createShipment(
+            orderNo = fixture.orderNo,
+            carrierCode = CarrierCode.MANUAL,
+            trackingNo = "TRACK-CUSTOMER-OWNERSHIP",
+            orderItemIds = listOf(fixture.orderItemId),
+            quantities = listOf(1),
+            note = null,
+            adminId = fixture.adminId,
+            idempotencyKey = "create-customer-ownership",
+        )
+
+        assertFailsWith<ForbiddenException> {
+            shipmentService.getCustomer(fixture.orderNo, created.shipment.shipmentNo, 101L)
+        }
+        assertFailsWith<ForbiddenException> {
+            shipmentService.trackByTrackingNumber(CarrierCode.MANUAL, "TRACK-CUSTOMER-OWNERSHIP", 101L)
+        }
     }
 
     private fun createFixture(suffix: String): Fixture {

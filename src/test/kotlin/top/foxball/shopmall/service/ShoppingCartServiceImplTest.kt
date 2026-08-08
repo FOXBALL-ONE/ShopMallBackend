@@ -9,6 +9,7 @@ import top.foxball.shopmall.entity.jdbc.CartItem
 import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.entity.jdbc.ShoppingCart
 import top.foxball.shopmall.entity.jdbc.User
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.InsufficientStockException
 import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.repository.ShoppingCartRepository
@@ -77,10 +78,33 @@ class ShoppingCartServiceImplTest {
     }
 
     @Test
-    fun `cannot update an item outside the current user cart`() {
+    fun `rejects an item owned by another user`() {
         `when`(cartRepository.findByCustomerIdForUpdate(5)).thenReturn(ShoppingCart(id = 1, customer = User(id = 5)))
+        `when`(cartRepository.findCustomerIdByItemId(999)).thenReturn(6)
+
+        assertFailsWith<ForbiddenException> {
+            service.updateItem(customerId = 5, itemId = 999, quantity = 1)
+        }
+        verify(cartRepository).findByCustomerIdForUpdate(5)
+    }
+
+    @Test
+    fun `returns null when the requested cart item does not exist`() {
+        `when`(cartRepository.findByCustomerIdForUpdate(5)).thenReturn(ShoppingCart(id = 1, customer = User(id = 5)))
+        `when`(cartRepository.findCustomerIdByItemId(999)).thenReturn(null)
 
         assertNull(service.updateItem(customerId = 5, itemId = 999, quantity = 1))
+        verify(cartRepository).findByCustomerIdForUpdate(5)
+    }
+
+    @Test
+    fun `rejects removal of an item owned by another user`() {
+        `when`(cartRepository.findByCustomerIdForUpdate(5)).thenReturn(ShoppingCart(id = 1, customer = User(id = 5)))
+        `when`(cartRepository.findCustomerIdByItemId(999)).thenReturn(6)
+
+        assertFailsWith<ForbiddenException> {
+            service.removeItem(customerId = 5, itemId = 999)
+        }
         verify(cartRepository).findByCustomerIdForUpdate(5)
     }
 

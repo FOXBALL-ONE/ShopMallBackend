@@ -98,7 +98,7 @@ interface SupportTicketService {
     /** 分页查询当前客户自己的工单。 */
     fun listCustomer(customerId: Long, query: SupportTicketPageQuery): Page<SupportTicketView>
 
-    /** 查询当前客户自己的工单；不存在或不属于该客户时返回 `null`。 */
+    /** 查询当前客户自己的工单；不存在时返回 `null`，属于其他客户时拒绝访问。 */
     fun getCustomer(
         customerId: Long,
         ticketId: Long,
@@ -113,7 +113,7 @@ interface SupportTicketService {
         command: SendSupportTicketMessageCommand,
     ): SupportTicketMessageView?
 
-    /** 由客户关闭自己的工单；不存在或不属于该客户时返回 `null`。 */
+    /** 由客户关闭自己的工单；不存在时返回 `null`，属于其他客户时拒绝访问。 */
     fun closeByCustomer(customerId: Long, ticketId: Long): SupportTicketView?
 
     /** 管理员按条件分页查询全部工单。 */

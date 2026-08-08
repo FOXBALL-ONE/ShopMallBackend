@@ -21,6 +21,7 @@ import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.handler.BusinessException
 import top.foxball.shopmall.handler.EmailNotVerifiedException
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.IdempotencyConflictException
 import top.foxball.shopmall.handler.IdempotencyKeyInvalidException
 import top.foxball.shopmall.handler.InsufficientStockException
@@ -304,13 +305,12 @@ class OrderServiceImpl(
     }
 
     override fun getCustomer(customerId: Long, orderNo: String): OrderView {
-        val order = orderRepository.findByOrderNoAndCustomerId(orderNo, customerId) ?: throw OrderNotFoundException()
+        val order = findCustomerOrder(customerId, orderNo)
         return view(order)
     }
 
     override fun getPayment(customerId: Long, orderNo: String): OrderPaymentView {
-        val order = orderRepository.findByOrderNoAndCustomerId(orderNo, customerId)
-            ?: throw OrderNotFoundException()
+        val order = findCustomerOrder(customerId, orderNo)
         return OrderPaymentView(
             orderNo = order.orderNo,
             status = order.status,
@@ -322,9 +322,9 @@ class OrderServiceImpl(
     @Transactional
     override fun cancel(customerId: Long, orderNo: String, reason: String?): OrderView {
         val normalizedReason = normalizeReason(reason, required = false)
-        val order = orderRepository.lockByOrderNo(orderNo)
-            ?.takeIf { it.customerId == customerId && it.status != OrderStatus.DELETED }
-            ?: throw OrderNotFoundException()
+        val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
+        if (order.status == OrderStatus.DELETED) throw OrderNotFoundException()
+        if (order.customerId != customerId) throw ForbiddenException("只能操作自己的订单")
         val orderId = requireNotNull(order.id)
         val items = orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(orderId)
         val changed = orderRepository.markCancelled(
@@ -441,6 +441,16 @@ class OrderServiceImpl(
     private fun consumeIssuedKey(customerId: Long, clientKey: String) {
         runCatching { orderIdempotencyKeyService.consume(customerId, clientKey) }
             .onFailure { logger.warn("Failed to consume issued idempotency key for user {}", customerId, it) }
+    }
+
+    /** 客户查询先走归属条件，必要时再区分跨用户订单和真正不存在的订单。 */
+    private fun findCustomerOrder(customerId: Long, orderNo: String): OrderEntity {
+        orderRepository.findByOrderNoAndCustomerId(orderNo, customerId)?.let { return it }
+        val order = orderRepository.findByOrderNo(orderNo)
+        if (order != null && order.status != OrderStatus.DELETED && order.customerId != customerId) {
+            throw ForbiddenException("只能访问自己的订单")
+        }
+        throw OrderNotFoundException()
     }
 
     private fun enforceCreationWindow(customerId: Long) {

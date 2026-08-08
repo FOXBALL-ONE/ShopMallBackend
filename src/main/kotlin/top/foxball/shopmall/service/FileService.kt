@@ -60,9 +60,9 @@ interface FileService {
         authenticatedAdmin: Boolean = false,
     ): DownloadableFile
 
-    /** 删除一份属于当前用户的文件。 */
+    /** 删除一份属于当前用户的文件；存在但归属其他用户时拒绝访问。 */
     fun delete(ownerId: Long, fileId: UUID)
 
-    /** 删除多份属于当前用户的文件。 */
+    /** 删除多份属于当前用户的文件；任一文件归属其他用户时拒绝访问。 */
     fun deleteBatch(ownerId: Long, fileIds: List<UUID>)
 }

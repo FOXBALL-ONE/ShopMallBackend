@@ -21,6 +21,7 @@ import top.foxball.shopmall.entity.jdbc.OutboxEvent
 import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.handler.IdempotencyKeyInvalidException
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.InsufficientStockException
 import top.foxball.shopmall.handler.OrderWindowLimitException
 import top.foxball.shopmall.handler.OrderStatusException
@@ -241,6 +242,45 @@ class OrderServiceImplTest {
             clock.instant(),
             null,
         )
+    }
+
+    @Test
+    fun `customer cancellation rejects another customers order`() {
+        val order = OrderEntity(
+            id = 104,
+            orderNo = "ORDER-104",
+            customerId = 6,
+            status = OrderStatus.PENDING_PAYMENT,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+
+        assertFailsWith<ForbiddenException> {
+            service.cancel(5, order.orderNo, null)
+        }
+
+        verify(orderRepository, never()).markCancelled(
+            104,
+            OrderStatus.PENDING_PAYMENT,
+            OrderStatus.CANCELLED,
+            clock.instant(),
+            null,
+        )
+    }
+
+    @Test
+    fun `customer order lookup rejects another customers order`() {
+        val order = OrderEntity(
+            id = 105,
+            orderNo = "ORDER-105",
+            customerId = 6,
+            status = OrderStatus.PAID,
+        )
+        `when`(orderRepository.findByOrderNoAndCustomerId(order.orderNo, 5)).thenReturn(null)
+        `when`(orderRepository.findByOrderNo(order.orderNo)).thenReturn(order)
+
+        assertFailsWith<ForbiddenException> {
+            service.getCustomer(5, order.orderNo)
+        }
     }
 
     @Test

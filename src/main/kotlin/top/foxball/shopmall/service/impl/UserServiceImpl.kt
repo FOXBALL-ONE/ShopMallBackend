@@ -7,6 +7,7 @@ import top.foxball.shopmall.authentication.LoginTokenAuthentication
 import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.User
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.repository.ShoppingCartRepository
 import top.foxball.shopmall.repository.UserRepository
@@ -74,9 +75,13 @@ class UserServiceImpl(
         userRepository.findWithDeliveryAddressById(userId)?.deliveryAddress?.toList()
 
     override fun getDeliveryAddress(userId: Long, addressId: UUID): DeliveryAddressItem? =
-        userRepository.findWithDeliveryAddressById(userId)
-            ?.deliveryAddress
-            ?.firstOrNull { it.id == addressId }
+        userRepository.findWithDeliveryAddressById(userId)?.let { user ->
+            user.deliveryAddress.firstOrNull { it.id == addressId }
+                ?: run {
+                    requireAddressOwner(userId, addressId)
+                    null
+                }
+        }
 
     @Transactional
     override fun createDeliveryAddress(userId: Long, address: DeliveryAddressItem): DeliveryAddressItem? {
@@ -102,7 +107,10 @@ class UserServiceImpl(
     ): DeliveryAddressItem? {
         val user = userRepository.findWithDeliveryAddressById(userId) ?: return null
         val index = user.deliveryAddress.indexOfFirst { it.id == addressId }
-        if (index < 0) return null
+        if (index < 0) {
+            requireAddressOwner(userId, addressId)
+            return null
+        }
 
         val currentAddress = user.deliveryAddress[index]
         val hasAnotherDefault = user.deliveryAddress.any { it.id != addressId && it.isDefault }
@@ -121,7 +129,10 @@ class UserServiceImpl(
     override fun deleteDeliveryAddress(userId: Long, addressId: UUID): Boolean? {
         val user = userRepository.findWithDeliveryAddressById(userId) ?: return null
         val index = user.deliveryAddress.indexOfFirst { it.id == addressId }
-        if (index < 0) return false
+        if (index < 0) {
+            requireAddressOwner(userId, addressId)
+            return false
+        }
 
         val wasDefault = user.deliveryAddress[index].isDefault
         user.deliveryAddress.removeAt(index)
@@ -168,6 +179,13 @@ class UserServiceImpl(
 
         val usersById = userRepository.findAllWithDeliveryAddressByIdIn(ids).associateBy { it.id }
         return ids.distinct().mapNotNull(usersById::get)
+    }
+
+    /** 地址只属于创建它的用户；不存在的地址仍由调用方按 404 处理。 */
+    private fun requireAddressOwner(userId: Long, addressId: UUID) {
+        if (userRepository.findUserIdsByDeliveryAddressId(addressId).any { it != userId }) {
+            throw ForbiddenException("只能访问自己的配送地址")
+        }
     }
 
     /** 密码、登录准入或账号状态变化后，旧会话均不得继续使用。 */

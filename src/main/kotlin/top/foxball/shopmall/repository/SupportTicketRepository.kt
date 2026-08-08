@@ -22,6 +22,9 @@ interface SupportTicketRepository : JpaRepository<SupportTicket, Long> {
     @EntityGraph(attributePaths = ["order"])
     fun findByIdAndCustomerId(id: Long, customerId: Long): SupportTicket?
 
+    @EntityGraph(attributePaths = ["order"])
+    fun findWithOrderById(id: Long): SupportTicket?
+
     @Query(
         "select t from SupportTicket t where t.customerId = :customerId and " +
             "(:status is null or t.status = :status) and " +

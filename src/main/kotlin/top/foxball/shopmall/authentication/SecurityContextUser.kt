@@ -5,6 +5,7 @@ import org.springframework.security.core.GrantedAuthority
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.stereotype.Component
 import top.foxball.shopmall.entity.jdbc.Role
+import top.foxball.shopmall.handler.UnauthorizedException
 
 /**
  * 从 [SecurityContextHolder] 读取当前请求的预设用户信息（userId + role）。
@@ -41,8 +42,8 @@ class SecurityContextUser {
     /** 当前是否为管理员；未认证或非 ADMIN 返回 false。 */
     fun isAdmin(): Boolean = role == Role.ADMIN
 
-    /** 要求已登录，否则抛 [IllegalStateException]；返回当前 userId。 */
-    fun requireUserId(): Long = userId ?: error("当前请求无已认证用户")
+    /** 要求已登录，否则以统一 401 语义拒绝请求；返回当前 userId。 */
+    fun requireUserId(): Long = userId ?: throw UnauthorizedException()
 
     private fun roleAuthority(): String? =
         authentication?.authorities?.firstNotNullOfOrNull { it.toRoleName() }

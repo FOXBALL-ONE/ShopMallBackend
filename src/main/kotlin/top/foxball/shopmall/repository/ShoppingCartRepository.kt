@@ -19,6 +19,10 @@ interface ShoppingCartRepository : JpaRepository<ShoppingCart, Long> {
     @Query("select c from ShoppingCart c where c.customer.id = :customerId")
     fun findByCustomerIdForUpdate(@Param("customerId") customerId: Long): ShoppingCart?
 
+    /** 查找购物车明细所属用户，用于把跨用户操作返回为 403。 */
+    @Query("select c.customer.id from ShoppingCart c join c.items item where item.id = :itemId")
+    fun findCustomerIdByItemId(@Param("itemId") itemId: Long): Long?
+
     fun deleteByCustomerId(customerId: Long)
 
     fun deleteAllByCustomerIdIn(customerIds: Collection<Long>)

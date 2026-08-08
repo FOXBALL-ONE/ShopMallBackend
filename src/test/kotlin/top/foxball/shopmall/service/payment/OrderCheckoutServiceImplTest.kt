@@ -11,6 +11,7 @@ import org.springframework.transaction.support.SimpleTransactionStatus
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderIdempotency
 import top.foxball.shopmall.entity.jdbc.OrderStatus
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.IdempotencyKeyInvalidException
 import top.foxball.shopmall.repository.OrderIdempotencyRepository
 import top.foxball.shopmall.repository.OrderRepository
@@ -160,6 +161,28 @@ class OrderCheckoutServiceImplTest {
 
         assertFailsWith<IdempotencyKeyInvalidException> {
             service.openCheckout(order.customerId, order.orderNo, issuedKey)
+        }
+    }
+
+    @Test
+    fun `checkout rejects another customers order after its key binding is checked`() {
+        val foreignOrder = pendingOrder(expiresAt = Instant.parse("2026-07-28T08:25:00Z")).apply {
+            customerId = 8
+        }
+        `when`(idempotencyRepository.findByCustomerIdAndOrderNo(7, foreignOrder.orderNo))
+            .thenReturn(
+                OrderIdempotency(
+                    customerId = 7,
+                    idempotencyKey = issuedKey,
+                    requestHash = "hash",
+                    orderNo = foreignOrder.orderNo,
+                ),
+            )
+        `when`(repository.findByOrderNoAndCustomerId(foreignOrder.orderNo, 7)).thenReturn(null)
+        `when`(repository.findByOrderNo(foreignOrder.orderNo)).thenReturn(foreignOrder)
+
+        assertFailsWith<ForbiddenException> {
+            service.openCheckout(7, foreignOrder.orderNo, issuedKey)
         }
     }
 

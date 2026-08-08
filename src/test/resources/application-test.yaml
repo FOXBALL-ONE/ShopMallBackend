@@ -22,6 +22,11 @@ management:
       enabled: false
 
 shopmall:
+  security:
+    jwt:
+      dev:
+        fixed-token:
+          enabled: false
   mock-data:
     enabled: false
   rate-limit:

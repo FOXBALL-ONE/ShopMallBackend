@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.entity.jdbc.Role
 import top.foxball.shopmall.entity.jdbc.Status
+import java.util.UUID
 
 /** 用户持久化查询；带 `EntityGraph` 的方法用于一次加载配送地址集合。 */
 interface UserRepository : JpaRepository<User, Long> {
@@ -46,6 +47,10 @@ interface UserRepository : JpaRepository<User, Long> {
 
     @EntityGraph(attributePaths = ["deliveryAddress"])
     fun findAllWithDeliveryAddressByIdIn(ids: Collection<Long>): List<User>
+
+    /** 查找配送地址所属用户，用于把跨用户访问和地址不存在区分开。 */
+    @Query("select u.id from User u join u.deliveryAddress address where address.id = :addressId")
+    fun findUserIdsByDeliveryAddressId(@Param("addressId") addressId: UUID): List<Long>
 
     /** 串行化需要依赖用户记录创建唯一子资源的操作，例如首次创建购物车。 */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -68,7 +68,7 @@ interface OrderService {
     /** 按分页条件返回当前客户可见的订单。 */
     fun listCustomer(customerId: Long, query: OrderPageQuery): Page<OrderView>
 
-    /** 查询当前客户名下的订单及其订单明细；订单不存在或不属于该客户时抛出异常。 */
+    /** 查询当前客户名下的订单及其订单明细；订单不存在为 404，归属其他客户为 403。 */
     fun getCustomer(customerId: Long, orderNo: String): OrderView
 
     /** 返回当前客户订单的支付会话标识和失效时间，不创建新的支付会话。 */

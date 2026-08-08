@@ -17,6 +17,7 @@ import top.foxball.shopmall.entity.jdbc.ShipmentItem
 import top.foxball.shopmall.entity.jdbc.ShipmentStatus
 import top.foxball.shopmall.entity.jdbc.TrackSource
 import top.foxball.shopmall.handler.IdempotencyConflictException
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.handler.ParamErrorException
@@ -329,7 +330,7 @@ class ShipmentServiceImpl(
     }
 
     override fun listCustomer(orderNo: String, userId: Long): List<ShipmentDetails> {
-        val order = orderRepository.findByOrderNoAndCustomerId(orderNo, userId) ?: throw OrderNotFoundException()
+        val order = findCustomerOrder(orderNo, userId)
         return shipmentRepository.findAllByOrderIdAndStatusNotOrderByCreatedAtAsc(
             requireNotNull(order.id),
             ShipmentStatus.DELETED,
@@ -347,10 +348,10 @@ class ShipmentServiceImpl(
     }
 
     override fun getCustomer(orderNo: String, shipmentNo: String, userId: Long): ShipmentDetails {
-        val order = orderRepository.findByOrderNoAndCustomerId(orderNo, userId) ?: throw OrderNotFoundException()
+        val order = findCustomerOrder(orderNo, userId)
         val shipment = shipmentRepository.findByShipmentNoAndStatusNot(shipmentNo, ShipmentStatus.DELETED)
-            ?.takeIf { it.orderId == order.id }
             ?: throw ShipmentNotFoundException()
+        if (shipment.orderId != order.id) throw ForbiddenException("只能访问自己的运单")
         val shipmentId = requireNotNull(shipment.id)
         return ShipmentDetails(
             shipment = shipment,
@@ -373,7 +374,7 @@ class ShipmentServiceImpl(
         ) ?: throw ShipmentNotFoundException()
         val order = orderRepository.findById(shipment.orderId).orElse(null) ?: throw ShipmentNotFoundException()
         if (order.customerId != userId && !adminAccessService.isAdmin(userId)) {
-            throw ShipmentNotFoundException()
+            throw ForbiddenException("只能访问自己的运单")
         }
         val shipmentId = requireNotNull(shipment.id)
         return ShipmentDetails(
@@ -762,6 +763,16 @@ class ShipmentServiceImpl(
         ) {
             eventPublisher.publishInTx("ORDER", orderId, "DELIVERED", "{\"orderId\":$orderId}")
         }
+    }
+
+    /** 客户运单入口先校验订单归属，再把跨用户订单与不存在订单区分开。 */
+    private fun findCustomerOrder(orderNo: String, userId: Long): OrderEntity {
+        orderRepository.findByOrderNoAndCustomerId(orderNo, userId)?.let { return it }
+        val order = orderRepository.findByOrderNo(orderNo)
+        if (order != null && order.status != OrderStatus.DELETED && order.customerId != userId) {
+            throw ForbiddenException("只能访问自己的订单")
+        }
+        throw OrderNotFoundException()
     }
 
     private fun replay(

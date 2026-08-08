@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.security.access.AccessDeniedException
+import org.springframework.security.core.AuthenticationException
 import org.springframework.web.HttpRequestMethodNotSupportedException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.MissingRequestHeaderException
@@ -88,6 +89,14 @@ class GlobalExceptionHandler {
     fun onAccessDeniedException(ex: AccessDeniedException): ResponseEntity<Response> {
         return builder.forbidden()
             .message(ex.message ?: "禁止访问")
+            .build()
+    }
+
+    /** 业务代码或方法级安全校验抛出的认证异常统一转换为 401。 */
+    @ExceptionHandler(AuthenticationException::class)
+    fun onAuthenticationException(ex: AuthenticationException): ResponseEntity<Response> {
+        return builder.unauthorized()
+            .message(ex.message ?: "未授权")
             .build()
     }
 

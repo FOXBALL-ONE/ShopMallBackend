@@ -10,6 +10,7 @@ import top.foxball.shopmall.entity.jdbc.OnePieceSuit
 import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.entity.jdbc.ShoppingCart
 import top.foxball.shopmall.handler.InsufficientStockException
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.ResourceNotFoundException
 import top.foxball.shopmall.repository.ProductRepository
@@ -139,8 +140,14 @@ class ShoppingCartServiceImpl(
     @Transactional
     override fun updateItem(customerId: Long, itemId: Long, quantity: Int): ShoppingCartView? {
         validateQuantity(quantity)
-        val cart = shoppingCartRepository.findByCustomerIdForUpdate(customerId) ?: return null
-        val item = cart.items.firstOrNull { it.id == itemId } ?: return null
+        val cart = shoppingCartRepository.findByCustomerIdForUpdate(customerId) ?: run {
+            requireItemOwner(customerId, itemId)
+            return null
+        }
+        val item = cart.items.firstOrNull { it.id == itemId } ?: run {
+            requireItemOwner(customerId, itemId)
+            return null
+        }
         val product = requireNotNull(item.product) { "购物车明细缺少商品引用" }
         if (product.status != Product.Status.ACTIVE) {
             throw ResourceNotFoundException("商品不存在或未上架")
@@ -188,8 +195,14 @@ class ShoppingCartServiceImpl(
 
     @Transactional
     override fun removeItem(customerId: Long, itemId: Long): ShoppingCartView? {
-        val cart = shoppingCartRepository.findByCustomerIdForUpdate(customerId) ?: return null
-        val item = cart.items.firstOrNull { it.id == itemId } ?: return null
+        val cart = shoppingCartRepository.findByCustomerIdForUpdate(customerId) ?: run {
+            requireItemOwner(customerId, itemId)
+            return null
+        }
+        val item = cart.items.firstOrNull { it.id == itemId } ?: run {
+            requireItemOwner(customerId, itemId)
+            return null
+        }
         cart.remove(item)
         cart.updatedAt = Instant.now()
         val savedCart = shoppingCartRepository.saveAndFlush(cart)
@@ -288,6 +301,14 @@ class ShoppingCartServiceImpl(
             ?: throw ResourceNotFoundException("用户不存在")
         return shoppingCartRepository.findByCustomerIdForUpdate(customerId)
             ?: ShoppingCart(customer = customer)
+    }
+
+    /** 购物车明细只能由所属用户修改或删除。 */
+    private fun requireItemOwner(customerId: Long, itemId: Long) {
+        val ownerId = shoppingCartRepository.findCustomerIdByItemId(itemId)
+        if (ownerId != null && ownerId != customerId) {
+            throw ForbiddenException("只能操作自己的购物车")
+        }
     }
 
     private companion object {

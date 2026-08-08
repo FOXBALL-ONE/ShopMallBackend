@@ -9,6 +9,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.core.context.SecurityContextHolder
 import top.foxball.shopmall.entity.jdbc.Role
+import top.foxball.shopmall.handler.UnauthorizedException
 
 /** [SecurityContextUser] 从 SecurityContext 读取预设 userId/role 的行为测试。 */
 class SecurityContextUserTest {
@@ -22,6 +23,9 @@ class SecurityContextUserTest {
         assertNull(securityContextUser.role)
         assertFalse(securityContextUser.isAuthenticated)
         assertFalse(securityContextUser.isAdmin())
+        kotlin.test.assertFailsWith<UnauthorizedException> {
+            securityContextUser.requireUserId()
+        }
     }
 
     @Test

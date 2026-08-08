@@ -6,12 +6,17 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import top.foxball.shopmall.authentication.LoginTokenAuthentication
 import top.foxball.shopmall.entity.jdbc.User
+import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.Role
 import top.foxball.shopmall.entity.jdbc.Status
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.repository.ShoppingCartRepository
 import top.foxball.shopmall.repository.UserRepository
 import org.springframework.security.crypto.password.PasswordEncoder
+import java.util.UUID
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class UserServiceImplTest {
@@ -79,5 +84,27 @@ class UserServiceImplTest {
         service.updateUser(updated)
 
         verify(loginTokenAuthentication).revokeAll(42)
+    }
+
+    @Test
+    fun `returns null for a missing delivery address`() {
+        val addressId = UUID.randomUUID()
+        `when`(userRepository.findWithDeliveryAddressById(42)).thenReturn(User(id = 42))
+        `when`(userRepository.findUserIdsByDeliveryAddressId(addressId)).thenReturn(emptyList())
+
+        assertNull(service.getDeliveryAddress(42, addressId))
+    }
+
+    @Test
+    fun `rejects access to another users delivery address`() {
+        val addressId = UUID.randomUUID()
+        `when`(userRepository.findWithDeliveryAddressById(42)).thenReturn(
+            User(id = 42, deliveryAddress = mutableListOf<DeliveryAddressItem>()),
+        )
+        `when`(userRepository.findUserIdsByDeliveryAddressId(addressId)).thenReturn(listOf(43))
+
+        assertFailsWith<ForbiddenException> {
+            service.getDeliveryAddress(42, addressId)
+        }
     }
 }

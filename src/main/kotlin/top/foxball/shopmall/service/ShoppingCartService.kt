@@ -38,10 +38,10 @@ interface ShoppingCartService {
     /** 新商品创建明细，已有商品则累加数量。 */
     fun addItem(customerId: Long, productId: Long, quantity: Int): ShoppingCartView
 
-    /** 设置明细的绝对数量；购物车或明细不属于当前用户时返回 `null`。 */
+    /** 设置明细的绝对数量；明细不存在时返回 `null`，属于其他用户时拒绝访问。 */
     fun updateItem(customerId: Long, itemId: Long, quantity: Int): ShoppingCartView?
 
-    /** 删除当前用户的一条明细；不存在时返回 `null`。 */
+    /** 删除当前用户的一条明细；不存在时返回 `null`，属于其他用户时拒绝访问。 */
     fun removeItem(customerId: Long, itemId: Long): ShoppingCartView?
 
     /** 清空购物车；尚未创建购物车时同样返回空购物车。 */
