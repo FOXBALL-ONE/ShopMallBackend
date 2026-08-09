@@ -83,11 +83,9 @@ class RefreshTokenStore(
         val result = redis.execute(
             rotateScript,
             listOf(tokenKey(jti)),
-            listOf(
-                nowEpoch.toString(),
-                props.refresh.graceSeconds.toString(),
-                newJti,
-            ),
+            nowEpoch.toString(),
+            props.refresh.graceSeconds.toString(),
+            newJti,
         )
         if (result.isNullOrEmpty()) return RotationVerdict.Unknown
 

@@ -1,6 +1,7 @@
 package top.foxball.shopmall.shared
 
 import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.eq
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
 import org.springframework.data.domain.PageImpl
@@ -36,14 +37,14 @@ class OrderIdempotencyKeyServiceTest {
     }
 
     @Test
-    fun `issue creates a key with expiry when no key exists`() {
+    fun `issue creates a key with string ttl and expiry when no key exists`() {
         `when`(values.get("order:key:5")).thenReturn(null)
         `when`(
             redis.execute<String>(
                 any(),
                 any<List<String>>(),
                 any(),
-                any(),
+                eq("600"),
             ),
         ).thenReturn("issued-key")
         `when`(redis.getExpire("order:key:5")).thenReturn(600L)

@@ -63,7 +63,7 @@ class OrderIdempotencyKeyService(
             issueScript,
             listOf(redisKey),
             UUID.randomUUID().toString(),
-            properties.idempotencyKeyTtlMinutes * 60L,
+            (properties.idempotencyKeyTtlMinutes * 60L).toString(),
         ) ?: error("Redis did not return an issued key")
         val ttl = redis.getExpire(redisKey)
             ?.takeIf { it > 0 }
