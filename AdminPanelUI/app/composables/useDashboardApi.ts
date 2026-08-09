@@ -1,7 +1,6 @@
 import type {
     DashboardOperationsReport,
     DashboardSummary,
-    DashboardSystemStatus,
 } from "~/types/dashboard";
 
 export const useDashboardApi = () => {
@@ -15,9 +14,6 @@ export const useDashboardApi = () => {
         },
         operations(days = 14) {
             return get<DashboardOperationsReport>("/dashboard/operations", { days });
-        },
-        systemStatus() {
-            return get<DashboardSystemStatus>("/dashboard/system-status");
         },
     };
 };
