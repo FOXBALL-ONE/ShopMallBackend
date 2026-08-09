@@ -23,5 +23,5 @@ data class MailProperties(
     val maxAttempts: Int = 5,
     val ipHourlyLimit: Long = 30L,
     val from: String = "",
-    val subjectPrefix: String = "ShopMall",
+    val subjectPrefix: String = "PELISSA",
 )

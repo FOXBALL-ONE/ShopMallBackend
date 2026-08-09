@@ -1,6 +1,7 @@
 package top.foxball.shopmall.service.impl
 
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.core.io.ClassPathResource
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.mail.javamail.JavaMailSender
 import org.springframework.mail.javamail.MimeMessageHelper
@@ -39,6 +40,10 @@ class MailServiceImpl(
 ) : MailService {
 
     private val codes = redis.opsForHash<String, String>()
+    private val verificationEmailTemplate = ClassPathResource("templates/mail/verification-code.html")
+        .inputStream
+        .bufferedReader(StandardCharsets.UTF_8)
+        .use { it.readText() }
 
     override fun sendCode(email: String, userAgent: String, userId: Long?, ip: String) {
         val target = normalizeEmail(email)
@@ -136,12 +141,20 @@ class MailServiceImpl(
 
     private fun sendMail(to: String, code: String) {
         try {
+            val minutes = (properties.ttlSeconds / 60).coerceAtLeast(1)
+            val html = verificationEmailTemplate
+                .replace("{{verification_code}}", code)
+                .replace("{{expiry_minutes}}", minutes.toString())
             val message = mailSender.createMimeMessage()
-            MimeMessageHelper(message, false, "UTF-8").apply {
+            MimeMessageHelper(message, true, "UTF-8").apply {
                 setTo(to)
                 setFrom(resolveFrom())
-                setSubject("${properties.subjectPrefix} Verification Code")
-                setText(buildBody(code), false)
+                setSubject("${properties.subjectPrefix} | Your verification code")
+                setText(
+                    "Your PELISSA verification code is $code. It expires in $minutes minutes. " +
+                        "If you did not request this, you can safely ignore this email.",
+                    html,
+                )
             }
             mailSender.send(message)
         } catch (ex: Exception) {
@@ -151,12 +164,6 @@ class MailServiceImpl(
 
     /** 发件人优先取配置；留空回退到 spring.mail.username。 */
     private fun resolveFrom(): String = properties.from.ifBlank { mailUsername }
-
-    private fun buildBody(code: String): String {
-        val minutes = (properties.ttlSeconds / 60).coerceAtLeast(1)
-        return "Your verification code is $code.\n\n" +
-            "It expires in $minutes minutes. If you did not request this, you can safely ignore this email."
-    }
 
     private companion object {
         const val KEY_PREFIX_CODE = "mail:verification:code:"
