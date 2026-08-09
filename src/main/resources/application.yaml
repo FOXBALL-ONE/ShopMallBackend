@@ -111,6 +111,10 @@ shopmall:
     verification:
       # 发件人地址，留空则回退到 spring.mail.username
       from: "${MAIL_FROM:}"
+    order:
+      # 订单邮件默认沿用 MAIL_FROM；可单独设置主题前缀。
+      from: "${MAIL_FROM:}"
+      subject-prefix: "${ORDER_MAIL_SUBJECT_PREFIX:PELISSA}"
   order:
     payment-timeout-minutes: "${ORDER_PAYMENT_TIMEOUT_MINUTES:30}"
     idempotency-ttl-seconds: "${ORDER_IDEMPOTENCY_TTL:600}"

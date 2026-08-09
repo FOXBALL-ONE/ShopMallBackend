@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="x-apple-disable-message-reformatting">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>Payment received · PELISSA</title>
+  <style>
+    @media screen and (max-width: 620px) {
+      .email-shell { width:100% !important; }
+      .email-padding { padding-right:24px !important; padding-left:24px !important; }
+      .email-title { font-size:38px !important; line-height:42px !important; }
+      .email-columns { display:block !important; width:100% !important; }
+      .email-address { padding-top:26px !important; }
+      .email-button { display:block !important; }
+      .email-footer { padding-right:24px !important; padding-left:24px !important; }
+    }
+  </style>
+</head>
+<body style="margin:0; padding:0; background-color:#f1e8e7; color:#241d21;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0; mso-hide:all;">Payment received for your PELISSA order {{order_no}}. We are preparing {{item_count}} piece(s) for you.</div>
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse; background-color:#f1e8e7;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table class="email-shell" role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="width:640px; max-width:640px; border-collapse:collapse; background-color:#fbf7f5;">
+          <tr><td style="height:6px; background-color:#9a4055; font-size:0; line-height:0;">&nbsp;</td></tr>
+          <tr>
+            <td class="email-padding" style="padding:30px 48px 26px; border-bottom:1px solid #ded4d3;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse;">
+                <tr>
+                  <td style="font-family:Arial, sans-serif; font-size:23px; font-weight:700; letter-spacing:2.5px; line-height:24px; color:#241d21;">PELISSA<span style="position:relative; top:-7px; padding-left:3px; color:#9a4055; font-family:Georgia, serif; font-size:16px; letter-spacing:0;">°</span></td>
+                  <td align="right" style="font-family:Courier New, monospace; font-size:10px; font-weight:700; letter-spacing:1.2px; line-height:14px; color:#75636a; text-transform:uppercase;">Order confirmation</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td class="email-padding" style="padding:46px 48px 40px;">
+              <p style="margin:0 0 16px; font-family:Courier New, monospace; font-size:10px; font-weight:700; letter-spacing:1.7px; line-height:14px; color:#9a4055; text-transform:uppercase;">The personal edit is yours</p>
+              <h1 class="email-title" style="margin:0; font-family:Georgia, 'Times New Roman', serif; font-size:46px; font-weight:500; letter-spacing:-1.4px; line-height:50px; color:#241d21;">Payment received.<br><em style="font-weight:500;">Beautiful choice.</em></h1>
+              <p style="margin:22px 0 0; font-family:Arial, sans-serif; font-size:15px; line-height:24px; color:#756a70;">Hello {{customer_name}}, thank you for choosing PELISSA. Your payment is confirmed and we are preparing your order with care.</p>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; margin-top:28px; border-collapse:collapse; background-color:#f7f0ef;">
+                <tr>
+                  <td style="padding:18px 20px; border:1px solid #ded4d3;">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse;">
+                      <tr>
+                        <td style="font-family:Courier New, monospace; font-size:9px; font-weight:700; letter-spacing:1.2px; line-height:14px; color:#75636a; text-transform:uppercase;">Order number</td>
+                        <td align="right" style="font-family:Courier New, monospace; font-size:9px; font-weight:700; letter-spacing:1.2px; line-height:14px; color:#9a4055; text-transform:uppercase;">Payment status · received</td>
+                      </tr>
+                      <tr>
+                        <td style="padding-top:6px; font-family:Arial, sans-serif; font-size:15px; font-weight:700; line-height:20px; color:#241d21;">{{order_no}}</td>
+                        <td align="right" style="padding-top:6px; font-family:Arial, sans-serif; font-size:11px; line-height:20px; color:#756a70;">{{paid_at}}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; margin-top:35px; border-collapse:collapse;">
+                <tr><td style="padding-bottom:8px; border-bottom:1px solid #241d21; font-family:Courier New, monospace; font-size:10px; font-weight:700; letter-spacing:1.3px; line-height:14px; color:#241d21; text-transform:uppercase;">Your order · {{item_count}} piece(s)</td></tr>
+                {{order_items}}
+              </table>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; margin-top:24px; border-collapse:collapse;">
+                <tr>
+                  <td align="right">
+                    <table role="presentation" width="280" cellspacing="0" cellpadding="0" border="0" style="width:280px; max-width:100%; border-collapse:collapse;">
+                      <tr><td style="padding:5px 0; font-family:Arial, sans-serif; font-size:12px; line-height:18px; color:#756a70;">Subtotal</td><td align="right" style="padding:5px 0; font-family:Arial, sans-serif; font-size:12px; line-height:18px; color:#241d21;">{{items_subtotal}}</td></tr>
+                      <tr><td style="padding:5px 0; font-family:Arial, sans-serif; font-size:12px; line-height:18px; color:#756a70;">Shipping</td><td align="right" style="padding:5px 0; font-family:Arial, sans-serif; font-size:12px; line-height:18px; color:#241d21;">{{shipping_fee}}</td></tr>
+                      <tr><td style="padding:5px 0; font-family:Arial, sans-serif; font-size:12px; line-height:18px; color:#756a70;">Tax</td><td align="right" style="padding:5px 0; font-family:Arial, sans-serif; font-size:12px; line-height:18px; color:#241d21;">{{tax_amount}}</td></tr>
+                      <tr><td style="padding:5px 0; font-family:Arial, sans-serif; font-size:12px; line-height:18px; color:#756a70;">Discount</td><td align="right" style="padding:5px 0; font-family:Arial, sans-serif; font-size:12px; line-height:18px; color:#241d21;">−{{discount_amount}}</td></tr>
+                      <tr><td colspan="2" style="padding-top:10px; border-bottom:1px solid #241d21; font-size:0; line-height:0;">&nbsp;</td></tr>
+                      <tr><td style="padding-top:11px; font-family:Georgia, 'Times New Roman', serif; font-size:19px; line-height:24px; color:#241d21;">Total paid</td><td align="right" style="padding-top:11px; font-family:Georgia, 'Times New Roman', serif; font-size:19px; font-weight:700; line-height:24px; color:#9a4055;">{{total_amount}}</td></tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; margin-top:38px; border-collapse:collapse;">
+                <tr>
+                  <td class="email-columns" width="50%" valign="top" style="width:50%; padding-right:16px;">
+                    <p style="margin:0 0 10px; font-family:Courier New, monospace; font-size:9px; font-weight:700; letter-spacing:1.1px; line-height:14px; color:#9a4055; text-transform:uppercase;">Shipping to</p>
+                    <p style="margin:0; font-family:Arial, sans-serif; font-size:12px; line-height:19px; color:#756a70;">{{shipping_address}}</p>
+                  </td>
+                  <td class="email-columns email-address" width="50%" valign="top" style="width:50%; padding-left:16px;">
+                    <p style="margin:0 0 10px; font-family:Courier New, monospace; font-size:9px; font-weight:700; letter-spacing:1.1px; line-height:14px; color:#9a4055; text-transform:uppercase;">What happens next</p>
+                    <p style="margin:0; font-family:Arial, sans-serif; font-size:12px; line-height:19px; color:#756a70;">We will send another note as soon as your order is on its way. You can view the latest order details from your account at any time.</p>
+                  </td>
+                </tr>
+                {{order_notes}}
+              </table>
+
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-top:34px; border-collapse:collapse;">
+                <tr>
+                  <td class="email-button" style="background-color:#241d21;">
+                    <a href="{{orders_url}}" target="_blank" style="display:inline-block; padding:15px 20px; color:#ffffff; font-family:Courier New, monospace; font-size:10px; font-weight:700; letter-spacing:1px; line-height:18px; text-decoration:none; text-transform:uppercase;">View my order&nbsp; ↗</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td class="email-footer" style="padding:22px 48px 27px; border-top:1px solid #ded4d3; background-color:#f7f0ef;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; border-collapse:collapse;">
+                <tr>
+                  <td style="font-family:Courier New, monospace; font-size:9px; letter-spacing:.7px; line-height:15px; color:#75636a; text-transform:uppercase;">PELISSA · Made for your personal edit</td>
+                  <td align="right" style="font-family:Arial, sans-serif; font-size:10px; line-height:15px; color:#756a70;">Secure payment confirmation</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

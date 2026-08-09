@@ -7,6 +7,7 @@ import org.springframework.transaction.support.TransactionTemplate
 import top.foxball.shopmall.config.OrderProperties
 import top.foxball.shopmall.entity.jdbc.OutboxEvent
 import top.foxball.shopmall.repository.OutboxEventRepository
+import top.foxball.shopmall.service.OrderMailService
 import top.foxball.shopmall.service.OrderPaymentService
 import java.time.Clock
 import java.time.Duration
@@ -15,6 +16,7 @@ import java.time.Duration
 class OutboxMessageHandler(
     private val repository: OutboxEventRepository,
     private val paymentService: OrderPaymentService,
+    private val orderMailService: OrderMailService,
     private val shipmentOutboxProcessor: ShipmentOutboxProcessor,
     private val properties: OrderProperties,
     private val clock: Clock,
@@ -31,6 +33,7 @@ class OutboxMessageHandler(
 
         when (aggregateType) {
             "ORDER" -> when (eventType) {
+                "PAID" -> orderMailService.sendPaymentConfirmation(aggregateId)
                 "PAYMENT_CANCEL_OR_REFUND" -> paymentService.reconcileCancellation(aggregateId)
                 "PAYMENT_CONFLICT_REFUND" -> paymentService.reconcileConflictRefund(aggregateId)
             }

@@ -27,6 +27,7 @@ import kotlin.test.assertFailsWith
 class OutboxMessageHandlerTest {
     private val repository = mock(OutboxEventRepository::class.java)
     private val paymentService = mock(OrderPaymentService::class.java)
+    private val orderMailService = mock(OrderMailService::class.java)
     private val shipmentOutboxProcessor = mock(ShipmentOutboxProcessor::class.java)
     private val transactionManager = object : PlatformTransactionManager {
         override fun getTransaction(definition: TransactionDefinition?): TransactionStatus =
@@ -40,11 +41,24 @@ class OutboxMessageHandlerTest {
     private val handler = OutboxMessageHandler(
         repository,
         paymentService,
+        orderMailService,
         shipmentOutboxProcessor,
         OrderProperties(outboxMaxAttempts = 2),
         clock,
         transactionManager,
     )
+
+    @Test
+    fun `paid order email is delegated before outbox acknowledgement`() {
+        val event = OutboxEvent(id = 4, status = OutboxEvent.Status.SENT)
+        `when`(repository.findById(4)).thenReturn(Optional.of(event))
+
+        handler.handle(4, "ORDER", 19, "PAID")
+
+        verify(orderMailService).sendPaymentConfirmation(19)
+        assertEquals(OutboxEvent.Status.ACKNOWLEDGED, event.status)
+        assertEquals(clock.instant(), event.acknowledgedAt)
+    }
 
     @Test
     fun `payment compensation is acknowledged only after payment handler succeeds`() {
