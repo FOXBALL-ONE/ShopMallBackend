@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { formatCustomerMoney } from '~/utils/customer-display'
 
 const route = useRoute()
 const router = useRouter()
+const session = useCustomerSession()
+const customerCart = useCustomerCart()
 
 const navItems = [
   { label: 'New in', to: '/collections/new' },
@@ -17,6 +20,13 @@ const isMenuOpen = ref(false)
 const isSearchOpen = ref(false)
 const isBagOpen = ref(false)
 const searchInput = ref(typeof route.query.q === 'string' ? route.query.q : '')
+const bagError = ref('')
+
+const bagItems = computed(() => customerCart.items.value)
+const bagCount = computed(() => customerCart.totalQuantity.value)
+const visibleBagItems = computed(() => bagItems.value.slice(0, 3))
+const hasUnavailableBagItems = computed(() => bagItems.value.some(item => !item.purchasable || item.quantity > item.stock))
+const bagTitle = computed(() => `${bagCount.value} ${bagCount.value === 1 ? 'piece' : 'pieces'} in your bag`)
 
 watch(
   () => route.query.q,
@@ -37,10 +47,20 @@ function toggleSearch() {
   isBagOpen.value = false
 }
 
+async function refreshBag(force = false) {
+  bagError.value = ''
+  try {
+    await customerCart.refresh(force)
+  } catch {
+    bagError.value = 'Your bag could not be refreshed.'
+  }
+}
+
 function toggleBag() {
   isBagOpen.value = !isBagOpen.value
   isMenuOpen.value = false
   isSearchOpen.value = false
+  if (isBagOpen.value && session.isAuthenticated.value) void refreshBag(true)
 }
 
 async function submitSearch() {
@@ -48,6 +68,15 @@ async function submitSearch() {
   isSearchOpen.value = false
   await router.push({ path: '/search', query: q ? { q } : {} })
 }
+
+onMounted(() => {
+  if (session.isAuthenticated.value) void refreshBag()
+})
+
+watch(() => session.userId.value, userId => {
+  if (userId) void refreshBag(true)
+  else customerCart.reset()
+})
 </script>
 
 <template>
@@ -84,7 +113,7 @@ async function submitSearch() {
           </NuxtLink>
           <button class="store-icon-button store-bag-button" type="button" aria-label="Shopping bag" @click="toggleBag">
             <UIcon name="i-lucide-shopping-bag" />
-            <span>0</span>
+            <span v-if="bagCount">{{ bagCount > 99 ? '99+' : bagCount }}</span>
           </button>
         </div>
       </div>
@@ -114,14 +143,61 @@ async function submitSearch() {
       </form>
 
       <aside v-if="isBagOpen" class="store-bag-popover" aria-label="Shopping bag">
-        <div>
+        <div class="store-bag-content">
           <span class="store-popover-eyebrow">YOUR BAG</span>
-          <strong>Your bag is empty</strong>
-          <p>Your Pelissa picks will appear here.</p>
-          <div class="store-bag-popover-actions">
-            <NuxtLink to="/cart" @click="isBagOpen = false">View your bag</NuxtLink>
-            <NuxtLink to="/collections/shop" @click="isBagOpen = false">Start shopping</NuxtLink>
-          </div>
+
+          <template v-if="!session.isAuthenticated.value">
+            <strong>Sign in to see your bag</strong>
+            <p>Your saved pieces are waiting in your account.</p>
+            <div class="store-bag-popover-actions">
+              <NuxtLink :to="{ path: '/login', query: { redirect: '/cart' } }" @click="isBagOpen = false">Sign in</NuxtLink>
+              <NuxtLink to="/collections/shop" @click="isBagOpen = false">Keep browsing</NuxtLink>
+            </div>
+          </template>
+
+          <template v-else-if="customerCart.isLoading.value && !customerCart.cart.value">
+            <strong>Opening your bag…</strong>
+            <p>Checking your latest pieces.</p>
+          </template>
+
+          <template v-else-if="bagItems.length">
+            <strong>{{ bagTitle }}</strong>
+            <div class="store-bag-items">
+              <NuxtLink
+                v-for="item in visibleBagItems"
+                :key="item.id"
+                class="store-bag-item"
+                :to="`/product/${item.product_id}`"
+                @click="isBagOpen = false"
+              >
+                <span class="store-bag-item-image">
+                  <img v-if="item.primary_image" :src="item.primary_image" :alt="item.name">
+                  <b v-else>P°</b>
+                </span>
+                <span class="store-bag-item-copy">
+                  <b>{{ item.name }}</b>
+                  <small>Qty {{ item.quantity }} · {{ formatCustomerMoney(item.line_total, 'USD') }}</small>
+                </span>
+              </NuxtLink>
+            </div>
+            <p v-if="bagItems.length > visibleBagItems.length" class="store-bag-more">+ {{ bagItems.length - visibleBagItems.length }} more {{ bagItems.length - visibleBagItems.length === 1 ? 'item' : 'items' }}</p>
+            <div class="store-bag-subtotal"><span>Subtotal</span><strong>{{ formatCustomerMoney(customerCart.cart.value?.subtotal, 'USD') }}</strong></div>
+            <p v-if="hasUnavailableBagItems" class="store-bag-warning">Review unavailable pieces before checkout.</p>
+            <p v-else-if="bagError" class="store-bag-warning">{{ bagError }}</p>
+            <div class="store-bag-popover-actions">
+              <NuxtLink to="/cart" @click="isBagOpen = false">View your bag</NuxtLink>
+              <NuxtLink v-if="!hasUnavailableBagItems" to="/checkout" @click="isBagOpen = false">Checkout</NuxtLink>
+            </div>
+          </template>
+
+          <template v-else>
+            <strong>Your bag is empty</strong>
+            <p>{{ bagError || 'Your Pelissa picks will appear here.' }}</p>
+            <div class="store-bag-popover-actions">
+              <NuxtLink to="/cart" @click="isBagOpen = false">View your bag</NuxtLink>
+              <NuxtLink to="/collections/shop" @click="isBagOpen = false">Start shopping</NuxtLink>
+            </div>
+          </template>
         </div>
         <button type="button" aria-label="Close shopping bag" @click="isBagOpen = false"><UIcon name="i-lucide-x" /></button>
       </aside>
@@ -382,7 +458,7 @@ async function submitSearch() {
   padding: 26px;
 }
 
-.store-bag-popover div {
+.store-bag-popover > div {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -406,6 +482,97 @@ async function submitSearch() {
   margin: 8px 0 18px;
   color: var(--store-muted);
   font-size: 12px;
+}
+
+.store-bag-items {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  margin-top: 13px;
+  border-top: 1px solid var(--store-line);
+}
+
+.store-bag-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--store-line);
+  color: var(--store-ink);
+  text-decoration: none;
+}
+
+.store-bag-item-image {
+  width: 44px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--store-wine);
+  background: var(--store-linen);
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+.store-bag-item-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.store-bag-item-image b {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.store-bag-item-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.store-bag-item-copy b {
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.store-bag-item-copy small,
+.store-bag-more {
+  color: var(--store-muted);
+  font-family: 'DM Mono', monospace;
+  font-size: 8px;
+}
+
+.store-bag-more {
+  margin: 8px 0 0 !important;
+}
+
+.store-bag-subtotal {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 15px;
+  margin-top: 13px;
+  font-size: 10px;
+}
+
+.store-bag-subtotal strong {
+  color: var(--store-wine);
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.store-bag-warning {
+  margin: 9px 0 0 !important;
+  color: #963f4f !important;
+  font-size: 9px !important;
 }
 
 .store-bag-popover a {

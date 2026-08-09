@@ -7,6 +7,19 @@ export type OrderStatus =
     | "CANCELLED"
     | "DELETED";
 
+export type StripeCollectionStatus =
+    | "REQUIRES_ACTION"
+    | "PENDING"
+    | "PROCESSING"
+    | "SUCCEEDED"
+    | "FAILED"
+    | "CANCELLED"
+    | "PARTIALLY_REFUNDED"
+    | "REFUNDED"
+    | "UNKNOWN";
+
+export type OrderPaymentQuerySource = "PAYMENT_INTENT" | "CHECKOUT_SESSION";
+
 export interface OrderListQuery {
     page: number;
     size: number;
@@ -93,6 +106,7 @@ export interface OrderDetail {
     total_amount: number | string;
     currency: string;
     payment_intent_id: string | null;
+    stripe_checkout_session_id: string | null;
     shipping_address: OrderShippingAddress;
     client_message: string | null;
     expires_at: string | null;
@@ -104,4 +118,22 @@ export interface OrderDetail {
     created_at: string | null;
     updated_at: string | null;
     items: OrderDetailItem[];
+}
+
+export interface OrderPaymentStatusResponse {
+    order_no: string;
+    order_status: OrderStatus;
+    provider: string;
+    provider_status: StripeCollectionStatus;
+    query_source: OrderPaymentQuerySource;
+    payment_intent_id: string | null;
+    stripe_checkout_session_id: string | null;
+    payment_intent_status: string | null;
+    checkout_session_status: string | null;
+    checkout_payment_status: string | null;
+    amount: number | string | null;
+    currency: string | null;
+    amount_matches_order: boolean | null;
+    failure_code: string | null;
+    failure_message: string | null;
 }

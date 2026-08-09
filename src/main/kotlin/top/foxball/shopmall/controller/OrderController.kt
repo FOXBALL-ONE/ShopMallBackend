@@ -515,12 +515,11 @@ class OrderController(
             .build()
     }
 
-    /** @api 创建或取得 Stripe Checkout 支付会话（需携带该订单的幂等键） */
+    /** @api 创建或取得当前用户待支付订单的 Stripe Checkout 支付会话 */
     @PostMapping("/api/orders/{orderNo}/checkout")
     fun openCheckout(
         @AuthenticationPrincipal userId: Long,
         @PathVariable("orderNo") orderNo: String,
-        @RequestHeader("Idempotency-Key") @NotBlank idempotencyKey: String,
     ): ResponseEntity<Response> {
         data class Response(
             @param:JsonProperty("order_no")
@@ -532,7 +531,7 @@ class OrderController(
             val expiresAt: Instant,
         )
 
-        val checkout = orderCheckoutService.openCheckout(userId, orderNo, idempotencyKey)
+        val checkout = orderCheckoutService.openCheckout(userId, orderNo)
         return builder.ok()
             .data(
                 Response(

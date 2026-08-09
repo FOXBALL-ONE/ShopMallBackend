@@ -4,6 +4,7 @@ export interface ProductSnapshotDisplay {
   name: string
   color: string | null
   image: string | null
+  variant: string | null
 }
 
 export function formatCustomerMoney(value: number | string | null | undefined, currency = 'USD') {
@@ -66,14 +67,24 @@ export function parseProductSnapshot(snapshot: string | null | undefined): Produ
     const name = parsed.name ?? parsed.title ?? parsed.product_name
     const color = parsed.color ?? parsed.colour
     const image = parsed.primary_image ?? parsed.primaryImage ?? parsed.image
+    const size = parsed.size
+    const topSize = parsed.top_size ?? parsed.topSize
+    const bottomSize = parsed.bottom_size ?? parsed.bottomSize
+    const variant = [
+      typeof color === 'string' ? color : null,
+      typeof size === 'string' ? `Size ${size}` : null,
+      typeof topSize === 'string' ? `Top ${topSize}` : null,
+      typeof bottomSize === 'string' ? `Bottom ${bottomSize}` : null
+    ].filter(Boolean).join(' · ')
 
     return {
       name: typeof name === 'string' && name.trim() ? name : fallback,
       color: typeof color === 'string' && color.trim() ? color : null,
-      image: typeof image === 'string' && image.trim() ? image : null
+      image: typeof image === 'string' && image.trim() ? image : null,
+      variant: variant || null
     }
   } catch {
-    return { name: fallback, color: null, image: null }
+    return { name: fallback, color: null, image: null, variant: null }
   }
 }
 

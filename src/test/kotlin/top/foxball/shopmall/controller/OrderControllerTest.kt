@@ -27,11 +27,14 @@ import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.controller.admin.AdminOrderController
 import top.foxball.shopmall.handler.GlobalExceptionHandler
 import top.foxball.shopmall.handler.OrderNotFoundException
+import top.foxball.shopmall.service.AdminOrderPaymentQuerySource
+import top.foxball.shopmall.service.AdminOrderPaymentView
 import top.foxball.shopmall.service.AdminOrderQuery
 import top.foxball.shopmall.service.AdminOrderDetails
 import top.foxball.shopmall.service.OrderLineCommand
 import top.foxball.shopmall.service.OrderCheckoutService
 import top.foxball.shopmall.service.OrderCheckoutView
+import top.foxball.shopmall.service.OrderPaymentService
 import top.foxball.shopmall.service.OrderService
 import top.foxball.shopmall.service.OrderView
 import top.foxball.shopmall.service.PlaceOrderCommand
@@ -40,11 +43,15 @@ import top.foxball.shopmall.shared.IssuedKey
 import top.foxball.shopmall.shared.OrderIdempotencyKeyService
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.math.BigDecimal
+import top.foxball.shopmall.service.payMent.PaymentAmount
+import top.foxball.shopmall.service.payMent.PaymentProviderId
+import top.foxball.shopmall.service.payMent.PaymentStatus
 import java.util.UUID
 
 class OrderControllerTest {
     private lateinit var orderService: OrderService
     private lateinit var orderCheckoutService: OrderCheckoutService
+    private lateinit var orderPaymentService: OrderPaymentService
     private lateinit var orderIdempotencyKeyService: OrderIdempotencyKeyService
     private lateinit var userService: UserService
     private lateinit var mockMvc: MockMvc
@@ -53,6 +60,7 @@ class OrderControllerTest {
     fun setUp() {
         orderService = mock(OrderService::class.java)
         orderCheckoutService = mock(OrderCheckoutService::class.java)
+        orderPaymentService = mock(OrderPaymentService::class.java)
         orderIdempotencyKeyService = mock(OrderIdempotencyKeyService::class.java)
         userService = mock(UserService::class.java)
         val customer = User(id = 7, username = "customer")
@@ -61,7 +69,7 @@ class OrderControllerTest {
         `when`(userService.getUsernamesByIds(anyList())).thenReturn(mapOf(7L to "customer"))
         mockMvc = MockMvcBuilders.standaloneSetup(
             OrderController(orderService, orderCheckoutService, orderIdempotencyKeyService, ResponseBuilder()),
-            AdminOrderController(orderService, userService, ResponseBuilder()),
+            AdminOrderController(orderService, orderPaymentService, userService, ResponseBuilder()),
         )
             .setControllerAdvice(GlobalExceptionHandler())
             .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
@@ -113,9 +121,9 @@ class OrderControllerTest {
     }
 
     @Test
-    fun `open checkout returns only server generated redirect URL`() {
+    fun `open checkout without an idempotency key returns the server generated redirect URL`() {
         authenticate(7L)
-        `when`(orderCheckoutService.openCheckout(7L, "ORD-API-1", "idem-1")).thenReturn(
+        `when`(orderCheckoutService.openCheckout(7L, "ORD-API-1")).thenReturn(
             OrderCheckoutView(
                 orderNo = "ORD-API-1",
                 status = OrderStatus.PENDING_PAYMENT,
@@ -124,24 +132,13 @@ class OrderControllerTest {
             ),
         )
 
-        mockMvc.perform(
-            post("/api/orders/ORD-API-1/checkout")
-                .header("Idempotency-Key", "idem-1"),
-        )
+        mockMvc.perform(post("/api/orders/ORD-API-1/checkout"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
             .andExpect(jsonPath("$.data.status").value("PENDING_PAYMENT"))
             .andExpect(jsonPath("$.data.checkout_url").value("https://checkout.stripe.com/c/pay/cs_test_123"))
 
-        verify(orderCheckoutService).openCheckout(7L, "ORD-API-1", "idem-1")
-    }
-
-    @Test
-    fun `checkout without an idempotency key is rejected`() {
-        authenticate(7L)
-
-        mockMvc.perform(post("/api/orders/ORD-API-1/checkout"))
-            .andExpect(status().isBadRequest)
+        verify(orderCheckoutService).openCheckout(7L, "ORD-API-1")
     }
 
     @Test
@@ -222,6 +219,7 @@ class OrderControllerTest {
     fun `admin detail exposes address and fulfillment allocation`() {
         authenticate(99L)
         val view = orderView()
+        view.order.stripeCheckoutSessionId = "cs_test_123"
         `when`(orderService.getAdmin(99L, "ORD-API-1")).thenReturn(
             AdminOrderDetails(view.order, view.items, mapOf(30L to 1)),
         )
@@ -231,11 +229,46 @@ class OrderControllerTest {
             .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
             .andExpect(jsonPath("$.data.customer_username").value("customer"))
             .andExpect(jsonPath("$.data.shipping_address.address1").value("1 Main St"))
+            .andExpect(jsonPath("$.data.stripe_checkout_session_id").value("cs_test_123"))
             .andExpect(jsonPath("$.data.items[0].allocated").value(true))
             .andExpect(jsonPath("$.data.items[0].allocated_quantity").value(1))
             .andExpect(jsonPath("$.data.items[0].remaining_quantity").value(0))
 
         verify(orderService).getAdmin(99L, "ORD-API-1")
+    }
+
+    @Test
+    fun `admin can manually query Stripe payment status`() {
+        authenticate(99L)
+        `when`(orderPaymentService.queryAdminPaymentStatus(99L, "ORD-API-1")).thenReturn(
+            AdminOrderPaymentView(
+                orderNo = "ORD-API-1",
+                orderStatus = OrderStatus.PENDING_PAYMENT,
+                provider = PaymentProviderId("stripe"),
+                providerStatus = PaymentStatus.SUCCEEDED,
+                querySource = AdminOrderPaymentQuerySource.PAYMENT_INTENT,
+                paymentIntentId = "pi_test_123",
+                checkoutSessionId = "cs_test_123",
+                paymentIntentStatus = "succeeded",
+                checkoutSessionStatus = null,
+                checkoutPaymentStatus = null,
+                amount = PaymentAmount(BigDecimal("29.99"), "USD"),
+                amountMatchesOrder = true,
+                failureCode = null,
+                failureMessage = null,
+            ),
+        )
+
+        mockMvc.perform(post("/admin/api/orders/ORD-API-1/payment-status"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.provider").value("stripe"))
+            .andExpect(jsonPath("$.data.provider_status").value("SUCCEEDED"))
+            .andExpect(jsonPath("$.data.query_source").value("PAYMENT_INTENT"))
+            .andExpect(jsonPath("$.data.amount").value(29.99))
+            .andExpect(jsonPath("$.data.amount_matches_order").value(true))
+
+        verify(orderPaymentService).queryAdminPaymentStatus(99L, "ORD-API-1")
     }
 
     @Test

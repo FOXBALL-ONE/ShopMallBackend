@@ -7,8 +7,12 @@ import {
   getCollection,
   getProductById
 } from '~/data/catalog'
+import { customerRequestMessage } from '~/composables/useCustomerAccountApi'
 
 const route = useRoute()
+const session = useCustomerSession()
+const customerCart = useCustomerCart()
+const toast = useToast()
 
 const product = computed(() => getProductById(Number(route.params.id)))
 const selectedImage = ref(0)
@@ -18,12 +22,22 @@ const selectedSize = ref('M')
 const quantity = ref(1)
 const isFavorite = ref(false)
 const isAdded = ref(false)
+const isAdding = ref(false)
+const addError = ref('')
 const activePanel = ref('highlights')
 let feedbackTimer: ReturnType<typeof setTimeout> | undefined
 
-const topSizeOptions = ['XS', 'S', 'M', 'L', 'XL']
-const bottomSizeOptions = ['XS', 'S', 'M', 'L', 'XL', 'XXL']
-const standardSizeOptions = ['XS', 'S', 'M', 'L', 'XL', 'XXL']
+const topSizeOptions = computed(() => product.value?.top_size ? [product.value.top_size] : [])
+const bottomSizeOptions = computed(() => product.value?.bottom_size ? [product.value.bottom_size] : [])
+const standardSizeOptions = computed(() => product.value?.size ? [product.value.size] : [])
+const availableStock = computed(() => Math.max(0, Number(product.value?.warehouse_volume || 0)))
+const maximumQuantity = computed(() => Math.min(availableStock.value, 99))
+const canAddToBag = computed(() => Boolean(
+  product.value
+  && product.value.status === 'ACTIVE'
+  && availableStock.value > 0
+  && !isAdding.value
+))
 
 const mainImage = computed(() => product.value?.images[selectedImage.value] || product.value?.images[0] || '/lingerie/hero-corset.jpg')
 const mainImagePosition = computed(() => product.value?.image_positions?.[selectedImage.value] || 'center')
@@ -32,7 +46,7 @@ const productCollection = computed(() => getCollection(product.value?.collection
 
 const singleSizeOptions = computed(() => {
   if (product.value?.product_type === 'COVER_UP' && product.value.size === 'ONE_SIZE') return ['ONE_SIZE']
-  return standardSizeOptions
+  return standardSizeOptions.value
 })
 
 const attributeRows = computed(() => {
@@ -90,6 +104,7 @@ watch(product, value => {
   selectedSize.value = value?.size || 'M'
   quantity.value = 1
   isAdded.value = false
+  addError.value = ''
 }, { immediate: true })
 
 function formatAttribute(value: string | undefined) {
@@ -101,15 +116,34 @@ function formatAttribute(value: string | undefined) {
 }
 
 function changeQuantity(delta: number) {
-  quantity.value = Math.min(8, Math.max(1, quantity.value + delta))
+  quantity.value = Math.min(Math.max(maximumQuantity.value, 1), Math.max(1, quantity.value + delta))
 }
 
-function addToBag() {
-  isAdded.value = true
-  if (feedbackTimer) clearTimeout(feedbackTimer)
-  feedbackTimer = setTimeout(() => {
-    isAdded.value = false
-  }, 2400)
+async function addToBag() {
+  if (!product.value || !canAddToBag.value) return
+  const userId = await session.requireSignIn(route.fullPath)
+  if (!userId) return
+
+  isAdding.value = true
+  addError.value = ''
+  try {
+    await customerCart.addItem(product.value.id, quantity.value)
+    isAdded.value = true
+    toast.add({
+      title: 'Added to bag',
+      description: `${quantity.value} ${quantity.value === 1 ? 'piece' : 'pieces'} of ${product.value.name} added.`,
+      color: 'success'
+    })
+    if (feedbackTimer) clearTimeout(feedbackTimer)
+    feedbackTimer = setTimeout(() => {
+      isAdded.value = false
+    }, 2400)
+  } catch (error: unknown) {
+    addError.value = customerRequestMessage(error, 'We could not add this piece to your bag.')
+    toast.add({ title: 'Bag not updated', description: addError.value, color: 'error' })
+  } finally {
+    isAdding.value = false
+  }
 }
 
 onBeforeUnmount(() => {
@@ -263,19 +297,22 @@ useHead(() => ({
 
           <div class="product-cart-row">
             <div class="product-quantity">
-              <button type="button" aria-label="Decrease quantity" @click="changeQuantity(-1)"><UIcon name="i-lucide-minus" /></button>
+              <button type="button" :disabled="quantity <= 1 || !canAddToBag" aria-label="Decrease quantity" @click="changeQuantity(-1)"><UIcon name="i-lucide-minus" /></button>
               <span>{{ quantity }}</span>
-              <button type="button" aria-label="Increase quantity" @click="changeQuantity(1)"><UIcon name="i-lucide-plus" /></button>
+              <button type="button" :disabled="quantity >= maximumQuantity || !canAddToBag" aria-label="Increase quantity" @click="changeQuantity(1)"><UIcon name="i-lucide-plus" /></button>
             </div>
-            <button class="product-add-button" type="button" @click="addToBag">
-              <template v-if="isAdded"><UIcon name="i-lucide-check" /> Added to bag</template>
+            <button class="product-add-button" type="button" :disabled="!canAddToBag" @click="addToBag">
+              <template v-if="isAdding"><UIcon name="i-lucide-loader-circle" class="is-spinning" /> Adding…</template>
+              <template v-else-if="isAdded"><UIcon name="i-lucide-check" /> Added to bag</template>
+              <template v-else-if="availableStock <= 0 || product.status !== 'ACTIVE'">Unavailable</template>
               <template v-else>Add to bag · {{ formatPrice(product.price * quantity) }}</template>
             </button>
           </div>
 
-          <p v-if="product.warehouse_volume <= 15" class="product-low-stock">
-            <span /> Only {{ product.warehouse_volume }} left in this color
+          <p v-if="availableStock > 0 && availableStock <= 15" class="product-low-stock">
+            <span /> Only {{ availableStock }} left in this color
           </p>
+          <p v-if="addError" class="product-cart-error" role="status"><UIcon name="i-lucide-circle-alert" /> {{ addError }}</p>
 
           <div class="product-service-notes">
             <div><UIcon name="i-lucide-truck" /><span><strong>Complimentary shipping</strong>On orders over $79</span></div>
@@ -747,6 +784,11 @@ useHead(() => ({
   height: 13px;
 }
 
+.product-quantity button:disabled {
+  cursor: not-allowed;
+  opacity: .32;
+}
+
 .product-quantity span {
   text-align: center;
   font-size: 11px;
@@ -776,6 +818,24 @@ useHead(() => ({
   background: transparent;
 }
 
+.product-add-button:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+
+.product-add-button:disabled:hover {
+  color: #fff;
+  background: var(--store-ink);
+}
+
+.is-spinning {
+  animation: product-spin .8s linear infinite;
+}
+
+@keyframes product-spin {
+  to { transform: rotate(360deg); }
+}
+
 .product-low-stock {
   display: flex;
   align-items: center;
@@ -790,6 +850,22 @@ useHead(() => ({
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+}
+
+.product-cart-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 11px 0 0;
+  color: #963f4f;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.product-cart-error .iconify {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
 }
 
 .product-service-notes {

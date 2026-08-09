@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { CustomerOrder, CustomerProfile } from '~/types/customer-account'
 import { customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
 import {
@@ -288,6 +288,9 @@ onMounted(() => {
             </div>
 
             <div class="order-detail-actions">
+              <NuxtLink class="outline-button" :to="`/orders/${encodeURIComponent(order.order_no)}`">
+                <UIcon name="i-lucide-receipt-text" /> View order details
+              </NuxtLink>
               <button v-if="['SHIPPED', 'DELIVERED', 'COMPLETED'].includes(order.status)" class="outline-button" type="button" @click="viewLogistics(order)">
                 <UIcon name="i-lucide-truck" /> Track delivery
               </button>

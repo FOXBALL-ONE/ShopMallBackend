@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.service.AdminOrderQuery
+import top.foxball.shopmall.service.OrderPaymentService
 import top.foxball.shopmall.service.OrderService
 import top.foxball.shopmall.service.UserService
 import top.foxball.shopmall.shared.Response
@@ -32,6 +33,7 @@ import java.time.Instant
 @RequestMapping("/admin/api/orders")
 class AdminOrderController(
     private val orderService: OrderService,
+    private val orderPaymentService: OrderPaymentService,
     private val userService: UserService,
     private val builder: ResponseBuilder,
 ) {
@@ -178,6 +180,8 @@ class AdminOrderController(
             val currency: String,
             @param:JsonProperty("payment_intent_id")
             val paymentIntentId: String?,
+            @param:JsonProperty("stripe_checkout_session_id")
+            val stripeCheckoutSessionId: String?,
             @param:JsonProperty("shipping_address")
             val shippingAddress: AddressData,
             @param:JsonProperty("client_message")
@@ -234,6 +238,7 @@ class AdminOrderController(
             totalAmount = order.totalAmount,
             currency = order.currency,
             paymentIntentId = order.paymentIntentId,
+            stripeCheckoutSessionId = order.stripeCheckoutSessionId,
             shippingAddress = AddressData(
                 name = address.name,
                 phone = address.phone,
@@ -259,6 +264,68 @@ class AdminOrderController(
             items = items,
         )
         return builder.ok().data(rs).build()
+    }
+
+    /**
+     * @api 手动查询订单的 Stripe 收款状态
+     * @param orderNo 订单编号
+     */
+    @PostMapping("/{order_no}/payment-status")
+    fun queryPaymentStatus(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("order_no") orderNo: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("order_no")
+            val orderNo: String,
+            @param:JsonProperty("order_status")
+            val orderStatus: String,
+            val provider: String,
+            @param:JsonProperty("provider_status")
+            val providerStatus: String,
+            @param:JsonProperty("query_source")
+            val querySource: String,
+            @param:JsonProperty("payment_intent_id")
+            val paymentIntentId: String?,
+            @param:JsonProperty("stripe_checkout_session_id")
+            val stripeCheckoutSessionId: String?,
+            @param:JsonProperty("payment_intent_status")
+            val paymentIntentStatus: String?,
+            @param:JsonProperty("checkout_session_status")
+            val checkoutSessionStatus: String?,
+            @param:JsonProperty("checkout_payment_status")
+            val checkoutPaymentStatus: String?,
+            val amount: BigDecimal?,
+            val currency: String?,
+            @param:JsonProperty("amount_matches_order")
+            val amountMatchesOrder: Boolean?,
+            @param:JsonProperty("failure_code")
+            val failureCode: String?,
+            @param:JsonProperty("failure_message")
+            val failureMessage: String?,
+        )
+
+        val payment = orderPaymentService.queryAdminPaymentStatus(adminId, orderNo)
+        val rs = Response(
+            orderNo = payment.orderNo,
+            orderStatus = payment.orderStatus.name,
+            provider = payment.provider.value,
+            providerStatus = payment.providerStatus.name,
+            querySource = payment.querySource.name,
+            paymentIntentId = payment.paymentIntentId,
+            stripeCheckoutSessionId = payment.checkoutSessionId,
+            paymentIntentStatus = payment.paymentIntentStatus,
+            checkoutSessionStatus = payment.checkoutSessionStatus,
+            checkoutPaymentStatus = payment.checkoutPaymentStatus,
+            amount = payment.amount?.value,
+            currency = payment.amount?.currency,
+            amountMatchesOrder = payment.amountMatchesOrder,
+            failureCode = payment.failureCode,
+            failureMessage = payment.failureMessage,
+        )
+        return builder.ok()
+            .data(rs)
+            .build()
     }
 
     /**

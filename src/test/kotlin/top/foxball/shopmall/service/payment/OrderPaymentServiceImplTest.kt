@@ -12,12 +12,21 @@ import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderStatus
+import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.repository.StripeWebhookEventRepository
+import top.foxball.shopmall.service.AdminAccessService
+import top.foxball.shopmall.service.AdminOrderPaymentQuerySource
 import top.foxball.shopmall.service.DomainEventPublisher
 import top.foxball.shopmall.service.impl.OrderPaymentServiceImpl
+import top.foxball.shopmall.service.payMent.PaymentAmount
+import top.foxball.shopmall.service.payMent.PaymentQueryRequest
+import top.foxball.shopmall.service.payMent.PaymentStatus
+import top.foxball.shopmall.service.payMent.PaymentTransaction
+import top.foxball.shopmall.service.payMent.stripe.StripeCheckoutSession
+import top.foxball.shopmall.service.payMent.stripe.StripeService
 import top.foxball.shopmall.shared.PaymentIntentCoordinator
 import java.math.BigDecimal
 import java.time.Clock
@@ -25,6 +34,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.util.Optional
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class OrderPaymentServiceImplTest {
@@ -34,16 +44,24 @@ class OrderPaymentServiceImplTest {
     private val webhookRepository = mock(StripeWebhookEventRepository::class.java)
     private val eventPublisher = mock(DomainEventPublisher::class.java)
     private val coordinator = mock(PaymentIntentCoordinator::class.java)
+    private val adminAccessService = mock(AdminAccessService::class.java)
+    private val stripeService = mock(StripeService::class.java)
     private val clock = Clock.fixed(Instant.parse("2026-07-28T08:00:00Z"), ZoneOffset.UTC)
     private val service = OrderPaymentServiceImpl(
-        orderRepository,
-        orderItemRepository,
-        productRepository,
-        webhookRepository,
-        eventPublisher,
-        coordinator,
-        clock,
+        orderRepository = orderRepository,
+        orderItemRepository = orderItemRepository,
+        productRepository = productRepository,
+        webhookEventRepository = webhookRepository,
+        eventPublisher = eventPublisher,
+        paymentIntentCoordinator = coordinator,
+        adminAccessService = adminAccessService,
+        stripeService = stripeService,
+        clock = clock,
     )
+
+    init {
+        `when`(stripeService.provider).thenReturn(top.foxball.shopmall.service.payMent.PaymentProviderId("stripe"))
+    }
 
     @Test
     fun `duplicate webhook event stops after idempotency claim`() {
@@ -139,6 +157,66 @@ class OrderPaymentServiceImplTest {
         val key = "ORD-PAYMENT-1:cancelled-order-refund"
         verify(coordinator).cancelOrRefund("cs_order", "pi_order", key)
         verify(coordinator).refund("pi_order", key)
+    }
+
+    @Test
+    fun `admin query uses PaymentIntent and reports matching collected amount`() {
+        val order = pendingOrder().apply {
+            paymentIntentId = "pi_order"
+            stripeCheckoutSessionId = "cs_order"
+        }
+        val transaction = PaymentTransaction(
+            providerPaymentId = "pi_order",
+            amount = PaymentAmount(BigDecimal("29.99"), "USD"),
+            status = PaymentStatus.SUCCEEDED,
+            rawStatus = "succeeded",
+        )
+        `when`(orderRepository.findByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(stripeService.queryPayment(PaymentQueryRequest("pi_order"))).thenReturn(transaction)
+
+        val result = service.queryAdminPaymentStatus(99, order.orderNo)
+
+        assertEquals(AdminOrderPaymentQuerySource.PAYMENT_INTENT, result.querySource)
+        assertEquals(PaymentStatus.SUCCEEDED, result.providerStatus)
+        assertEquals(true, result.amountMatchesOrder)
+        assertEquals("succeeded", result.paymentIntentStatus)
+        verify(adminAccessService).requireAdmin(99)
+        verify(stripeService).queryPayment(PaymentQueryRequest("pi_order"))
+    }
+
+    @Test
+    fun `admin query falls back to Checkout Session before a PaymentIntent exists`() {
+        val order = pendingOrder().apply { stripeCheckoutSessionId = "cs_order" }
+        val session = StripeCheckoutSession(
+            id = "cs_order",
+            paymentIntentId = null,
+            url = "https://checkout.stripe.com/c/pay/cs_order",
+            status = "open",
+            expiresAt = Instant.parse("2026-07-28T08:30:00Z"),
+            paymentStatus = "unpaid",
+            amount = PaymentAmount(BigDecimal("29.99"), "USD"),
+            collectionStatus = PaymentStatus.PENDING,
+        )
+        `when`(orderRepository.findByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(stripeService.retrieveCheckoutSession("cs_order")).thenReturn(session)
+
+        val result = service.queryAdminPaymentStatus(99, order.orderNo)
+
+        assertEquals(AdminOrderPaymentQuerySource.CHECKOUT_SESSION, result.querySource)
+        assertEquals(PaymentStatus.PENDING, result.providerStatus)
+        assertEquals("open", result.checkoutSessionStatus)
+        assertEquals("unpaid", result.checkoutPaymentStatus)
+        assertEquals(true, result.amountMatchesOrder)
+    }
+
+    @Test
+    fun `admin query rejects an order without a Stripe payment reference`() {
+        val order = pendingOrder()
+        `when`(orderRepository.findByOrderNo(order.orderNo)).thenReturn(order)
+
+        assertFailsWith<OrderStatusException> {
+            service.queryAdminPaymentStatus(99, order.orderNo)
+        }
     }
 
     private fun checkoutEvent(id: String, type: String, eventObject: StripeObject?): Event {

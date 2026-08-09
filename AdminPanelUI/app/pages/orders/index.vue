@@ -1,9 +1,17 @@
 <script setup lang="ts">
+import { RefreshCw } from '@lucide/vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import type { DataTableColumns, FormInst, FormRules, TagProps } from 'naive-ui'
 import { NButton, NTag, useMessage } from 'naive-ui'
 import { ORDER_STATUS_OPTIONS } from '~/composables/useOrderApi'
-import type { OrderDetail, OrderListItem, OrderListQuery, OrderStatus } from '~/types/order'
+import type {
+  OrderDetail,
+  OrderListItem,
+  OrderListQuery,
+  OrderPaymentStatusResponse,
+  OrderStatus,
+  StripeCollectionStatus,
+} from '~/types/order'
 
 definePageMeta({ layout: 'default' })
 
@@ -14,7 +22,9 @@ const loading = ref(false)
 const orders = ref<OrderListItem[]>([])
 const selectedOrder = ref<OrderListItem | null>(null)
 const selectedOrderDetail = ref<OrderDetail | null>(null)
+const paymentStatus = ref<OrderPaymentStatusResponse | null>(null)
 const detailLoading = ref(false)
+const paymentStatusLoading = ref(false)
 const detailOpen = ref(false)
 const refundOpen = ref(false)
 const refundLoading = ref(false)
@@ -63,6 +73,10 @@ const pageStats = computed(() => ({
 }))
 
 const refundOrder = computed(() => selectedOrder.value?.status === 'PAID' ? selectedOrder.value : null)
+const canQueryPaymentStatus = computed(() => Boolean(
+  selectedOrderDetail.value?.payment_intent_id
+  || selectedOrderDetail.value?.stripe_checkout_session_id,
+))
 
 function statusLabel(status: OrderStatus): string {
   return ORDER_STATUS_OPTIONS.find(option => option.value === status)?.label ?? status
@@ -79,6 +93,41 @@ function statusTagType(status: OrderStatus): TagProps['type'] {
     DELETED: 'default',
   }
   return types[status]
+}
+
+function paymentStatusLabel(status: StripeCollectionStatus): string {
+  const labels: Record<StripeCollectionStatus, string> = {
+    REQUIRES_ACTION: '等待客户操作',
+    PENDING: '待收款',
+    PROCESSING: '处理中',
+    SUCCEEDED: '已收款',
+    FAILED: '收款失败',
+    CANCELLED: '已取消',
+    PARTIALLY_REFUNDED: '部分退款',
+    REFUNDED: '已退款',
+    UNKNOWN: '未知',
+  }
+  return labels[status]
+}
+
+function paymentStatusTagType(status: StripeCollectionStatus): TagProps['type'] {
+  if (status === 'SUCCEEDED') return 'success'
+  if (status === 'FAILED' || status === 'CANCELLED') return 'error'
+  if (status === 'REQUIRES_ACTION' || status === 'PENDING') return 'warning'
+  if (status === 'PROCESSING' || status === 'PARTIALLY_REFUNDED') return 'info'
+  return 'default'
+}
+
+function paymentQuerySourceLabel(source: OrderPaymentStatusResponse['query_source']): string {
+  return source === 'PAYMENT_INTENT' ? 'PaymentIntent' : 'Checkout Session'
+}
+
+function rawPaymentStatus(result: OrderPaymentStatusResponse): string {
+  return [
+    result.payment_intent_status ? `PaymentIntent: ${result.payment_intent_status}` : null,
+    result.checkout_session_status ? `Session: ${result.checkout_session_status}` : null,
+    result.checkout_payment_status ? `Payment: ${result.checkout_payment_status}` : null,
+  ].filter(Boolean).join(' · ') || '-'
 }
 
 function formatDate(value: string | null): string {
@@ -169,6 +218,7 @@ async function changePageSize(pageSize: number) {
 async function openDetail(order: OrderListItem) {
   selectedOrder.value = order
   selectedOrderDetail.value = null
+  paymentStatus.value = null
   detailOpen.value = true
   detailLoading.value = true
   try {
@@ -177,6 +227,28 @@ async function openDetail(order: OrderListItem) {
     message.error(`加载订单详情失败：${errorMessage(error)}`)
   } finally {
     detailLoading.value = false
+  }
+}
+
+async function queryStripePaymentStatus() {
+  const detail = selectedOrderDetail.value
+  if (!detail || !canQueryPaymentStatus.value || paymentStatusLoading.value) return
+
+  paymentStatusLoading.value = true
+  paymentStatus.value = null
+  try {
+    const result = await api.queryPaymentStatus(detail.order_no)
+    paymentStatus.value = result
+    if (selectedOrder.value?.order_no === result.order_no) {
+      selectedOrder.value.status = result.order_status
+    }
+    const listOrder = orders.value.find(order => order.order_no === result.order_no)
+    if (listOrder) listOrder.status = result.order_status
+    message.success(`已查询订单 ${result.order_no} 的 Stripe 收款状态`)
+  } catch (error) {
+    message.error(`查询 Stripe 收款状态失败：${errorMessage(error)}`)
+  } finally {
+    paymentStatusLoading.value = false
   }
 }
 
@@ -601,6 +673,87 @@ onMounted(() => {
               </div>
 
               <div>
+                <div class="detail-section-heading">
+                  <NText strong>Stripe 收款状态</NText>
+                  <NButton
+                    size="small"
+                    secondary
+                    type="primary"
+                    :loading="paymentStatusLoading"
+                    :disabled="!canQueryPaymentStatus"
+                    @click="queryStripePaymentStatus"
+                  >
+                    <template #icon><RefreshCw :size="16" /></template>
+                    查询 Stripe
+                  </NButton>
+                </div>
+
+                <NAlert
+                  v-if="!canQueryPaymentStatus"
+                  class="detail-block"
+                  type="default"
+                  :bordered="false"
+                  title="暂无 Stripe 支付记录"
+                >
+                  当前订单还没有 PaymentIntent 或 Checkout Session。
+                </NAlert>
+
+                <NDescriptions
+                  v-else-if="paymentStatus"
+                  class="detail-block"
+                  label-placement="top"
+                  bordered
+                  :column="2"
+                  size="small"
+                >
+                  <NDescriptionsItem label="远端收款状态">
+                    <NTag :type="paymentStatusTagType(paymentStatus.provider_status)" :bordered="false" size="small">
+                      {{ paymentStatusLabel(paymentStatus.provider_status) }}
+                    </NTag>
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="本地订单状态">
+                    {{ statusLabel(paymentStatus.order_status) }}
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="查询来源">
+                    {{ paymentQuerySourceLabel(paymentStatus.query_source) }}
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="Stripe 金额">
+                    <template v-if="paymentStatus.amount !== null && paymentStatus.currency">
+                      {{ formatAmount(paymentStatus.amount, paymentStatus.currency) }}
+                      <NTag
+                        v-if="paymentStatus.amount_matches_order !== null"
+                        class="amount-match-tag"
+                        size="tiny"
+                        :bordered="false"
+                        :type="paymentStatus.amount_matches_order ? 'success' : 'error'"
+                      >
+                        {{ paymentStatus.amount_matches_order ? '金额一致' : '金额不一致' }}
+                      </NTag>
+                    </template>
+                    <template v-else>-</template>
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="Stripe 原始状态" :span="2">
+                    {{ rawPaymentStatus(paymentStatus) }}
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="PaymentIntent ID" :span="2">
+                    <span class="payment-reference">{{ paymentStatus.payment_intent_id || '-' }}</span>
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="Checkout Session ID" :span="2">
+                    <span class="payment-reference">{{ paymentStatus.stripe_checkout_session_id || '-' }}</span>
+                  </NDescriptionsItem>
+                  <NDescriptionsItem
+                    v-if="paymentStatus.failure_code || paymentStatus.failure_message"
+                    label="失败信息"
+                    :span="2"
+                  >
+                    {{ [paymentStatus.failure_code, paymentStatus.failure_message].filter(Boolean).join(' · ') }}
+                  </NDescriptionsItem>
+                </NDescriptions>
+
+                <NEmpty v-else class="payment-empty" size="small" description="尚未查询 Stripe 收款状态" />
+              </div>
+
+              <div>
                 <NText strong>收货信息</NText>
                 <NDescriptions class="detail-block" label-placement="top" bordered :column="2" size="small">
                   <NDescriptionsItem label="收件人">{{ selectedOrderDetail.shipping_address.name }}</NDescriptionsItem>
@@ -778,6 +931,26 @@ onMounted(() => {
 
 .detail-block {
   margin-top: 10px;
+}
+
+.detail-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.payment-empty {
+  padding: 20px 0 4px;
+}
+
+.payment-reference {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.amount-match-tag {
+  margin-left: 8px;
 }
 
 .order-item-row {

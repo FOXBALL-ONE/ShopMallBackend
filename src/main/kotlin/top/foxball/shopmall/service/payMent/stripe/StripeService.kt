@@ -192,6 +192,9 @@ class StripeService(
         url = url,
         status = status,
         expiresAt = expiresAt?.let(Instant::ofEpochSecond),
+        paymentStatus = paymentStatus,
+        amount = amountTotal?.let { paymentAmount(it, currency) },
+        collectionStatus = checkoutStatus(status, paymentStatus),
     )
 
     private fun PaymentIntent.toPaymentTransaction(): PaymentTransaction = PaymentTransaction(
@@ -372,4 +375,7 @@ data class StripeCheckoutSession(
     val url: String?,
     val status: String?,
     val expiresAt: Instant?,
+    val paymentStatus: String? = null,
+    val amount: PaymentAmount? = null,
+    val collectionStatus: PaymentStatus = PaymentStatus.UNKNOWN,
 )

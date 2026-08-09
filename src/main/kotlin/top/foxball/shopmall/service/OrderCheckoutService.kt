@@ -6,11 +6,9 @@ import java.time.Instant
 /** 面向订单页面的 Stripe Checkout 会话操作。 */
 interface OrderCheckoutService {
     /**
-     * 创建或复用当前订单的托管支付会话。
-     *
-     * @param idempotencyKey 下单时使用的服务端签发幂等键；必须与该订单的持久绑定一致，否则拒绝。
+     * 为当前客户的待支付订单创建或复用托管支付会话。
      */
-    fun openCheckout(customerId: Long, orderNo: String, idempotencyKey: String): OrderCheckoutView
+    fun openCheckout(customerId: Long, orderNo: String): OrderCheckoutView
 }
 
 /** 返回给前端整页跳转所需的最小支付信息。 */

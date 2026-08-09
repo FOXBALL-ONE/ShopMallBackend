@@ -15,6 +15,8 @@ interface RequestFailure {
     status: number;
     message: string;
     data?: ApiResult<unknown>;
+    retryAfterSeconds?: number;
+    transportFailure?: boolean;
 }
 
 interface RefreshAttempt {
@@ -35,6 +37,7 @@ export interface HttpRequestOptions<T> extends Omit<FetchOptions<"json">, "baseU
     payloadMode?: ParamMode;
     params?: QueryParams;
     body?: T;
+    businessErrorStatuses?: number[];
 }
 
 const AUTH_FAILURE_STATUSES = new Set([401, 403]);
@@ -109,7 +112,7 @@ function isAuthenticationEndpoint(url: string): boolean {
 
 function requestFailure(error: unknown): RequestFailure {
     const value = error as {
-        response?: {status?: number; _data?: ApiResult<unknown>};
+        response?: {status?: number; _data?: ApiResult<unknown>; headers?: Headers};
         data?: ApiResult<unknown>;
         statusCode?: number;
         message?: string;
@@ -117,11 +120,23 @@ function requestFailure(error: unknown): RequestFailure {
     const data = value.response?._data ?? value.data;
     const rawStatus = data?.status ?? value.response?.status ?? value.statusCode;
     const status = Number(rawStatus);
+    const retryAfter = value.response?.headers?.get("Retry-After")?.trim();
+    const retryAfterNumber = Number(retryAfter);
+    const retryAfterDate = retryAfter && !Number.isFinite(retryAfterNumber)
+        ? Date.parse(retryAfter)
+        : Number.NaN;
+    const retryAfterSeconds = Number.isFinite(retryAfterNumber) && retryAfterNumber >= 0
+        ? Math.ceil(retryAfterNumber)
+        : Number.isFinite(retryAfterDate)
+            ? Math.max(0, Math.ceil((retryAfterDate - Date.now()) / 1000))
+            : undefined;
 
     return {
         status: Number.isFinite(status) && status > 0 ? status : 500,
         message: data?.message ?? value.message ?? "Request failed",
         data,
+        retryAfterSeconds,
+        transportFailure: rawStatus === undefined || rawStatus === null,
     };
 }
 
@@ -134,7 +149,11 @@ function toRequestError(failure: RequestFailure) {
     return createError({
         statusCode: failure.status,
         statusMessage: failure.message,
-        data: failure.data,
+        data: {
+            ...(failure.data ?? {}),
+            retry_after: failure.retryAfterSeconds,
+            transport_failure: failure.transportFailure === true,
+        },
     });
 }
 
@@ -434,7 +453,14 @@ export const useHttp = (baseURL?: string) => {
         payload?: TPayload,
         options: HttpRequestOptions<TPayload> = {},
     ): Promise<ApiResult<TResponse>> => {
-        const {payloadMode = "query", method = "GET", params, body, ...fetchOptions} = options;
+        const {
+            payloadMode = "query",
+            method = "GET",
+            params,
+            body,
+            businessErrorStatuses = [],
+            ...fetchOptions
+        } = options;
         const query = payloadMode === "query"
             ? (params ?? (payload as QueryParams | undefined))
             : params;
@@ -498,7 +524,12 @@ export const useHttp = (baseURL?: string) => {
         }
 
         // 登录/刷新/登出不能递归刷新；SSR 也不尝试消费浏览器侧 HttpOnly Refresh Cookie。
-        if (import.meta.server || isAuthenticationEndpoint(url) || !isAuthenticationFailure(failure.status)) {
+        if (
+            import.meta.server
+            || isAuthenticationEndpoint(url)
+            || !isAuthenticationFailure(failure.status)
+            || businessErrorStatuses.includes(failure.status)
+        ) {
             throw toRequestError(failure);
         }
         if (clientSessionExpired) {

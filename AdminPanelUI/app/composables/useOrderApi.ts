@@ -2,6 +2,7 @@ import type {
     OrderListQuery,
     OrderListResponse,
     OrderDetail,
+    OrderPaymentStatusResponse,
     OrderStatus,
     RefundOrderResponse,
     DeleteOrderResponse,
@@ -35,6 +36,10 @@ export const useOrderApi = () => {
         return get<OrderDetail>(`/orders/${encodeURIComponent(orderNo)}`);
     }
 
+    function queryPaymentStatus(orderNo: string): Promise<OrderPaymentStatusResponse> {
+        return post<OrderPaymentStatusResponse>(`/orders/${encodeURIComponent(orderNo)}/payment-status`);
+    }
+
     function deleteOrder(orderNo: string): Promise<DeleteOrderResponse> {
         return deleteRequest<DeleteOrderResponse>(`/orders/${encodeURIComponent(orderNo)}`);
     }
@@ -46,6 +51,7 @@ export const useOrderApi = () => {
     return {
         list,
         detail,
+        queryPaymentStatus,
         refund,
         deleteOrder,
         permanentlyDeleteOrder,

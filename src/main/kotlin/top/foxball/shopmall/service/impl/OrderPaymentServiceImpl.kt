@@ -7,12 +7,19 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderStatus
+import top.foxball.shopmall.handler.OrderNotFoundException
+import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.repository.StripeWebhookEventRepository
+import top.foxball.shopmall.service.AdminAccessService
+import top.foxball.shopmall.service.AdminOrderPaymentQuerySource
+import top.foxball.shopmall.service.AdminOrderPaymentView
 import top.foxball.shopmall.service.DomainEventPublisher
 import top.foxball.shopmall.service.OrderPaymentService
+import top.foxball.shopmall.service.payMent.PaymentQueryRequest
+import top.foxball.shopmall.service.payMent.stripe.StripeService
 import top.foxball.shopmall.shared.PaymentIntentCoordinator
 import java.time.Clock
 
@@ -25,6 +32,8 @@ class OrderPaymentServiceImpl(
     private val webhookEventRepository: StripeWebhookEventRepository,
     private val eventPublisher: DomainEventPublisher,
     private val paymentIntentCoordinator: PaymentIntentCoordinator,
+    private val adminAccessService: AdminAccessService,
+    private val stripeService: StripeService,
     private val clock: Clock,
 ) : OrderPaymentService {
     /**
@@ -59,6 +68,62 @@ class OrderPaymentServiceImpl(
             )
             "checkout.session.expired" -> cancelExpiredPendingOrder(order)
         }
+    }
+
+    override fun queryAdminPaymentStatus(adminId: Long, orderNo: String): AdminOrderPaymentView {
+        adminAccessService.requireAdmin(adminId)
+        val order = orderRepository.findByOrderNo(orderNo) ?: throw OrderNotFoundException()
+        val checkoutSession = if (order.paymentIntentId == null) {
+            order.stripeCheckoutSessionId?.let(stripeService::retrieveCheckoutSession)
+        } else {
+            null
+        }
+        val paymentIntentId = order.paymentIntentId ?: checkoutSession?.paymentIntentId
+
+        if (paymentIntentId != null) {
+            val payment = stripeService.queryPayment(PaymentQueryRequest(paymentIntentId))
+            val amount = payment.amount
+            return AdminOrderPaymentView(
+                orderNo = order.orderNo,
+                orderStatus = order.status,
+                provider = stripeService.provider,
+                providerStatus = payment.status,
+                querySource = AdminOrderPaymentQuerySource.PAYMENT_INTENT,
+                paymentIntentId = payment.providerPaymentId ?: paymentIntentId,
+                checkoutSessionId = order.stripeCheckoutSessionId,
+                paymentIntentStatus = payment.rawStatus,
+                checkoutSessionStatus = checkoutSession?.status,
+                checkoutPaymentStatus = checkoutSession?.paymentStatus,
+                amount = amount,
+                amountMatchesOrder = amount.currency == order.currency && amount.value.compareTo(order.totalAmount) == 0,
+                failureCode = payment.failureCode,
+                failureMessage = payment.failureMessage,
+            )
+        }
+
+        if (checkoutSession != null) {
+            val amount = checkoutSession.amount
+            return AdminOrderPaymentView(
+                orderNo = order.orderNo,
+                orderStatus = order.status,
+                provider = stripeService.provider,
+                providerStatus = checkoutSession.collectionStatus,
+                querySource = AdminOrderPaymentQuerySource.CHECKOUT_SESSION,
+                paymentIntentId = null,
+                checkoutSessionId = checkoutSession.id,
+                paymentIntentStatus = null,
+                checkoutSessionStatus = checkoutSession.status,
+                checkoutPaymentStatus = checkoutSession.paymentStatus,
+                amount = amount,
+                amountMatchesOrder = amount?.let {
+                    it.currency == order.currency && it.value.compareTo(order.totalAmount) == 0
+                },
+                failureCode = null,
+                failureMessage = null,
+            )
+        }
+
+        throw OrderStatusException("订单尚未创建 Stripe 支付记录")
     }
 
     /** 将远端操作登记为订单外盒事件，确保失败时可由现有外盒机制重试。 */

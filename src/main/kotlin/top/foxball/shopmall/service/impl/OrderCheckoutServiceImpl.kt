@@ -4,11 +4,9 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import top.foxball.shopmall.entity.jdbc.OrderStatus
-import top.foxball.shopmall.handler.IdempotencyKeyInvalidException
 import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.handler.OrderStatusException
-import top.foxball.shopmall.repository.OrderIdempotencyRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.service.OrderCheckoutService
 import top.foxball.shopmall.service.OrderCheckoutView
@@ -31,7 +29,6 @@ import java.time.Instant
 @Service
 class OrderCheckoutServiceImpl(
     private val orderRepository: OrderRepository,
-    private val orderIdempotencyRepository: OrderIdempotencyRepository,
     private val stripeService: StripeService,
     private val stripeProperties: StripeProperties,
     private val clock: Clock,
@@ -39,15 +36,7 @@ class OrderCheckoutServiceImpl(
 ) : OrderCheckoutService {
     private val transactions = TransactionTemplate(transactionManager)
 
-    override fun openCheckout(customerId: Long, orderNo: String, idempotencyKey: String): OrderCheckoutView {
-        // 支付授权以 DB 幂等行为准：订单下单时写入的键绑定必须与本次携带的键一致，防止订单号泄露后
-        // 被他人发起支付会话。绑定校验依据是 DB 行而非 Redis 键 TTL，用户持有的键过期不影响支付。
-        val keyBinding = orderIdempotencyRepository.findByCustomerIdAndOrderNo(customerId, orderNo)
-            ?: throw IdempotencyKeyInvalidException()
-        if (keyBinding.idempotencyKey != idempotencyKey.trim()) {
-            throw IdempotencyKeyInvalidException()
-        }
-
+    override fun openCheckout(customerId: Long, orderNo: String): OrderCheckoutView {
         val candidate = requireNotNull(transactions.execute {
             val order = orderRepository.findByOrderNoAndCustomerId(orderNo, customerId)
                 ?: orderRepository.findByOrderNo(orderNo)

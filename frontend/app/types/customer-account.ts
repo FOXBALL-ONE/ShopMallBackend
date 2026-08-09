@@ -1,5 +1,14 @@
 export type NullableNumber = number | string | null
 
+export type CustomerOrderStatus =
+  | 'PENDING_PAYMENT'
+  | 'PAID'
+  | 'SHIPPED'
+  | 'DELIVERED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'DELETED'
+
 export interface CustomerProfile {
   id: number
   email: string
@@ -172,7 +181,7 @@ export interface CustomerOrder {
   id: number
   order_no: string
   customer_id: number
-  status: string
+  status: CustomerOrderStatus
   items_subtotal: NullableNumber
   shipping_fee: NullableNumber
   tax_amount: NullableNumber
@@ -203,9 +212,35 @@ export interface CustomerOrdersResponse {
 export interface CustomerOrderCancellation {
   id: number
   order_no: string
-  status: string
+  status: CustomerOrderStatus
   cancel_reason: string | null
-  items: CustomerOrderItem[]
+  items: Array<Omit<CustomerOrderItem, 'created_at'>>
+}
+
+export interface CustomerOrderIdempotencyKey {
+  idempotency_key: string
+  expires_at: string
+}
+
+export interface CustomerPlaceOrderInput {
+  product_ids: number[]
+  quantities: number[]
+  address_id: string
+  client_message?: string
+}
+
+export interface CustomerOrderCheckout {
+  order_no: string
+  status: CustomerOrderStatus
+  checkout_url: string
+  expires_at: string
+}
+
+export interface CustomerOrderPayment {
+  order_no: string
+  status: CustomerOrderStatus
+  checkout_session_id: string | null
+  expires_at: string | null
 }
 
 export interface CustomerShipmentItem {

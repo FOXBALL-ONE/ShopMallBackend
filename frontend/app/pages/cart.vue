@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { CustomerCart, CustomerCartItem, CustomerProfile } from '~/types/customer-account'
+import type { CustomerCartItem, CustomerProfile } from '~/types/customer-account'
 import { customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
 import { formatCustomerMoney } from '~/utils/customer-display'
 
@@ -13,22 +13,22 @@ useHead({
 
 const api = useCustomerAccountApi()
 const session = useCustomerSession()
+const customerCart = useCustomerCart()
 const toast = useToast()
 
 const profile = ref<CustomerProfile | null>(null)
-const cart = ref<CustomerCart | null>(null)
+const cart = customerCart.cart
 const isLoading = ref(true)
 const isRefreshing = ref(false)
 const busyItemId = ref<number | null>(null)
 const isClearing = ref(false)
 const requestError = ref('')
 
-const currency = computed(() => profile.value?.currency || 'USD')
+const currency = 'USD'
 const cartItems = computed(() => cart.value?.items || [])
 const unavailableItems = computed(() => cartItems.value.filter(item => !isPurchasable(item)))
-const availableItems = computed(() => cartItems.value.filter(item => isPurchasable(item)))
 const bagLabel = computed(() => `${cart.value?.total_quantity || 0} ${cart.value?.total_quantity === 1 ? 'piece' : 'pieces'}`)
-const subtotalLabel = computed(() => formatCustomerMoney(cart.value?.subtotal, currency.value))
+const subtotalLabel = computed(() => formatCustomerMoney(cart.value?.subtotal, currency))
 
 function isPurchasable(item: CustomerCartItem) {
   return Boolean(item.purchasable && item.stock > 0 && item.quantity <= item.stock)
@@ -42,10 +42,6 @@ function maxQuantity(item: CustomerCartItem) {
   return Math.max(1, Math.min(Number(item.stock || 1), 99))
 }
 
-async function applyCart(nextCart: CustomerCart) {
-  cart.value = nextCart
-}
-
 async function updateQuantity(item: CustomerCartItem, quantity: number) {
   if (busyItemId.value === item.id || !isPurchasable(item)) return
   const nextQuantity = Math.max(1, Math.min(quantity, maxQuantity(item)))
@@ -54,7 +50,7 @@ async function updateQuantity(item: CustomerCartItem, quantity: number) {
   busyItemId.value = item.id
   requestError.value = ''
   try {
-    await applyCart(await api.updateCartItem(item.id, nextQuantity))
+    await customerCart.updateItem(item.id, nextQuantity)
   } catch (error: unknown) {
     requestError.value = customerRequestMessage(error, 'We could not update this piece in your bag.')
     toast.add({ title: 'Bag not updated', description: requestError.value, color: 'error' })
@@ -68,7 +64,7 @@ async function removeItem(item: CustomerCartItem) {
   busyItemId.value = item.id
   requestError.value = ''
   try {
-    await applyCart(await api.removeCartItem(item.id))
+    await customerCart.removeItem(item.id)
     toast.add({ title: 'Removed from bag', description: `${item.name} is no longer in your shopping bag.`, color: 'success' })
   } catch (error: unknown) {
     requestError.value = customerRequestMessage(error, 'We could not remove this piece.')
@@ -85,7 +81,7 @@ async function clearCart() {
   isClearing.value = true
   requestError.value = ''
   try {
-    await applyCart(await api.clearCart())
+    await customerCart.clear()
     toast.add({ title: 'Bag cleared', description: 'Your shopping bag is ready for a new edit.', color: 'success' })
   } catch (error: unknown) {
     requestError.value = customerRequestMessage(error, 'We could not clear your bag.')
@@ -106,12 +102,11 @@ async function loadCart(showLoading = true) {
   else isRefreshing.value = true
   requestError.value = ''
   try {
-    const [profileResult, cartResult] = await Promise.all([
+    const [profileResult] = await Promise.all([
       profile.value ? Promise.resolve(profile.value) : api.getProfile(userId),
-      api.getCart()
+      customerCart.refresh(true)
     ])
     profile.value = profileResult
-    cart.value = cartResult
   } catch (error: unknown) {
     requestError.value = customerRequestMessage(error, 'We could not load your shopping bag.')
   } finally {
@@ -222,7 +217,14 @@ onMounted(() => {
               <div><span>Shipping</span><strong>Calculated next</strong></div>
             </div>
             <div class="summary-total"><span>Estimated total</span><strong>{{ subtotalLabel }}</strong></div>
-            <NuxtLink class="store-button summary-button" to="/account/profile#addresses"><UIcon name="i-lucide-arrow-up-right" /> Review delivery details</NuxtLink>
+            <NuxtLink
+              class="store-button summary-button"
+              :class="{ disabled: unavailableItems.length > 0 }"
+              :to="unavailableItems.length ? '/cart' : '/checkout'"
+              :aria-disabled="unavailableItems.length > 0"
+            >
+              <UIcon name="i-lucide-lock-keyhole" /> Secure checkout
+            </NuxtLink>
             <p class="summary-note"><UIcon name="i-lucide-sparkles" /> Complimentary shipping on orders over $79.</p>
           </div>
         </aside>
@@ -332,6 +334,7 @@ onMounted(() => {
 .summary-total span { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
 .summary-total strong { color: var(--store-wine); font-size: 18px; font-weight: 600; }
 .summary-button { width: 100%; box-sizing: border-box; margin-top: 20px; }
+.summary-button.disabled { cursor: not-allowed; opacity: .48; pointer-events: none; }
 .summary-note { display: flex; align-items: flex-start; gap: 6px; margin: 16px 0 0; color: var(--store-muted); font-size: 10px; line-height: 1.5; }
 .summary-note .iconify { width: 13px; height: 13px; flex: 0 0 auto; color: var(--store-wine); }
 

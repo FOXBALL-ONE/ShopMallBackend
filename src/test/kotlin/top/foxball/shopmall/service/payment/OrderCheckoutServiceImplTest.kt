@@ -9,11 +9,9 @@ import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.TransactionStatus
 import org.springframework.transaction.support.SimpleTransactionStatus
 import top.foxball.shopmall.entity.jdbc.OrderEntity
-import top.foxball.shopmall.entity.jdbc.OrderIdempotency
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.handler.ForbiddenException
-import top.foxball.shopmall.handler.IdempotencyKeyInvalidException
-import top.foxball.shopmall.repository.OrderIdempotencyRepository
+import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.service.impl.OrderCheckoutServiceImpl
 import top.foxball.shopmall.service.payMent.PaymentAmount
@@ -40,7 +38,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 class OrderCheckoutServiceImplTest {
     private val repository = mock(OrderRepository::class.java)
-    private val idempotencyRepository = mock(OrderIdempotencyRepository::class.java)
     private val stripeService = mock(StripeService::class.java)
     private val clock = MutableClock(Instant.parse("2026-07-28T08:00:00Z"))
     private val properties = StripeProperties(
@@ -51,30 +48,15 @@ class OrderCheckoutServiceImplTest {
     )
     private val service = OrderCheckoutServiceImpl(
         repository,
-        idempotencyRepository,
         stripeService,
         properties,
         clock,
         transactionManager(),
     )
-    private val issuedKey = "key-order-7"
-
-    private fun stubKeyBinding(order: OrderEntity) {
-        `when`(idempotencyRepository.findByCustomerIdAndOrderNo(order.customerId, order.orderNo))
-            .thenReturn(
-                OrderIdempotency(
-                    customerId = order.customerId,
-                    idempotencyKey = issuedKey,
-                    requestHash = "hash",
-                    orderNo = order.orderNo,
-                ),
-            )
-    }
 
     @Test
     fun `retry after Stripe response timeout uses identical create request`() {
         val order = pendingOrder(expiresAt = Instant.parse("2026-07-28T08:25:00Z"))
-        stubKeyBinding(order)
         val expectedRequest = paymentCreateRequest(order)
         `when`(repository.findByOrderNoAndCustomerId(order.orderNo, order.customerId)).thenReturn(order)
         `when`(repository.attachStripeCheckoutSession(10, "cs_recovered", "pi_recovered")).thenReturn(1)
@@ -96,10 +78,10 @@ class OrderCheckoutServiceImplTest {
             )
 
         assertFailsWith<PaymentProviderException> {
-            service.openCheckout(order.customerId, order.orderNo, issuedKey)
+            service.openCheckout(order.customerId, order.orderNo)
         }
         clock.current = Instant.parse("2026-07-28T08:10:00Z")
-        val result = service.openCheckout(order.customerId, order.orderNo, issuedKey)
+        val result = service.openCheckout(order.customerId, order.orderNo)
 
         assertNull(expectedRequest.expiresAt)
         assertEquals("https://checkout.stripe.com/c/pay/cs_recovered", result.checkoutUrl)
@@ -110,7 +92,6 @@ class OrderCheckoutServiceImplTest {
     @Test
     fun `conditional binding loser returns the winning checkout Session`() {
         val order = pendingOrder(expiresAt = Instant.parse("2026-07-28T09:00:00Z"))
-        stubKeyBinding(order)
         val winner = pendingOrder(expiresAt = order.expiresAt!!).apply {
             stripeCheckoutSessionId = "cs_winner"
             paymentIntentId = "pi_winner"
@@ -134,7 +115,7 @@ class OrderCheckoutServiceImplTest {
             ),
         )
 
-        val result = service.openCheckout(order.customerId, order.orderNo, issuedKey)
+        val result = service.openCheckout(order.customerId, order.orderNo)
 
         assertEquals("https://checkout.stripe.com/c/pay/cs_winner", result.checkoutUrl)
         verify(stripeService).expireCheckoutSession("cs_loser")
@@ -142,47 +123,37 @@ class OrderCheckoutServiceImplTest {
     }
 
     @Test
-    fun `checkout rejects when the issued key does not match the order binding`() {
-        val order = pendingOrder(expiresAt = Instant.parse("2026-07-28T08:25:00Z"))
-        stubKeyBinding(order)
-
-        assertFailsWith<IdempotencyKeyInvalidException> {
-            service.openCheckout(order.customerId, order.orderNo, "another-key")
+    fun `checkout rejects an order that is no longer pending payment`() {
+        val order = pendingOrder(expiresAt = Instant.parse("2026-07-28T08:25:00Z")).apply {
+            status = OrderStatus.PAID
         }
+        `when`(repository.findByOrderNoAndCustomerId(order.orderNo, order.customerId)).thenReturn(order)
 
-        verify(idempotencyRepository).findByCustomerIdAndOrderNo(order.customerId, order.orderNo)
-    }
-
-    @Test
-    fun `checkout rejects orders without any key binding`() {
-        val order = pendingOrder(expiresAt = Instant.parse("2026-07-28T08:25:00Z"))
-        `when`(idempotencyRepository.findByCustomerIdAndOrderNo(order.customerId, order.orderNo))
-            .thenReturn(null)
-
-        assertFailsWith<IdempotencyKeyInvalidException> {
-            service.openCheckout(order.customerId, order.orderNo, issuedKey)
+        assertFailsWith<OrderStatusException> {
+            service.openCheckout(order.customerId, order.orderNo)
         }
     }
 
     @Test
-    fun `checkout rejects another customers order after its key binding is checked`() {
+    fun `checkout rejects an expired pending order`() {
+        val order = pendingOrder(expiresAt = Instant.parse("2026-07-28T08:00:00Z"))
+        `when`(repository.findByOrderNoAndCustomerId(order.orderNo, order.customerId)).thenReturn(order)
+
+        assertFailsWith<OrderStatusException> {
+            service.openCheckout(order.customerId, order.orderNo)
+        }
+    }
+
+    @Test
+    fun `checkout rejects another customers order`() {
         val foreignOrder = pendingOrder(expiresAt = Instant.parse("2026-07-28T08:25:00Z")).apply {
             customerId = 8
         }
-        `when`(idempotencyRepository.findByCustomerIdAndOrderNo(7, foreignOrder.orderNo))
-            .thenReturn(
-                OrderIdempotency(
-                    customerId = 7,
-                    idempotencyKey = issuedKey,
-                    requestHash = "hash",
-                    orderNo = foreignOrder.orderNo,
-                ),
-            )
         `when`(repository.findByOrderNoAndCustomerId(foreignOrder.orderNo, 7)).thenReturn(null)
         `when`(repository.findByOrderNo(foreignOrder.orderNo)).thenReturn(foreignOrder)
 
         assertFailsWith<ForbiddenException> {
-            service.openCheckout(7, foreignOrder.orderNo, issuedKey)
+            service.openCheckout(7, foreignOrder.orderNo)
         }
     }
 

@@ -219,4 +219,4 @@ stripe:
   webhook:
     endpoint-url: "${STRIPE_WEBHOOK_URL:${WEBHOOK_SECRET_SNAPSHOT_URL:}}"
   checkout:
-    storefront-base-url: "${STOREFRONT_BASE_URL:http://localhost:3000}"
+    storefront-base-url: "${STOREFRONT_BASE_URL:http://localhost:8088}"
