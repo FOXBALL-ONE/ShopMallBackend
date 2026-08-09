@@ -1,5 +1,12 @@
 # ShopMall Project Instructions
 
+## Frontend Directory Responsibilities
+
+- `AdminPanelUI/` is the administration frontend used by administrators and internal operators.
+- `frontend/` is the customer-facing frontend used by ShopMall customers.
+- Place frontend changes in the directory matching the intended audience; do not treat these two
+  applications as interchangeable.
+
 ## Controller Conventions
 
 Follow `docs/CONTROLLER_CONVENTIONS.md` and the established style in `UserController`,
