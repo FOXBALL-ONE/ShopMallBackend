@@ -43,4 +43,6 @@ out/
 .env
 .env.*
 !.env.example
+/storage/
 /logs/
+/.codex/
