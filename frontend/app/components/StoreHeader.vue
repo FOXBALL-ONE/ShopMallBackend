@@ -79,7 +79,7 @@ async function submitSearch() {
           <button class="store-icon-button" type="button" aria-label="Search products" @click="toggleSearch">
             <UIcon name="i-lucide-search" />
           </button>
-          <NuxtLink class="store-icon-button store-account-link" to="/login" aria-label="My account">
+          <NuxtLink class="store-icon-button store-account-link" to="/account" aria-label="My account">
             <UIcon name="i-lucide-user-round" />
           </NuxtLink>
           <button class="store-icon-button store-bag-button" type="button" aria-label="Shopping bag" @click="toggleBag">
@@ -90,6 +90,10 @@ async function submitSearch() {
       </div>
 
       <nav class="store-main-nav" :class="{ 'is-open': isMenuOpen }" aria-label="Main navigation">
+        <NuxtLink class="store-mobile-account-nav" to="/account" @click="isMenuOpen = false">
+          <UIcon name="i-lucide-user-round" />
+          My account
+        </NuxtLink>
         <NuxtLink v-for="item in navItems" :key="item.to" :to="item.to" @click="isMenuOpen = false">
           {{ item.label }}
         </NuxtLink>
@@ -114,7 +118,10 @@ async function submitSearch() {
           <span class="store-popover-eyebrow">YOUR BAG</span>
           <strong>Your bag is empty</strong>
           <p>Your Pelissa picks will appear here.</p>
-          <NuxtLink to="/collections/shop" @click="isBagOpen = false">Start shopping</NuxtLink>
+          <div class="store-bag-popover-actions">
+            <NuxtLink to="/cart" @click="isBagOpen = false">View your bag</NuxtLink>
+            <NuxtLink to="/collections/shop" @click="isBagOpen = false">Start shopping</NuxtLink>
+          </div>
         </div>
         <button type="button" aria-label="Close shopping bag" @click="isBagOpen = false"><UIcon name="i-lucide-x" /></button>
       </aside>
@@ -296,6 +303,10 @@ async function submitSearch() {
   color: var(--store-wine);
 }
 
+.store-main-nav .store-mobile-account-nav {
+  display: none;
+}
+
 .store-main-nav a::after {
   position: absolute;
   right: 0;
@@ -408,6 +419,24 @@ async function submitSearch() {
   text-transform: uppercase;
 }
 
+.store-bag-popover .store-bag-popover-actions {
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.store-bag-popover-actions a:first-child {
+  padding: 8px 11px;
+  border: 1px solid var(--store-ink);
+  color: #fff;
+  background: var(--store-ink);
+}
+
+.store-bag-popover-actions a:first-child:hover {
+  border-color: var(--store-wine);
+  background: var(--store-wine);
+}
+
 @media (max-width: 820px) {
   .store-announcement {
     justify-content: space-between;
@@ -469,6 +498,18 @@ async function submitSearch() {
   .store-main-nav a {
     padding: 13px 2px;
     border-bottom: 1px solid var(--store-line);
+  }
+
+  .store-main-nav .store-mobile-account-nav {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--store-wine);
+  }
+
+  .store-mobile-account-nav .iconify {
+    width: 16px;
+    height: 16px;
   }
 
   .store-main-nav a:last-child {

@@ -85,7 +85,7 @@ function isAuthenticationFailure(status: number): boolean {
 
 function requestPath(url: string): string {
     try {
-        return new URL(url, "http://localhost").pathname.replace(/\/+$/, "");
+        return new URL(url, "http://localhost:8080").pathname.replace(/\/+$/, "");
     } catch {
         return url.split(/[?#]/, 1)[0]?.replace(/\/+$/, "") ?? url;
     }

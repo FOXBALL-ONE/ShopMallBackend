@@ -181,7 +181,7 @@ onBeforeUnmount(() => {
           <button class="icon-button" type="button" aria-label="Search" @click="toggleSearch">
             <UIcon name="i-lucide-search" />
           </button>
-          <NuxtLink class="icon-button desktop-only" to="/login" aria-label="My account">
+          <NuxtLink class="icon-button desktop-only" to="/account" aria-label="My account">
             <UIcon name="i-lucide-user-round" />
           </NuxtLink>
           <button class="icon-button bag-button" type="button" aria-label="Shopping bag" @click="isBagOpen = !isBagOpen">
@@ -192,6 +192,10 @@ onBeforeUnmount(() => {
       </div>
 
       <nav class="main-nav" :class="{ 'is-open': isMenuOpen }" aria-label="Main navigation">
+        <NuxtLink class="mobile-account-nav" to="/account" @click="isMenuOpen = false">
+          <UIcon name="i-lucide-user-round" />
+          My account
+        </NuxtLink>
         <NuxtLink v-for="item in navItems" :key="item.to" :to="item.to" @click="isMenuOpen = false">{{ item.label }}</NuxtLink>
       </nav>
 
@@ -207,6 +211,7 @@ onBeforeUnmount(() => {
         <div>
           <strong>Your bag is empty</strong>
           <p>Your lingerie picks will appear here.</p>
+          <NuxtLink class="bag-view-link" to="/cart" @click="isBagOpen = false">View your bag</NuxtLink>
         </div>
         <button type="button" aria-label="Close shopping bag" @click="isBagOpen = false"><UIcon name="i-lucide-x" /></button>
       </aside>
@@ -351,7 +356,7 @@ onBeforeUnmount(() => {
         <div class="footer-column">
           <strong>Help</strong>
           <NuxtLink to="/search?q=shipping">Shipping &amp; returns</NuxtLink>
-          <NuxtLink to="/search?q=track">Track an order</NuxtLink>
+          <NuxtLink to="/account/logistics">Track an order</NuxtLink>
           <NuxtLink to="/search?q=contact">Contact us</NuxtLink>
           <NuxtLink to="/search?q=faq">FAQs</NuxtLink>
         </div>
@@ -410,6 +415,7 @@ a { color: inherit; text-decoration: none; }
 .main-nav { height: 46px; display: flex; align-items: center; justify-content: center; gap: clamp(20px, 3vw, 48px); border-top: 1px solid var(--line); }
 .main-nav a { position: relative; padding: 5px 0; font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; }
 .main-nav a:last-child { color: var(--coral); }
+.main-nav .mobile-account-nav { display: none; }
 .main-nav a::after { position: absolute; bottom: 0; left: 0; width: 0; height: 1px; background: currentColor; content: ''; transition: width .2s ease; }
 .main-nav a:hover::after { width: 100%; }
 .search-panel { position: absolute; right: max(32px, calc((100vw - 1440px) / 2)); top: 46px; width: min(100% - 64px, 430px); height: 54px; display: flex; align-items: center; gap: 10px; padding: 0 13px; border: 1px solid var(--ink); background: #fff; box-shadow: 0 10px 22px rgba(28, 37, 32, .12); }
@@ -419,6 +425,8 @@ a { color: inherit; text-decoration: none; }
 .bag-popover { position: absolute; right: max(32px, calc((100vw - 1440px) / 2)); top: 46px; display: flex; justify-content: space-between; gap: 32px; width: min(100% - 64px, 330px); padding: 24px; background: #fff; border: 1px solid var(--ink); box-shadow: 0 10px 22px rgba(28, 37, 32, .12); }
 .bag-popover strong { font-size: 14px; }
 .bag-popover p { margin: 7px 0 0; color: #666d67; font-size: 12px; line-height: 1.5; }
+.bag-view-link { display: inline-flex; margin-top: 14px; padding-bottom: 3px; border-bottom: 1px solid currentColor; color: var(--coral); font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase; }
+.bag-view-link:hover { color: var(--ink); }
 .bag-popover button { height: 22px; padding: 0; border: 0; background: none; cursor: pointer; }
 
 .hero { --hero-image: none; --hero-position: center; position: relative; min-height: min(690px, calc(100vh - 190px)); display: flex; align-items: end; background-image: var(--hero-image); background-position: var(--hero-position); background-size: cover; color: #fff; transition: background-image .45s ease; }
@@ -565,6 +573,8 @@ a { color: inherit; text-decoration: none; }
   .main-nav { position: absolute; top: 99px; left: 0; right: 0; height: auto; display: none; align-items: stretch; gap: 0; padding: 10px 16px 17px; border: 0; background: var(--off-white); box-shadow: 0 8px 16px rgba(28, 37, 32, .1); }
   .main-nav.is-open { display: flex; flex-direction: column; }
   .main-nav a { padding: 13px 0; border-bottom: 1px solid var(--line); }
+  .main-nav .mobile-account-nav { display: flex; align-items: center; gap: 9px; color: var(--coral); }
+  .mobile-account-nav .iconify { width: 16px; height: 16px; }
   .main-nav a:last-child { border: 0; }
   .search-panel, .bag-popover { right: 16px; top: 99px; width: calc(100% - 32px); }
   .hero { min-height: 620px; }

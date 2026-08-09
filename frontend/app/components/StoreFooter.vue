@@ -25,13 +25,13 @@
         <NuxtLink to="/collections/shop">The full collection</NuxtLink>
         <NuxtLink to="/search">Search</NuxtLink>
         <NuxtLink to="/product/1">Fit &amp; details</NuxtLink>
-        <NuxtLink to="/login">My account</NuxtLink>
+        <NuxtLink to="/account">My account</NuxtLink>
       </div>
 
       <div class="store-footer-column">
         <strong>Help</strong>
         <a href="#">Shipping &amp; returns</a>
-        <a href="#">Track an order</a>
+        <NuxtLink to="/account/logistics">Track an order</NuxtLink>
         <a href="#">Contact us</a>
         <a href="#">FAQs</a>
       </div>

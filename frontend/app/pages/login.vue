@@ -4,45 +4,6 @@ import type { ApiResult } from '~/types/http'
 
 type AuthMode = 'login' | 'register'
 
-interface LoginResponse {
-  access_token: string
-  expires_in: number
-  user_id: number
-  user_info: {
-    username: string
-    email: string
-    first_name: string
-    last_name: string
-    avatar: string | null
-    locale: string | null
-    currency: string | null
-    role: string
-  }
-}
-
-interface RegistrationPayload {
-  email: string
-  username: string
-  password: string
-  verification_code: string
-  first_name?: string
-  last_name?: string
-  marketing_consent: boolean
-}
-
-interface RegistrationResponse {
-  id: number
-  email: string
-  username: string
-  first_name: string
-  last_name: string
-  email_verified: boolean
-  marketing_consent: boolean
-  role: string
-  status: string
-  created_at: string | null
-}
-
 interface ErrorShape {
   data?: ApiResult<unknown>
   response?: { _data?: ApiResult<unknown> }
@@ -61,7 +22,7 @@ useHead({
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const http = useHttp()
+const authApi = useCustomerAuthApi()
 
 const mode = ref<AuthMode>(route.query.mode === 'register' ? 'register' : 'login')
 const isSubmitting = ref(false)
@@ -143,24 +104,6 @@ function startCodeCooldown() {
   }, 1000)
 }
 
-function authenticate(identifier: string, password: string) {
-  return http.post<LoginResponse, URLSearchParams>('/auth/login', formBody({
-    identifier: identifier.trim(),
-    password
-  }), {
-    payloadMode: 'json',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-  })
-}
-
-function formBody(parameters: Record<string, string | boolean | undefined>) {
-  const body = new URLSearchParams()
-  for (const [name, value] of Object.entries(parameters)) {
-    if (value !== undefined) body.set(name, String(value))
-  }
-  return body
-}
-
 async function sendVerificationCode() {
   const email = registerForm.email.trim()
   formError.value = ''
@@ -173,15 +116,12 @@ async function sendVerificationCode() {
 
   isSendingCode.value = true
   try {
-    const response = await http.postRaw<unknown, URLSearchParams>('/auth/verification-code', formBody({ email }), {
-      payloadMode: 'json',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    })
+    const message = await authApi.sendRegistrationCode(email)
     verificationSent.value = true
     startCodeCooldown()
     toast.add({
       title: 'Verification code sent',
-      description: response.message || 'Check your inbox. The code is valid for five minutes.',
+      description: message || 'Check your inbox. The code is valid for five minutes.',
       color: 'success'
     })
   } catch (error: unknown) {
@@ -200,7 +140,7 @@ async function submitLogin() {
 
   isSubmitting.value = true
   try {
-    const session = await authenticate(loginForm.identifier, loginForm.password)
+    const session = await authApi.login(loginForm.identifier, loginForm.password)
     const displayName = session.user_info.first_name.trim() || session.user_info.username
     toast.add({ title: `Welcome back, ${displayName}`, description: 'Your secure session is ready.', color: 'success' })
     await router.replace(redirectTarget.value)
@@ -227,24 +167,19 @@ async function submitRegistration() {
   else if (!registerForm.acceptedTerms) formError.value = 'Please accept the Terms of Use and Privacy Policy.'
   if (formError.value) return
 
-  const payload: RegistrationPayload = {
-    email,
-    username,
-    password: registerForm.password,
-    verification_code: registerForm.verificationCode.trim(),
-    marketing_consent: registerForm.marketingConsent
-  }
-  if (firstName) payload.first_name = firstName
-  if (lastName) payload.last_name = lastName
-
   isSubmitting.value = true
   try {
-    await http.post<RegistrationResponse, URLSearchParams>('/users/Register', formBody({ ...payload }), {
-      payloadMode: 'json',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    await authApi.registerAccount({
+      email,
+      username,
+      password: registerForm.password,
+      verificationCode: registerForm.verificationCode,
+      firstName: firstName || undefined,
+      lastName: lastName || undefined,
+      marketingConsent: registerForm.marketingConsent
     })
     try {
-      const session = await authenticate(username, registerForm.password)
+      const session = await authApi.login(username, registerForm.password)
       const displayName = session.user_info.first_name.trim() || session.user_info.username
       toast.add({
         title: `Welcome to PELISSA, ${displayName}`,
