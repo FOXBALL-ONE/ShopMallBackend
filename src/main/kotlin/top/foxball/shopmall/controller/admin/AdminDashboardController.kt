@@ -11,11 +11,9 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import top.foxball.shopmall.service.AdminDashboardService
-import top.foxball.shopmall.service.AdminSystemStatusService
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.math.BigDecimal
-import java.time.Instant
 import java.time.LocalDate
 
 /**
@@ -26,7 +24,6 @@ import java.time.LocalDate
 @RequestMapping("/admin/api/dashboard")
 class AdminDashboardController(
     private val dashboardService: AdminDashboardService,
-    private val systemStatusService: AdminSystemStatusService,
     private val builder: ResponseBuilder,
 ) {
     /**
@@ -183,103 +180,4 @@ class AdminDashboardController(
         return builder.ok().data(rs).build()
     }
 
-    /**
-     * @api 获取后端系统运行状态
-     */
-    @GetMapping("/system-status")
-    fun getSystemStatus(
-        @AuthenticationPrincipal adminId: Long,
-    ): ResponseEntity<Response> {
-        data class ApplicationData(
-            val name: String,
-            val version: String,
-            @param:JsonProperty("started_at") val startedAt: Instant,
-            @param:JsonProperty("uptime_seconds") val uptimeSeconds: Long,
-            @param:JsonProperty("available_processors") val availableProcessors: Int,
-            @param:JsonProperty("system_load_average") val systemLoadAverage: Double?,
-            @param:JsonProperty("process_cpu_usage") val processCpuUsage: Double?,
-            @param:JsonProperty("system_cpu_usage") val systemCpuUsage: Double?,
-        )
-
-        data class JvmData(
-            @param:JsonProperty("heap_used_bytes") val heapUsedBytes: Long,
-            @param:JsonProperty("heap_committed_bytes") val heapCommittedBytes: Long,
-            @param:JsonProperty("heap_max_bytes") val heapMaxBytes: Long,
-            @param:JsonProperty("non_heap_used_bytes") val nonHeapUsedBytes: Long,
-            @param:JsonProperty("live_threads") val liveThreads: Int,
-            @param:JsonProperty("peak_threads") val peakThreads: Int,
-            @param:JsonProperty("daemon_threads") val daemonThreads: Int,
-            @param:JsonProperty("gc_collection_count") val gcCollectionCount: Long,
-            @param:JsonProperty("gc_collection_time_ms") val gcCollectionTimeMillis: Long,
-        )
-
-        data class DatabaseData(
-            val available: Boolean,
-            @param:JsonProperty("latency_ms") val latencyMillis: Long,
-            @param:JsonProperty("active_connections") val activeConnections: Long?,
-            @param:JsonProperty("idle_connections") val idleConnections: Long?,
-            @param:JsonProperty("max_connections") val maxConnections: Long?,
-        )
-
-        data class RedisData(
-            val available: Boolean,
-            @param:JsonProperty("latency_ms") val latencyMillis: Long,
-            @param:JsonProperty("key_count") val keyCount: Long?,
-            @param:JsonProperty("used_memory_bytes") val usedMemoryBytes: Long?,
-            @param:JsonProperty("connected_clients") val connectedClients: Long?,
-            val version: String?,
-        )
-
-        data class Response(
-            val status: String,
-            @param:JsonProperty("generated_at") val generatedAt: Instant,
-            val application: ApplicationData,
-            val jvm: JvmData,
-            val database: DatabaseData,
-            val redis: RedisData,
-        )
-
-        val status = systemStatusService.getStatus(adminId)
-        val rs = Response(
-            status = status.status.name,
-            generatedAt = status.generatedAt,
-            application = ApplicationData(
-                name = status.application.name,
-                version = status.application.version,
-                startedAt = status.application.startedAt,
-                uptimeSeconds = status.application.uptimeSeconds,
-                availableProcessors = status.application.availableProcessors,
-                systemLoadAverage = status.application.systemLoadAverage,
-                processCpuUsage = status.application.processCpuUsage,
-                systemCpuUsage = status.application.systemCpuUsage,
-            ),
-            jvm = JvmData(
-                heapUsedBytes = status.jvm.heapUsedBytes,
-                heapCommittedBytes = status.jvm.heapCommittedBytes,
-                heapMaxBytes = status.jvm.heapMaxBytes,
-                nonHeapUsedBytes = status.jvm.nonHeapUsedBytes,
-                liveThreads = status.jvm.liveThreads,
-                peakThreads = status.jvm.peakThreads,
-                daemonThreads = status.jvm.daemonThreads,
-                gcCollectionCount = status.jvm.gcCollectionCount,
-                gcCollectionTimeMillis = status.jvm.gcCollectionTimeMillis,
-            ),
-            database = DatabaseData(
-                available = status.database.available,
-                latencyMillis = status.database.latencyMillis,
-                activeConnections = status.database.activeConnections,
-                idleConnections = status.database.idleConnections,
-                maxConnections = status.database.maxConnections,
-            ),
-            redis = RedisData(
-                available = status.redis.available,
-                latencyMillis = status.redis.latencyMillis,
-                keyCount = status.redis.keyCount,
-                usedMemoryBytes = status.redis.usedMemoryBytes,
-                connectedClients = status.redis.connectedClients,
-                version = status.redis.version,
-            ),
-        )
-        return builder.ok().data(rs).build()
-    }
 }

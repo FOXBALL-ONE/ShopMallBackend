@@ -43,6 +43,17 @@ spring:
 server:
   port: "${SERVER_PORT:8080}"
 
+# 管理端通过应用内的 Actuator 端点对象汇总运行指标；Web 侧只开放无敏感明细的探活与版本入口。
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info"
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+
 # RedisCleanupConfig 读取：启动时是否清空 Redis（本地/测试用，生产必须设 false，否则会 flushDb 清空 stream/消费组/幂等键）
 redis:
   clear-on-startup: "${REDIS_CLEAR_ON_STARTUP:false}"
