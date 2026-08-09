@@ -9,6 +9,7 @@ import org.mockito.Mockito.`when`
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.core.context.SecurityContextHolder
 import tools.jackson.databind.json.JsonMapper
 import java.time.LocalDateTime
@@ -179,6 +180,51 @@ class ApiRateLimitFilterTest {
         verify(chain).doFilter(rootWebhookRequest, rootWebhookResponse)
         verify(chain).doFilter(webhookRequest, webhookResponse)
         verifyNoInteractions(settingsService, decisionService, clientIpResolver)
+    }
+
+    @Test
+    fun `authenticated admin live log GET is excluded without excluding other log requests`() {
+        val liveRequest = MockHttpServletRequest("GET", "/admin/api/logs/live")
+        val settingsRequest = MockHttpServletRequest("GET", "/admin/api/logs/settings")
+        val liveResponse = MockHttpServletResponse()
+        val settingsResponse = MockHttpServletResponse()
+        val chain = mock(FilterChain::class.java)
+        val settings = stubSettings()
+        `when`(settingsService.matchesExcludedPath(settings, settingsRequest)).thenReturn(false)
+        `when`(decisionService.decide(RateLimitIdentityType.AUTHENTICATED, "42", 10))
+            .thenReturn(RateLimitDecision(true, 10, 9, 0))
+        SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken.authenticated(
+            42L,
+            null,
+            listOf(SimpleGrantedAuthority("ROLE_ADMIN")),
+        )
+
+        filter.doFilter(liveRequest, liveResponse, chain)
+        filter.doFilter(settingsRequest, settingsResponse, chain)
+
+        verify(chain).doFilter(liveRequest, liveResponse)
+        verify(settingsService).getSettings()
+        verify(decisionService).decide(RateLimitIdentityType.AUTHENTICATED, "42", 10)
+    }
+
+    @Test
+    fun `anonymous live log GET remains globally rate limited`() {
+        val request = MockHttpServletRequest("GET", "/admin/api/logs/live").apply {
+            remoteAddr = "198.51.100.9"
+        }
+        val response = MockHttpServletResponse()
+        val chain = mock(FilterChain::class.java)
+        val settings = stubSettings()
+        `when`(settingsService.matchesExcludedPath(settings, request)).thenReturn(false)
+        `when`(clientIpResolver.resolve(request)).thenReturn("198.51.100.9")
+        `when`(decisionService.decide(RateLimitIdentityType.ANONYMOUS, "198.51.100.9", 5))
+            .thenReturn(RateLimitDecision(true, 5, 4, 0))
+
+        filter.doFilter(request, response, chain)
+
+        verify(settingsService).getSettings()
+        verify(decisionService).decide(RateLimitIdentityType.ANONYMOUS, "198.51.100.9", 5)
+        verify(chain).doFilter(request, response)
     }
 
     private fun stubSettings(excludedPaths: List<String> = emptyList()): RateLimitSettings {

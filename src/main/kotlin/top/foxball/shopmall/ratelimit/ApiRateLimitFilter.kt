@@ -36,6 +36,18 @@ class ApiRateLimitFilter(
             metrics.exclusion("fixed")
             return true
         }
+        // An authenticated administrator's long poll has its own small concurrency limit. Unknown
+        // or non-admin callers still enter the global limiter before Spring Security rejects them.
+        val authentication = SecurityContextHolder.getContext().authentication
+        val authenticatedAdmin = authentication?.isAuthenticated == true &&
+            authentication.authorities.any { authority -> authority.authority == "ROLE_ADMIN" }
+        if (authenticatedAdmin &&
+            request.method.equals(HttpMethod.GET.name(), ignoreCase = true) &&
+            path == "/admin/api/logs/live"
+        ) {
+            metrics.exclusion("fixed")
+            return true
+        }
         if (!isManagedPath(path)) return true
         val excludedWebhook = request.method.equals(HttpMethod.POST.name(), ignoreCase = true) &&
             (path == "/webhook" || path == "/api/logistics/webhook" || path.startsWith("/api/logistics/webhook/"))

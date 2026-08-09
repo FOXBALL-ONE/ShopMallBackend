@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ClipboardList, Gauge, LayoutDashboard, LifeBuoy, LogOut, Package, RefreshCw, Truck, Users } from '@lucide/vue'
+import { ClipboardList, Gauge, LayoutDashboard, LifeBuoy, LogOut, Package, RefreshCw, ScrollText, Truck, Users } from '@lucide/vue'
 import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Component } from 'vue'
 import type { MenuOption } from 'naive-ui'
@@ -19,6 +19,7 @@ const menuOptions: MenuOption[] = [
   { label: '物流管理', key: 'shipments', icon: renderMenuIcon(Truck) },
   { label: '工单支持', key: 'support-tickets', icon: renderMenuIcon(LifeBuoy) },
   { label: '限速设置', key: 'rate-limits', icon: renderMenuIcon(Gauge) },
+  { label: '日志中心', key: 'logs', icon: renderMenuIcon(ScrollText) },
 ]
 
 const activeMenuKey = computed(() => {
@@ -28,6 +29,7 @@ const activeMenuKey = computed(() => {
   if (route.path.startsWith('/shipments')) return 'shipments'
   if (route.path.startsWith('/support-tickets')) return 'support-tickets'
   if (route.path.startsWith('/rate-limits')) return 'rate-limits'
+  if (route.path.startsWith('/logs')) return 'logs'
   return 'dashboard'
 })
 
@@ -46,6 +48,8 @@ function handleMenuSelect(key: string) {
     navigateTo('/support-tickets')
   } else if (key === 'rate-limits') {
     navigateTo('/rate-limits')
+  } else if (key === 'logs') {
+    navigateTo('/logs')
   }
 }
 

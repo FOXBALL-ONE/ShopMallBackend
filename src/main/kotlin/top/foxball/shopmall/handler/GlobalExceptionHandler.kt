@@ -26,6 +26,8 @@ import org.springframework.web.servlet.resource.NoResourceFoundException
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import top.foxball.shopmall.ratelimit.RateLimitUnavailableException
+import top.foxball.shopmall.logging.LiveLogPollLimitException
+import top.foxball.shopmall.logging.LoggingUnavailableException
 import top.foxball.shopmall.service.payMent.PaymentProviderError
 import top.foxball.shopmall.service.payMent.PaymentProviderException
 
@@ -202,6 +204,23 @@ class GlobalExceptionHandler {
         return builder.serviceUnavailable()
             .retryAfter(1)
             .message("系统繁忙，请稍后重试")
+            .build()
+    }
+
+    @ExceptionHandler(LoggingUnavailableException::class)
+    fun onLoggingUnavailableException(ex: LoggingUnavailableException): ResponseEntity<Response> {
+        log.error("Logging configuration is unavailable", ex)
+        return builder.serviceUnavailable()
+            .retryAfter(1)
+            .message("日志设置暂时不可用，请稍后重试")
+            .build()
+    }
+
+    @ExceptionHandler(LiveLogPollLimitException::class)
+    fun onLiveLogPollLimitException(ex: LiveLogPollLimitException): ResponseEntity<Response> {
+        return builder.tooManyRequests()
+            .retryAfter(ex.retryAfterSeconds)
+            .message("实时日志连接过多，请稍后重试")
             .build()
     }
 

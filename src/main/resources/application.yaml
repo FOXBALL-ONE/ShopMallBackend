@@ -148,6 +148,32 @@ shopmall:
     identity-hash-secret: "${RATE_LIMIT_IDENTITY_HASH_SECRET:}"
     default-excluded-paths: []
     trusted-proxy-cidrs: []
+  logging:
+    storage-path: "${LOG_STORAGE_PATH:./logs}"
+    time-zone: "${LOG_TIME_ZONE:Asia/Shanghai}"
+    instance-id: "${LOG_INSTANCE_ID:local}"
+    max-file-size: 10MB
+    max-record-size: 256KB
+    retention-days: "${LOG_RETENTION_DAYS:30}"
+    live-buffer-events: "${LOG_LIVE_BUFFER_EVENTS:5000}"
+    live-buffer-bytes: "${LOG_LIVE_BUFFER_BYTES:16777216}"
+    live-response-bytes: "${LOG_LIVE_RESPONSE_BYTES:2097152}"
+    live-batch-window-millis: "${LOG_LIVE_BATCH_WINDOW_MILLIS:100}"
+    live-max-wait-seconds: 20
+    live-max-node-polls: "${LOG_LIVE_MAX_NODE_POLLS:50}"
+    live-max-admin-polls: "${LOG_LIVE_MAX_ADMIN_POLLS:2}"
+    async-queue-events: "${LOG_ASYNC_QUEUE_EVENTS:4096}"
+    async-queue-bytes: "${LOG_ASYNC_QUEUE_BYTES:33554432}"
+    file-queue-events: "${LOG_FILE_QUEUE_EVENTS:4096}"
+    file-queue-bytes: "${LOG_FILE_QUEUE_BYTES:33554432}"
+    file-batch-events: "${LOG_FILE_BATCH_EVENTS:128}"
+    file-flush-interval-millis: "${LOG_FILE_FLUSH_INTERVAL_MILLIS:100}"
+    file-failure-backoff-millis: "${LOG_FILE_FAILURE_BACKOFF_MILLIS:1000}"
+    shutdown-timeout-millis: "${LOG_SHUTDOWN_TIMEOUT_MILLIS:5000}"
+    reconcile-interval-millis: "${LOG_RECONCILE_INTERVAL_MILLIS:5000}"
+    fail-on-file-error: "${LOG_FAIL_ON_FILE_ERROR:true}"
+    default-root-level: "${LOG_ROOT_LEVEL:INFO}"
+    default-output-template: "{timestamp} [{level}] [{thread}] {logger} request_id={request_id} - {message}{exception}"
   logistics:
     webhook-max-body-bytes: "${LOGISTICS_WEBHOOK_MAX_BODY_BYTES:1048576}"
     # 轮询调度总开关；首期默认 true 以驱动 MANUAL 之外的轮询适配器
