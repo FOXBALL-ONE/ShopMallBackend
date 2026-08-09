@@ -37,6 +37,7 @@
     "@tiptap/starter-kit": "^3.29.2",
     "@tiptap/suggestion": "^3.29.2",
     "@tiptap/vue-3": "^3.29.2",
+    "dayjs-nuxt": "^2.1.11",
     "eslint": "^10.8.0",
     "nuxt": "^4.5.2",
     "nuxt-umami": "^3.2.1",
