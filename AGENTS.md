@@ -1,5 +1,10 @@
 # ShopMall Project Instructions
 
+## Git Commit Conventions
+
+- Write Git commit subjects and body descriptions in Simplified Chinese. Conventional Commit type and
+  scope prefixes, such as `feat(frontend):`, may remain in English.
+
 ## Frontend Directory Responsibilities
 
 - `AdminPanelUI/` is the administration frontend used by administrators and internal operators.
