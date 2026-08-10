@@ -65,6 +65,8 @@ class AdminOrderController(
             @param:JsonProperty("customer_username")
             val customerUsername: String,
             val status: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
             @param:JsonProperty("total_amount")
             val totalAmount: BigDecimal,
             val currency: String,
@@ -100,6 +102,7 @@ class AdminOrderController(
                 customerId = order.customerId,
                 customerUsername = requireNotNull(customerUsernames[order.customerId]) { "订单客户不存在" },
                 status = order.status.name,
+                paymentStatus = order.paymentStatus.name,
                 totalAmount = order.totalAmount,
                 currency = order.currency,
                 createdAt = order.createdAt,
@@ -167,6 +170,8 @@ class AdminOrderController(
             @param:JsonProperty("customer_username")
             val customerUsername: String,
             val status: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
             @param:JsonProperty("items_subtotal")
             val itemsSubtotal: BigDecimal,
             @param:JsonProperty("shipping_fee")
@@ -182,6 +187,8 @@ class AdminOrderController(
             val paymentIntentId: String?,
             @param:JsonProperty("stripe_checkout_session_id")
             val stripeCheckoutSessionId: String?,
+            @param:JsonProperty("stripe_refund_id")
+            val stripeRefundId: String?,
             @param:JsonProperty("shipping_address")
             val shippingAddress: AddressData,
             @param:JsonProperty("client_message")
@@ -190,6 +197,10 @@ class AdminOrderController(
             val expiresAt: Instant?,
             @param:JsonProperty("paid_at")
             val paidAt: Instant?,
+            @param:JsonProperty("refund_requested_at")
+            val refundRequestedAt: java.time.LocalDateTime?,
+            @param:JsonProperty("refunded_at")
+            val refundedAt: java.time.LocalDateTime?,
             @param:JsonProperty("cancelled_at")
             val cancelledAt: Instant?,
             @param:JsonProperty("shipped_at")
@@ -231,6 +242,7 @@ class AdminOrderController(
             customerId = order.customerId,
             customerUsername = customerUsername,
             status = order.status.name,
+            paymentStatus = order.paymentStatus.name,
             itemsSubtotal = order.itemsSubtotal,
             shippingFee = order.shippingFee,
             taxAmount = order.taxAmount,
@@ -239,6 +251,7 @@ class AdminOrderController(
             currency = order.currency,
             paymentIntentId = order.paymentIntentId,
             stripeCheckoutSessionId = order.stripeCheckoutSessionId,
+            stripeRefundId = order.stripeRefundId,
             shippingAddress = AddressData(
                 name = address.name,
                 phone = address.phone,
@@ -255,6 +268,8 @@ class AdminOrderController(
             clientMessage = order.clientMessage,
             expiresAt = order.expiresAt,
             paidAt = order.paidAt,
+            refundRequestedAt = order.refundRequestedAt,
+            refundedAt = order.refundedAt,
             cancelledAt = order.cancelledAt,
             shippedAt = order.shippedAt,
             deliveredAt = order.deliveredAt,
@@ -280,6 +295,8 @@ class AdminOrderController(
             val orderNo: String,
             @param:JsonProperty("order_status")
             val orderStatus: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
             val provider: String,
             @param:JsonProperty("provider_status")
             val providerStatus: String,
@@ -309,6 +326,7 @@ class AdminOrderController(
         val rs = Response(
             orderNo = payment.orderNo,
             orderStatus = payment.orderStatus.name,
+            paymentStatus = payment.paymentStatus.name,
             provider = payment.provider.value,
             providerStatus = payment.providerStatus.name,
             querySource = payment.querySource.name,
@@ -344,6 +362,8 @@ class AdminOrderController(
             @param:JsonProperty("order_no")
             val orderNo: String,
             val status: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
             @param:JsonProperty("cancel_reason")
             val cancelReason: String?,
             @param:JsonProperty("updated_at")
@@ -356,12 +376,51 @@ class AdminOrderController(
             id = requireNotNull(order.id),
             orderNo = order.orderNo,
             status = order.status.name,
+            paymentStatus = order.paymentStatus.name,
             cancelReason = order.cancelReason,
             updatedAt = order.updatedAt,
         )
         return builder.ok()
             .data(rs)
             .build()
+    }
+
+    /** @api 查询 Stripe 退款状态 */
+    @PostMapping("/{order_no}/refund-status")
+    fun queryRefundStatus(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("order_no") orderNo: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("order_no")
+            val orderNo: String,
+            @param:JsonProperty("order_status")
+            val orderStatus: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
+            @param:JsonProperty("stripe_refund_id")
+            val stripeRefundId: String?,
+            @param:JsonProperty("provider_refund_status")
+            val providerRefundStatus: String?,
+            @param:JsonProperty("refund_amount")
+            val refundAmount: BigDecimal?,
+            val currency: String?,
+            @param:JsonProperty("amount_matches_order")
+            val amountMatchesOrder: Boolean?,
+        )
+
+        val refund = orderPaymentService.queryAdminRefundStatus(adminId, orderNo)
+        val rs = Response(
+            orderNo = refund.orderNo,
+            orderStatus = refund.orderStatus.name,
+            paymentStatus = refund.paymentStatus.name,
+            stripeRefundId = refund.stripeRefundId,
+            providerRefundStatus = refund.providerRefundStatus,
+            refundAmount = refund.refundAmount?.value,
+            currency = refund.refundAmount?.currency,
+            amountMatchesOrder = refund.amountMatchesOrder,
+        )
+        return builder.ok().data(rs).build()
     }
 
     /**

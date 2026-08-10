@@ -19,6 +19,7 @@ import org.hibernate.annotations.CreationTimestamp
 import org.hibernate.annotations.UpdateTimestamp
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDateTime
 
 /**
  * 商城订单聚合根，对应一次从待支付到完成或取消的交易流程。
@@ -56,6 +57,11 @@ class OrderEntity(
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 24)
     var status: OrderStatus = OrderStatus.PENDING_PAYMENT,
+
+    /** 订单在支付渠道侧的本地收款/退款状态，与履约状态独立维护。 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status", nullable = false, length = 24)
+    var paymentStatus: OrderPaymentStatus = OrderPaymentStatus.PENDING_PAYMENT,
 
     /** 商品明细的成交金额小计，未包含运费、税费和优惠。 */
     @field:Digits(integer = 10, fraction = 2)
@@ -95,6 +101,10 @@ class OrderEntity(
     @Column(name = "stripe_checkout_session_id", unique = true, length = 255)
     var stripeCheckoutSessionId: String? = null,
 
+    /** Stripe 退款标识，用于主动查询和回调关联。 */
+    @Column(name = "stripe_refund_id", unique = true, length = 255)
+    var stripeRefundId: String? = null,
+
     /** 下单时固化的收货地址快照。 */
     @field:Valid
     @Embedded
@@ -112,6 +122,14 @@ class OrderEntity(
     /** 支付成功并完成本地状态推进的时间。 */
     @Column(name = "paid_at")
     var paidAt: Instant? = null,
+
+    /** 向支付渠道提交退款请求的本地时间。 */
+    @Column(name = "refund_requested_at")
+    var refundRequestedAt: LocalDateTime? = null,
+
+    /** Stripe 确认退款成功的本地时间。 */
+    @Column(name = "refunded_at")
+    var refundedAt: LocalDateTime? = null,
 
     /** 订单取消生效的时间。 */
     @Column(name = "cancelled_at")

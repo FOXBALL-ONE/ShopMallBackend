@@ -16,6 +16,7 @@ import top.foxball.shopmall.entity.jdbc.Dress
 import top.foxball.shopmall.entity.jdbc.OnePieceSuit
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
+import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.entity.jdbc.Product
@@ -43,6 +44,7 @@ import top.foxball.shopmall.service.DomainEventPublisher
 import top.foxball.shopmall.service.OrderPageQuery
 import top.foxball.shopmall.service.OrderPaymentService
 import top.foxball.shopmall.service.OrderPaymentView
+import top.foxball.shopmall.service.OrderRefundView
 import top.foxball.shopmall.service.OrderService
 import top.foxball.shopmall.service.OrderView
 import top.foxball.shopmall.service.PlaceOrderCommand
@@ -56,6 +58,7 @@ import java.math.RoundingMode
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Clock
+import java.time.LocalDateTime
 
 @Service
 @Transactional(readOnly = true)
@@ -314,8 +317,32 @@ class OrderServiceImpl(
         return OrderPaymentView(
             orderNo = order.orderNo,
             status = order.status,
+            paymentStatus = order.paymentStatus,
             checkoutSessionId = order.stripeCheckoutSessionId,
             expiresAt = order.expiresAt,
+        )
+    }
+
+    @Transactional
+    override fun refundCustomer(customerId: Long, orderNo: String, reason: String?): OrderView {
+        val normalizedReason = normalizeReason(reason, required = false)
+        val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
+        if (order.status == OrderStatus.DELETED) throw OrderNotFoundException()
+        if (order.customerId != customerId) throw ForbiddenException("只能操作自己的订单")
+        return requestRefund(order, normalizedReason)
+    }
+
+    override fun queryCustomerRefund(customerId: Long, orderNo: String): OrderRefundView {
+        val refund = paymentService.queryCustomerRefundStatus(customerId, orderNo)
+        return OrderRefundView(
+            orderNo = refund.orderNo,
+            orderStatus = refund.orderStatus,
+            paymentStatus = refund.paymentStatus,
+            stripeRefundId = refund.stripeRefundId,
+            providerRefundStatus = refund.providerRefundStatus,
+            refundAmount = refund.refundAmount?.value,
+            currency = refund.refundAmount?.currency,
+            amountMatchesOrder = refund.amountMatchesOrder,
         )
     }
 
@@ -380,30 +407,27 @@ class OrderServiceImpl(
         adminAccessService.requireAdmin(adminId)
         val normalizedReason = requireNotNull(normalizeReason(reason, required = true))
         val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
+        return requestRefund(order, normalizedReason)
+    }
+
+    private fun requestRefund(order: OrderEntity, reason: String?): OrderView {
         val orderId = requireNotNull(order.id)
-        val items = orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(orderId)
-        val changed = orderRepository.markCancelled(
+        val changed = orderRepository.markRefunding(
             orderId,
             OrderStatus.PAID,
-            OrderStatus.CANCELLED,
-            clock.instant(),
-            normalizedReason,
+            OrderPaymentStatus.PAID,
+            OrderStatus.REFUNDING,
+            OrderPaymentStatus.REFUNDING,
+            LocalDateTime.now(clock),
+            reason,
         )
         if (changed == 0) {
-            if (orderRepository.findStatusById(orderId) == OrderStatus.CANCELLED) {
+            if (orderRepository.findStatusById(orderId) == OrderStatus.REFUNDING) {
                 return view(reload(orderId))
             }
-            throw OrderStatusException("只有未发货的已支付订单可以退款")
+            throw OrderStatusException("只有未发货的已成功付款订单可以退款")
         }
-
-        publishOrderEvent(orderId, "CANCELLED")
-        restock(items)
-        items.sortedBy(OrderItem::productId).forEach { item ->
-            check(productRepository.decrementSales(item.productId, item.quantity) == 1) {
-                "无法冲销订单商品销量: ${item.productId}"
-            }
-        }
-        paymentService.cancelOrRefund(order, "admin-refund")
+        paymentService.requestRefund(order)
         return view(reload(orderId))
     }
 
@@ -412,7 +436,7 @@ class OrderServiceImpl(
         adminAccessService.requireAdmin(adminId)
         val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
         if (order.status == OrderStatus.DELETED) return order
-        if (order.status !in setOf(OrderStatus.CANCELLED, OrderStatus.DELIVERED, OrderStatus.COMPLETED)) {
+        if (order.status !in setOf(OrderStatus.CANCELLED, OrderStatus.REFUNDED, OrderStatus.DELIVERED, OrderStatus.COMPLETED)) {
             throw OrderStatusException("订单需先取消或完成履约才能删除")
         }
         order.status = OrderStatus.DELETED

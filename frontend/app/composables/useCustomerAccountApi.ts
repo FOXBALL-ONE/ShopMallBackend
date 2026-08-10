@@ -9,6 +9,8 @@ import type {
   CustomerOrderCancellation,
   CustomerOrderIdempotencyKey,
   CustomerOrderPayment,
+  CustomerOrderRefund,
+  CustomerOrderRefundStatus,
   CustomerOrdersResponse,
   CustomerPlaceOrderInput,
   CustomerProfile,
@@ -161,6 +163,17 @@ export function useCustomerAccountApi() {
         `/orders/${encodeURIComponent(orderNo)}/cancel`,
         reason ? { reason } : undefined
       )
+    },
+
+    refundOrder(orderNo: string, reason?: string) {
+      return http.post<CustomerOrderRefund, { reason?: string }>(
+        `/orders/${encodeURIComponent(orderNo)}/refund`,
+        reason ? { reason } : undefined
+      )
+    },
+
+    getOrderRefundStatus(orderNo: string) {
+      return http.get<CustomerOrderRefundStatus>(`/orders/${encodeURIComponent(orderNo)}/refund-status`)
     },
 
     getShipments(orderNo: string) {

@@ -9,8 +9,10 @@ import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import top.foxball.shopmall.entity.jdbc.OrderEntity
+import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import java.time.Instant
+import java.time.LocalDateTime
 
 interface OrderRepository : JpaRepository<OrderEntity, Long> {
     fun countByStatus(status: OrderStatus): Long
@@ -121,7 +123,7 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(
-        "update OrderEntity o set o.status = :next, o.paidAt = :at " +
+        "update OrderEntity o set o.status = :next, o.paymentStatus = 'PAID', o.paidAt = :at " +
             "where o.id = :id and o.status = :expected",
     )
     fun markPaid(
@@ -133,7 +135,109 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(
-        "update OrderEntity o set o.status = :next, o.cancelledAt = :at, o.cancelReason = :reason " +
+        "update OrderEntity o set o.paymentStatus = :paymentStatus " +
+            "where o.id = :id and o.paymentStatus = :expectedPaymentStatus",
+    )
+    fun transitionPaymentStatus(
+        @Param("id") id: Long,
+        @Param("expectedPaymentStatus") expectedPaymentStatus: OrderPaymentStatus,
+        @Param("paymentStatus") paymentStatus: OrderPaymentStatus,
+    ): Int
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+        "update OrderEntity o set o.status = :nextStatus, o.paymentStatus = :nextPaymentStatus, " +
+            "o.refundRequestedAt = :at, o.cancelReason = :reason " +
+            "where o.id = :id and o.status = :expectedStatus and o.paymentStatus = :expectedPaymentStatus",
+    )
+    fun markRefunding(
+        @Param("id") id: Long,
+        @Param("expectedStatus") expectedStatus: OrderStatus,
+        @Param("expectedPaymentStatus") expectedPaymentStatus: OrderPaymentStatus,
+        @Param("nextStatus") nextStatus: OrderStatus,
+        @Param("nextPaymentStatus") nextPaymentStatus: OrderPaymentStatus,
+        @Param("at") at: LocalDateTime,
+        @Param("reason") reason: String?,
+    ): Int
+
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+        "update OrderEntity o set o.stripeRefundId = :stripeRefundId " +
+            "where o.id = :id and o.status = :status and o.paymentStatus = :paymentStatus " +
+            "and (o.stripeRefundId is null or o.stripeRefundId = :stripeRefundId)",
+    )
+    fun recordStripeRefund(
+        @Param("id") id: Long,
+        @Param("status") status: OrderStatus,
+        @Param("paymentStatus") paymentStatus: OrderPaymentStatus,
+        @Param("stripeRefundId") stripeRefundId: String,
+    ): Int
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+        "update OrderEntity o set o.status = :nextStatus, o.paymentStatus = :nextPaymentStatus, " +
+            "o.stripeRefundId = :stripeRefundId, o.refundedAt = :at " +
+            "where o.id = :id and o.status = :expectedStatus and o.paymentStatus = :expectedPaymentStatus",
+    )
+    fun markRefunded(
+        @Param("id") id: Long,
+        @Param("expectedStatus") expectedStatus: OrderStatus,
+        @Param("expectedPaymentStatus") expectedPaymentStatus: OrderPaymentStatus,
+        @Param("nextStatus") nextStatus: OrderStatus,
+        @Param("nextPaymentStatus") nextPaymentStatus: OrderPaymentStatus,
+        @Param("stripeRefundId") stripeRefundId: String,
+        @Param("at") at: LocalDateTime,
+    ): Int
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+        "update OrderEntity o set o.status = :nextStatus, o.paymentStatus = :nextPaymentStatus, " +
+            "o.stripeRefundId = :stripeRefundId, o.refundedAt = :at " +
+            "where o.id = :id and o.status = :expectedStatus and o.paymentStatus = :expectedPaymentStatus",
+    )
+    fun markPartiallyRefunded(
+        @Param("id") id: Long,
+        @Param("expectedStatus") expectedStatus: OrderStatus,
+        @Param("expectedPaymentStatus") expectedPaymentStatus: OrderPaymentStatus,
+        @Param("nextStatus") nextStatus: OrderStatus,
+        @Param("nextPaymentStatus") nextPaymentStatus: OrderPaymentStatus,
+        @Param("stripeRefundId") stripeRefundId: String,
+        @Param("at") at: LocalDateTime,
+    ): Int
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+        "update OrderEntity o set o.status = :nextStatus, o.paymentStatus = :nextPaymentStatus, " +
+            "o.stripeRefundId = null " +
+            "where o.id = :id and o.status = :expectedStatus and o.paymentStatus = :expectedPaymentStatus",
+    )
+    fun revertRefunding(
+        @Param("id") id: Long,
+        @Param("expectedStatus") expectedStatus: OrderStatus,
+        @Param("expectedPaymentStatus") expectedPaymentStatus: OrderPaymentStatus,
+        @Param("nextStatus") nextStatus: OrderStatus,
+        @Param("nextPaymentStatus") nextPaymentStatus: OrderPaymentStatus,
+    ): Int
+
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+        "update OrderEntity o set o.paymentStatus = :nextPaymentStatus, o.refundRequestedAt = :at " +
+            "where o.id = :id and o.status = :status and o.paymentStatus = :expectedPaymentStatus",
+    )
+    fun markCancelledOrderRefunding(
+        @Param("id") id: Long,
+        @Param("status") status: OrderStatus,
+        @Param("expectedPaymentStatus") expectedPaymentStatus: OrderPaymentStatus,
+        @Param("nextPaymentStatus") nextPaymentStatus: OrderPaymentStatus,
+        @Param("at") at: LocalDateTime,
+    ): Int
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+        "update OrderEntity o set o.status = :next, o.paymentStatus = 'CANCELLED', " +
+            "o.cancelledAt = :at, o.cancelReason = :reason " +
             "where o.id = :id and o.status = :expected",
     )
     fun markCancelled(

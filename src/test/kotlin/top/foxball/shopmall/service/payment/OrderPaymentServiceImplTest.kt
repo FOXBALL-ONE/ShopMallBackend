@@ -2,6 +2,7 @@ package top.foxball.shopmall.service.payment
 
 import com.stripe.model.Event
 import com.stripe.model.EventDataObjectDeserializer
+import com.stripe.model.Refund
 import com.stripe.model.StripeObject
 import com.stripe.model.checkout.Session
 import org.mockito.Mockito.mock
@@ -11,6 +12,7 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import top.foxball.shopmall.entity.jdbc.OrderEntity
+import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.repository.OrderItemRepository
@@ -23,6 +25,9 @@ import top.foxball.shopmall.service.DomainEventPublisher
 import top.foxball.shopmall.service.impl.OrderPaymentServiceImpl
 import top.foxball.shopmall.service.payMent.PaymentAmount
 import top.foxball.shopmall.service.payMent.PaymentQueryRequest
+import top.foxball.shopmall.service.payMent.PaymentRefund
+import top.foxball.shopmall.service.payMent.PaymentRefundQueryRequest
+import top.foxball.shopmall.service.payMent.PaymentRefundStatus
 import top.foxball.shopmall.service.payMent.PaymentStatus
 import top.foxball.shopmall.service.payMent.PaymentTransaction
 import top.foxball.shopmall.service.payMent.stripe.StripeCheckoutSession
@@ -133,6 +138,15 @@ class OrderPaymentServiceImplTest {
         `when`(orderRepository.markPaid(10, OrderStatus.PENDING_PAYMENT, OrderStatus.PAID, clock.instant()))
             .thenReturn(0)
         `when`(orderRepository.findStatusById(10)).thenReturn(OrderStatus.CANCELLED)
+        `when`(
+            orderRepository.markCancelledOrderRefunding(
+                10,
+                OrderStatus.CANCELLED,
+                OrderPaymentStatus.CANCELLED,
+                OrderPaymentStatus.REFUNDING,
+                java.time.LocalDateTime.now(clock),
+            ),
+        ).thenReturn(1)
 
         service.handleWebhookEvent(expired)
         service.handleWebhookEvent(paid)
@@ -148,8 +162,14 @@ class OrderPaymentServiceImplTest {
         val order = pendingOrder().apply {
             stripeCheckoutSessionId = "cs_order"
             paymentIntentId = "pi_order"
+            status = OrderStatus.CANCELLED
+            paymentStatus = OrderPaymentStatus.REFUNDING
         }
         `when`(orderRepository.findById(10)).thenReturn(Optional.of(order))
+        val refund = mock(Refund::class.java)
+        `when`(refund.id).thenReturn("re_cancelled")
+        `when`(coordinator.refund("pi_order", "ORD-PAYMENT-1:cancelled-order-refund"))
+            .thenReturn(refund)
 
         service.reconcileCancellation(10)
         service.reconcileConflictRefund(10)
@@ -157,6 +177,159 @@ class OrderPaymentServiceImplTest {
         val key = "ORD-PAYMENT-1:cancelled-order-refund"
         verify(coordinator).cancelOrRefund("cs_order", "pi_order", key)
         verify(coordinator).refund("pi_order", key)
+    }
+
+    @Test
+    fun `failed Stripe refund webhook restores a customer refund request to paid`() {
+        val order = pendingOrder().apply {
+            status = OrderStatus.REFUNDING
+            paymentStatus = OrderPaymentStatus.REFUNDING
+            paymentIntentId = "pi_refund"
+        }
+        val refund = mock(Refund::class.java).also {
+            `when`(it.id).thenReturn("re_refund")
+            `when`(it.paymentIntent).thenReturn("pi_refund")
+            `when`(it.status).thenReturn("failed")
+        }
+        val event = checkoutEvent("evt_refund_failed", "refund.updated", refund)
+        `when`(webhookRepository.claim("evt_refund_failed", "refund.updated")).thenReturn(1)
+        `when`(orderRepository.findByPaymentIntentId("pi_refund")).thenReturn(order)
+        `when`(
+            orderRepository.recordStripeRefund(
+                10,
+                OrderStatus.REFUNDING,
+                OrderPaymentStatus.REFUNDING,
+                "re_refund",
+            ),
+        ).thenReturn(1)
+
+        service.handleWebhookEvent(event)
+
+        verify(orderRepository).revertRefunding(
+            10,
+            OrderStatus.REFUNDING,
+            OrderPaymentStatus.REFUNDING,
+            OrderStatus.PAID,
+            OrderPaymentStatus.PAID,
+        )
+        verifyNoInteractions(orderItemRepository, productRepository)
+    }
+
+    @Test
+    fun `partial successful refund stays partial without restocking the full order`() {
+        val order = pendingOrder().apply {
+            status = OrderStatus.REFUNDING
+            paymentStatus = OrderPaymentStatus.REFUNDING
+            paymentIntentId = "pi_refund"
+            stripeRefundId = "re_partial"
+        }
+        `when`(orderRepository.findByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(
+            stripeService.queryRefund(PaymentRefundQueryRequest("pi_refund", providerRefundId = "re_partial")),
+        ).thenReturn(
+            PaymentRefund(
+                providerRefundId = "re_partial",
+                providerPaymentId = "pi_refund",
+                amount = PaymentAmount(BigDecimal("10.00"), "USD"),
+                status = PaymentRefundStatus.SUCCEEDED,
+            ),
+        )
+        `when`(orderRepository.findById(10)).thenReturn(Optional.of(order))
+
+        val result = service.queryAdminRefundStatus(99, order.orderNo)
+
+        assertEquals(false, result.amountMatchesOrder)
+        verify(orderRepository).markPartiallyRefunded(
+            10,
+            OrderStatus.REFUNDING,
+            OrderPaymentStatus.REFUNDING,
+            OrderStatus.PAID,
+            OrderPaymentStatus.PARTIALLY_REFUNDED,
+            "re_partial",
+            java.time.LocalDateTime.now(clock),
+        )
+        verifyNoInteractions(orderItemRepository, productRepository, eventPublisher)
+    }
+
+    @Test
+    fun `cancelled order late payment enters refunding before scheduling conflict refund`() {
+        val order = pendingOrder().apply { status = OrderStatus.CANCELLED }
+        val paid = checkoutEvent(
+            "evt_paid_after_cancel",
+            "checkout.session.async_payment_succeeded",
+            checkoutSession("cs_order", "pi_order", "paid"),
+        )
+        `when`(webhookRepository.claim("evt_paid_after_cancel", "checkout.session.async_payment_succeeded")).thenReturn(1)
+        `when`(orderRepository.findByStripeCheckoutSessionId("cs_order")).thenReturn(order)
+        `when`(orderRepository.markPaid(10, OrderStatus.PENDING_PAYMENT, OrderStatus.PAID, clock.instant())).thenReturn(0)
+        `when`(orderRepository.findStatusById(10)).thenReturn(OrderStatus.CANCELLED)
+        `when`(
+            orderRepository.markCancelledOrderRefunding(
+                10,
+                OrderStatus.CANCELLED,
+                OrderPaymentStatus.CANCELLED,
+                OrderPaymentStatus.REFUNDING,
+                java.time.LocalDateTime.now(clock),
+            ),
+        ).thenReturn(1)
+
+        service.handleWebhookEvent(paid)
+
+        verify(eventPublisher).publishInTx("ORDER", 10, "PAYMENT_CONFLICT_REFUND", "{\"orderId\":10}")
+    }
+
+    @Test
+    fun `successful Stripe refund webhook completes refund and applies inventory effects once`() {
+        val order = pendingOrder().apply {
+            status = OrderStatus.REFUNDING
+            paymentStatus = OrderPaymentStatus.REFUNDING
+            paymentIntentId = "pi_refund"
+        }
+        val refund = mock(Refund::class.java).also {
+            `when`(it.id).thenReturn("re_refund")
+            `when`(it.paymentIntent).thenReturn("pi_refund")
+            `when`(it.status).thenReturn("succeeded")
+            `when`(it.amount).thenReturn(2999L)
+            `when`(it.currency).thenReturn("usd")
+        }
+        val event = checkoutEvent("evt_refund", "refund.updated", refund)
+        val item = top.foxball.shopmall.entity.jdbc.OrderItem(id = 1, order = order, productId = 18, quantity = 2)
+        `when`(webhookRepository.claim("evt_refund", "refund.updated")).thenReturn(1)
+        `when`(orderRepository.findByPaymentIntentId("pi_refund")).thenReturn(order)
+        `when`(
+            orderRepository.markRefunded(
+                10,
+                OrderStatus.REFUNDING,
+                OrderPaymentStatus.REFUNDING,
+                OrderStatus.REFUNDED,
+                OrderPaymentStatus.REFUNDED,
+                "re_refund",
+                java.time.LocalDateTime.now(clock),
+            ),
+        ).thenReturn(1)
+        `when`(
+            orderRepository.recordStripeRefund(
+                10,
+                OrderStatus.REFUNDING,
+                OrderPaymentStatus.REFUNDING,
+                "re_refund",
+            ),
+        ).thenReturn(1)
+        `when`(orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(10)).thenReturn(listOf(item))
+        `when`(productRepository.restock(18, 2)).thenReturn(1)
+        `when`(productRepository.decrementSales(18, 2)).thenReturn(1)
+
+        service.handleWebhookEvent(event)
+
+        verify(orderRepository).recordStripeRefund(
+            10,
+            OrderStatus.REFUNDING,
+            OrderPaymentStatus.REFUNDING,
+            "re_refund",
+        )
+        verify(productRepository).restock(18, 2)
+        verify(productRepository).decrementSales(18, 2)
+        verify(eventPublisher).publishInTx("ORDER", 10, "REFUNDED", "{\"orderId\":10}")
     }
 
     @Test

@@ -45,11 +45,14 @@ const shipments = ref<CustomerShipment[]>([])
 const isLoading = ref(true)
 const isRefreshing = ref(false)
 const isCancelling = ref(false)
+const isRefundRequesting = ref(false)
+const isRefundStatusLoading = ref(false)
 const isOpeningPayment = ref(false)
 const requestError = ref('')
 const shipmentError = ref('')
 const cancelFormOpen = ref(false)
 const cancelReason = ref('')
+const refundProviderStatus = ref<string | null>(null)
 const now = ref(Date.now())
 let clockTimer: ReturnType<typeof setInterval> | null = null
 
@@ -59,7 +62,7 @@ useHead(() => ({
 }))
 
 const itemCount = computed(() => orderItemCount(order.value?.items))
-const isClosed = computed(() => ['CANCELLED', 'DELETED'].includes(order.value?.status || ''))
+const isClosed = computed(() => ['CANCELLED', 'REFUNDED', 'DELETED'].includes(order.value?.status || ''))
 const expiresAt = computed(() => {
   if (!order.value?.expires_at) return null
   const value = new Date(order.value.expires_at).getTime()
@@ -70,6 +73,9 @@ const remainingSeconds = computed(() => expiresAt.value === null
   : Math.max(0, Math.floor((expiresAt.value - now.value) / 1000)))
 const isPaymentExpired = computed(() => remainingSeconds.value !== null && remainingSeconds.value <= 0)
 const canCancel = computed(() => order.value?.status === 'PENDING_PAYMENT')
+const canRequestRefund = computed(() => order.value?.status === 'PAID' && order.value.payment_status === 'PAID')
+const isRefunding = computed(() => order.value?.payment_status === 'REFUNDING')
+const canQueryRefundStatus = computed(() => ['REFUNDING', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(order.value?.payment_status || ''))
 const canResumePayment = computed(() => Boolean(
   order.value?.status === 'PENDING_PAYMENT'
   && !isPaymentExpired.value
@@ -171,6 +177,53 @@ async function cancelOrder() {
     toast.add({ title: 'Unable to cancel order', description: requestError.value, color: 'error' })
   } finally {
     isCancelling.value = false
+  }
+}
+
+async function requestRefund() {
+  if (!order.value || !canRequestRefund.value || isRefundRequesting.value) return
+  if (import.meta.client && !window.confirm(`Request a refund for order ${order.value.order_no}?`)) return
+
+  isRefundRequesting.value = true
+  requestError.value = ''
+  try {
+    await api.refundOrder(order.value.order_no)
+    toast.add({
+      title: 'Refund requested',
+      description: 'Stripe is processing the refund. The order will be voided when it is confirmed.',
+      color: 'success'
+    })
+    await loadOrder(false)
+  } catch (error: unknown) {
+    requestError.value = customerRequestMessage(error, 'This refund request could not be submitted.')
+    toast.add({ title: 'Unable to request refund', description: requestError.value, color: 'error' })
+  } finally {
+    isRefundRequesting.value = false
+  }
+}
+
+async function queryRefundStatus() {
+  if (!order.value || !canQueryRefundStatus.value || isRefundStatusLoading.value) return
+
+  isRefundStatusLoading.value = true
+  requestError.value = ''
+  try {
+    const result = await api.getOrderRefundStatus(order.value.order_no)
+    refundProviderStatus.value = result.provider_refund_status
+    order.value.status = result.order_status
+    order.value.payment_status = result.payment_status
+    toast.add({
+      title: result.payment_status === 'REFUNDED' ? 'Refund completed' : 'Refund status updated',
+      description: result.payment_status === 'REFUNDED'
+        ? 'Stripe confirmed the refund and the order is now voided.'
+        : 'Stripe is still processing the refund.',
+      color: result.payment_status === 'REFUNDED' ? 'success' : 'neutral'
+    })
+  } catch (error: unknown) {
+    requestError.value = customerRequestMessage(error, 'We could not check the refund status.')
+    toast.add({ title: 'Unable to check refund', description: requestError.value, color: 'error' })
+  } finally {
+    isRefundStatusLoading.value = false
   }
 }
 
@@ -415,6 +468,7 @@ onBeforeUnmount(() => {
 
           <dl class="summary-dates">
             <div><dt>Order number</dt><dd>{{ order.order_no }}</dd></div>
+            <div><dt>Payment</dt><dd>{{ customerStatusLabel(order.payment_status) }}</dd></div>
             <div><dt>Placed</dt><dd>{{ formatCustomerDate(order.created_at, true) }}</dd></div>
             <div v-if="order.paid_at"><dt>Paid</dt><dd>{{ formatCustomerDate(order.paid_at, true) }}</dd></div>
             <div v-if="order.cancelled_at"><dt>Cancelled</dt><dd>{{ formatCustomerDate(order.cancelled_at, true) }}</dd></div>
@@ -425,7 +479,14 @@ onBeforeUnmount(() => {
           <div class="summary-actions">
             <button v-if="canResumePayment" class="primary-button" type="button" :disabled="isOpeningPayment" @click="openStripeCheckout"><UIcon :name="isOpeningPayment ? 'i-lucide-loader-circle' : 'i-lucide-external-link'" :class="{ spinning: isOpeningPayment }" /> {{ isOpeningPayment ? 'Opening Stripe...' : 'Pay with Stripe' }}</button>
             <button v-if="canCancel" class="danger-link" type="button" :disabled="isCancelling" @click="cancelFormOpen = !cancelFormOpen"><UIcon name="i-lucide-circle-x" /> {{ cancelFormOpen ? 'Close cancellation' : 'Cancel order' }}</button>
+            <button v-if="canRequestRefund" class="danger-link" type="button" :disabled="isRefundRequesting" @click="requestRefund"><UIcon :name="isRefundRequesting ? 'i-lucide-loader-circle' : 'i-lucide-rotate-ccw'" :class="{ spinning: isRefundRequesting }" /> {{ isRefundRequesting ? 'Requesting refund...' : 'Request refund' }}</button>
+            <button v-if="canQueryRefundStatus" class="outline-button" type="button" :disabled="isRefundStatusLoading" @click="queryRefundStatus"><UIcon :name="isRefundStatusLoading ? 'i-lucide-loader-circle' : 'i-lucide-refresh-cw'" :class="{ spinning: isRefundStatusLoading }" /> {{ isRefundStatusLoading ? 'Checking refund...' : 'Check refund status' }}</button>
             <NuxtLink to="/account/orders"><UIcon name="i-lucide-arrow-left" /> Back to orders</NuxtLink>
+          </div>
+
+          <div v-if="isRefunding" class="refund-notice">
+            <UIcon name="i-lucide-circle-dollar-sign" />
+            <span>Refund in progress{{ refundProviderStatus ? ` · Stripe: ${refundProviderStatus}` : '' }}</span>
           </div>
 
           <form v-if="cancelFormOpen && canCancel" class="cancel-form" @submit.prevent="cancelOrder">
@@ -468,6 +529,8 @@ onBeforeUnmount(() => {
 .order-notice .iconify { width: 15px; height: 15px; flex: 0 0 auto; }
 .order-notice span { flex: 1; }
 .order-notice button { padding: 0; border: 0; color: inherit; background: none; cursor: pointer; font-family: 'DM Mono', monospace; font-size: 8px; text-transform: uppercase; }
+.refund-notice { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 12px 14px; border: 1px solid #d7c6a7; color: #6b5635; background: #faf3e3; font-size: 11px; }
+.refund-notice .iconify { width: 15px; height: 15px; flex: 0 0 auto; }
 .order-loading { display: grid; grid-template-columns: minmax(0,1.45fr) minmax(270px,.55fr); gap: 18px; padding-block: 38px 80px; }
 .order-loading div { min-height: 520px; border: 1px solid var(--store-line); background: linear-gradient(90deg, #f4efed, #fff, #f4efed); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }

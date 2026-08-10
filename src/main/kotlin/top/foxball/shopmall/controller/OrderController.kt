@@ -127,6 +127,8 @@ class OrderController(
             @param:JsonProperty("customer_id")
             val customerId: Long,
             val status: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
             @param:JsonProperty("items_subtotal")
             val itemsSubtotal: BigDecimal,
             @param:JsonProperty("shipping_fee")
@@ -181,6 +183,7 @@ class OrderController(
             orderNo = order.orderNo,
             customerId = order.customerId,
             status = order.status.name,
+            paymentStatus = order.paymentStatus.name,
             itemsSubtotal = order.itemsSubtotal,
             shippingFee = order.shippingFee,
             taxAmount = order.taxAmount,
@@ -277,6 +280,8 @@ class OrderController(
             @param:JsonProperty("customer_id")
             val customerId: Long,
             val status: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
             @param:JsonProperty("items_subtotal")
             val itemsSubtotal: BigDecimal,
             @param:JsonProperty("shipping_fee")
@@ -329,6 +334,7 @@ class OrderController(
                 orderNo = order.orderNo,
                 customerId = order.customerId,
                 status = order.status.name,
+                paymentStatus = order.paymentStatus.name,
                 itemsSubtotal = order.itemsSubtotal,
                 shippingFee = order.shippingFee,
                 taxAmount = order.taxAmount,
@@ -425,6 +431,8 @@ class OrderController(
             @param:JsonProperty("customer_id")
             val customerId: Long,
             val status: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
             @param:JsonProperty("items_subtotal")
             val itemsSubtotal: BigDecimal,
             @param:JsonProperty("shipping_fee")
@@ -469,6 +477,7 @@ class OrderController(
             orderNo = order.orderNo,
             customerId = order.customerId,
             status = order.status.name,
+            paymentStatus = order.paymentStatus.name,
             itemsSubtotal = order.itemsSubtotal,
             shippingFee = order.shippingFee,
             taxAmount = order.taxAmount,
@@ -557,6 +566,8 @@ class OrderController(
             @param:JsonProperty("order_no")
             val orderNo: String,
             val status: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
             @param:JsonProperty("checkout_session_id")
             val checkoutSessionId: String?,
             @param:JsonProperty("expires_at")
@@ -567,6 +578,7 @@ class OrderController(
         val rs = Response(
             orderNo = payment.orderNo,
             status = payment.status.name,
+            paymentStatus = payment.paymentStatus.name,
             checkoutSessionId = payment.checkoutSessionId,
             expiresAt = payment.expiresAt,
         )
@@ -630,6 +642,81 @@ class OrderController(
         return builder.ok()
             .data(rs)
             .build()
+    }
+
+    /**
+     * @api 申请退款
+     * @param orderNo 订单编号
+     * @param reason 退款原因
+     */
+    @PostMapping("/api/orders/{order_no}/refund")
+    fun refundOrder(
+        @AuthenticationPrincipal userId: Long,
+        @PathVariable("order_no") orderNo: String,
+        @RequestParam("reason", required = false) @Size(max = 200) reason: String?,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            @param:JsonProperty("order_no")
+            val orderNo: String,
+            val status: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
+            @param:JsonProperty("cancel_reason")
+            val cancelReason: String?,
+            @param:JsonProperty("refund_requested_at")
+            val refundRequestedAt: java.time.LocalDateTime?,
+        )
+
+        val view = orderService.refundCustomer(userId, orderNo, reason)
+        val order = view.order
+        val rs = Response(
+            id = requireNotNull(order.id),
+            orderNo = order.orderNo,
+            status = order.status.name,
+            paymentStatus = order.paymentStatus.name,
+            cancelReason = order.cancelReason,
+            refundRequestedAt = order.refundRequestedAt,
+        )
+        return builder.ok().data(rs).build()
+    }
+
+    /** @api 查询退款状态 */
+    @GetMapping("/api/orders/{order_no}/refund-status")
+    fun queryRefundStatus(
+        @AuthenticationPrincipal userId: Long,
+        @PathVariable("order_no") orderNo: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("order_no")
+            val orderNo: String,
+            @param:JsonProperty("order_status")
+            val orderStatus: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
+            @param:JsonProperty("stripe_refund_id")
+            val stripeRefundId: String?,
+            @param:JsonProperty("provider_refund_status")
+            val providerRefundStatus: String?,
+            @param:JsonProperty("refund_amount")
+            val refundAmount: BigDecimal?,
+            val currency: String?,
+            @param:JsonProperty("amount_matches_order")
+            val amountMatchesOrder: Boolean?,
+        )
+
+        val refund = orderService.queryCustomerRefund(userId, orderNo)
+        val rs = Response(
+            orderNo = refund.orderNo,
+            orderStatus = refund.orderStatus.name,
+            paymentStatus = refund.paymentStatus.name,
+            stripeRefundId = refund.stripeRefundId,
+            providerRefundStatus = refund.providerRefundStatus,
+            refundAmount = refund.refundAmount,
+            currency = refund.currency,
+            amountMatchesOrder = refund.amountMatchesOrder,
+        )
+        return builder.ok().data(rs).build()
     }
 
 }

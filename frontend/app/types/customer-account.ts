@@ -3,6 +3,8 @@ export type NullableNumber = number | string | null
 export type CustomerOrderStatus =
   | 'PENDING_PAYMENT'
   | 'PAID'
+  | 'REFUNDING'
+  | 'REFUNDED'
   | 'SHIPPED'
   | 'DELIVERED'
   | 'COMPLETED'
@@ -182,6 +184,7 @@ export interface CustomerOrder {
   order_no: string
   customer_id: number
   status: CustomerOrderStatus
+  payment_status: CustomerPaymentStatus
   items_subtotal: NullableNumber
   shipping_fee: NullableNumber
   tax_amount: NullableNumber
@@ -217,6 +220,14 @@ export interface CustomerOrderCancellation {
   items: Array<Omit<CustomerOrderItem, 'created_at'>>
 }
 
+export type CustomerPaymentStatus =
+  | 'PENDING_PAYMENT'
+  | 'PAID'
+  | 'REFUNDING'
+  | 'PARTIALLY_REFUNDED'
+  | 'REFUNDED'
+  | 'CANCELLED'
+
 export interface CustomerOrderIdempotencyKey {
   idempotency_key: string
   expires_at: string
@@ -239,8 +250,29 @@ export interface CustomerOrderCheckout {
 export interface CustomerOrderPayment {
   order_no: string
   status: CustomerOrderStatus
+  payment_status: CustomerPaymentStatus
   checkout_session_id: string | null
   expires_at: string | null
+}
+
+export interface CustomerOrderRefund {
+  id: number
+  order_no: string
+  status: CustomerOrderStatus
+  payment_status: CustomerPaymentStatus
+  cancel_reason: string | null
+  refund_requested_at: string | null
+}
+
+export interface CustomerOrderRefundStatus {
+  order_no: string
+  order_status: CustomerOrderStatus
+  payment_status: CustomerPaymentStatus
+  stripe_refund_id: string | null
+  provider_refund_status: string | null
+  refund_amount: NullableNumber
+  currency: string | null
+  amount_matches_order: boolean | null
 }
 
 export interface CustomerShipmentItem {

@@ -58,7 +58,9 @@ class MockDataInitializerIntegrationTest @Autowired constructor(
         assertEquals(24, supportTicketRepository.count())
         assertEquals(42, supportTicketMessageRepository.count())
 
-        OrderStatus.entries.filterNot { it == OrderStatus.DELETED }.forEach { status ->
+        OrderStatus.entries.filterNot {
+            it in setOf(OrderStatus.DELETED, OrderStatus.REFUNDING, OrderStatus.REFUNDED)
+        }.forEach { status ->
             assertEquals(30, orderRepository.countByStatus(status), "订单状态 $status 数量不正确")
         }
         assertEquals(13, productRepository.countByStatus(Product.Status.ACTIVE))

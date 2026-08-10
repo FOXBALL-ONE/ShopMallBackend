@@ -3,6 +3,7 @@ import type {
     OrderListResponse,
     OrderDetail,
     OrderPaymentStatusResponse,
+    OrderRefundStatusResponse,
     OrderStatus,
     RefundOrderResponse,
     DeleteOrderResponse,
@@ -12,6 +13,8 @@ import type {
 export const ORDER_STATUS_OPTIONS: Array<{ label: string; value: OrderStatus }> = [
     {label: "待付款", value: "PENDING_PAYMENT"},
     {label: "已支付 / 待发货", value: "PAID"},
+    {label: "退款中", value: "REFUNDING"},
+    {label: "因退款作废", value: "REFUNDED"},
     {label: "已发货", value: "SHIPPED"},
     {label: "已送达", value: "DELIVERED"},
     {label: "已完成", value: "COMPLETED"},
@@ -40,6 +43,10 @@ export const useOrderApi = () => {
         return post<OrderPaymentStatusResponse>(`/orders/${encodeURIComponent(orderNo)}/payment-status`);
     }
 
+    function queryRefundStatus(orderNo: string): Promise<OrderRefundStatusResponse> {
+        return post<OrderRefundStatusResponse>(`/orders/${encodeURIComponent(orderNo)}/refund-status`);
+    }
+
     function deleteOrder(orderNo: string): Promise<DeleteOrderResponse> {
         return deleteRequest<DeleteOrderResponse>(`/orders/${encodeURIComponent(orderNo)}`);
     }
@@ -52,6 +59,7 @@ export const useOrderApi = () => {
         list,
         detail,
         queryPaymentStatus,
+        queryRefundStatus,
         refund,
         deleteOrder,
         permanentlyDeleteOrder,

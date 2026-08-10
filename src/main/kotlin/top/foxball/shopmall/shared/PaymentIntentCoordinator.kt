@@ -1,6 +1,7 @@
 package top.foxball.shopmall.shared
 
 import com.stripe.StripeClient
+import com.stripe.model.Refund
 import com.stripe.net.RequestOptions
 import com.stripe.param.PaymentIntentCancelParams
 import com.stripe.param.RefundCreateParams
@@ -23,11 +24,12 @@ class PaymentIntentCoordinator(
     /**
      * 处理非 Checkout PaymentIntent：已支付时退款，未取消的未完成支付则直接取消。
      */
-    fun cancelOrRefund(paymentIntentId: String, idempotencyKey: String) {
+    fun cancelOrRefund(paymentIntentId: String, idempotencyKey: String): Refund? {
+        var refund: Refund? = null
         withLock(paymentIntentId) {
             val paymentIntent = stripeClient.v1().paymentIntents().retrieve(paymentIntentId)
             if (paymentIntent.status == "succeeded") {
-                stripeClient.v1().refunds().create(
+                refund = stripeClient.v1().refunds().create(
                     RefundCreateParams.builder().setPaymentIntent(paymentIntentId).build(),
                     RequestOptions.builder().setIdempotencyKey(idempotencyKey).build(),
                 )
@@ -38,6 +40,7 @@ class PaymentIntentCoordinator(
                 )
             }
         }
+        return refund
     }
 
     /**
@@ -48,8 +51,9 @@ class PaymentIntentCoordinator(
         checkoutSessionId: String?,
         paymentIntentId: String?,
         idempotencyKey: String,
-    ) {
-        val lockId = checkoutSessionId ?: paymentIntentId ?: return
+    ): Refund? {
+        val lockId = checkoutSessionId ?: paymentIntentId ?: return null
+        var refund: Refund? = null
         withLock(lockId) {
             val resolvedPaymentIntentId = checkoutSessionId?.let { sessionId ->
                 val session = stripeClient.v1().checkout().sessions().retrieve(sessionId)
@@ -64,7 +68,7 @@ class PaymentIntentCoordinator(
                 stripeClient.v1().paymentIntents().retrieve(it)
             } ?: return@withLock
             if (paymentIntent.status == "succeeded") {
-                stripeClient.v1().refunds().create(
+                refund = stripeClient.v1().refunds().create(
                     RefundCreateParams.builder().setPaymentIntent(paymentIntent.id).build(),
                     RequestOptions.builder().setIdempotencyKey(idempotencyKey).build(),
                 )
@@ -75,16 +79,19 @@ class PaymentIntentCoordinator(
                 )
             }
         }
+        return refund
     }
 
     /** 为已成功的 PaymentIntent 创建退款；调用方须为同一业务退款复用同一个幂等键。 */
-    fun refund(paymentIntentId: String, idempotencyKey: String) {
+    fun refund(paymentIntentId: String, idempotencyKey: String): Refund {
+        var refund: Refund? = null
         withLock(paymentIntentId) {
-            stripeClient.v1().refunds().create(
+            refund = stripeClient.v1().refunds().create(
                 RefundCreateParams.builder().setPaymentIntent(paymentIntentId).build(),
                 RequestOptions.builder().setIdempotencyKey(idempotencyKey).build(),
             )
         }
+        return requireNotNull(refund)
     }
 
     /**

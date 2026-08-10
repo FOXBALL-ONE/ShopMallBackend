@@ -36,6 +36,9 @@ export function customerStatusLabel(status: string | null | undefined) {
   const labels: Record<string, string> = {
     PENDING_PAYMENT: 'Awaiting payment',
     PAID: 'Preparing',
+    REFUNDING: 'Refund in progress',
+    PARTIALLY_REFUNDED: 'Partially refunded',
+    REFUNDED: 'Voided after refund',
     SHIPPED: 'On the way',
     DELIVERED: 'Delivered',
     COMPLETED: 'Complete',
@@ -54,7 +57,7 @@ export function customerStatusLabel(status: string | null | undefined) {
 }
 
 export function customerStatusTone(status: string | null | undefined) {
-  if (['CANCELLED', 'DELETED', 'EXCEPTION'].includes(status || '')) return 'muted'
+  if (['CANCELLED', 'DELETED', 'REFUNDED', 'EXCEPTION'].includes(status || '')) return 'muted'
   if (['DELIVERED', 'COMPLETED'].includes(status || '')) return 'success'
   if (['SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(status || '')) return 'accent'
   return 'warm'

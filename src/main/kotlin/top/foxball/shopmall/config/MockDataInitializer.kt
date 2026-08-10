@@ -18,6 +18,7 @@ import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.Dress
 import top.foxball.shopmall.entity.jdbc.OnePieceSuit
 import top.foxball.shopmall.entity.jdbc.OrderEntity
+import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
 import top.foxball.shopmall.entity.jdbc.OrderStatus
@@ -250,6 +251,11 @@ class MockDataInitializer(
                 orderNo = "MOCK-ORD-%06d".format(dayOffset + 1),
                 customerId = requireNotNull(customer.id),
                 status = status,
+                paymentStatus = when {
+                    status in PAID_ORDER_STATUSES -> OrderPaymentStatus.PAID
+                    status == OrderStatus.CANCELLED -> OrderPaymentStatus.CANCELLED
+                    else -> OrderPaymentStatus.PENDING_PAYMENT
+                },
                 itemsSubtotal = itemsSubtotal,
                 shippingFee = shippingFee,
                 taxAmount = taxAmount,

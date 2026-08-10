@@ -17,6 +17,7 @@ import top.foxball.shopmall.entity.jdbc.Dress
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderStatus
+import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
 import top.foxball.shopmall.entity.jdbc.OutboxEvent
 import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.entity.jdbc.User
@@ -284,44 +285,46 @@ class OrderServiceImplTest {
     }
 
     @Test
-    fun `refund restores stock and sales only after paid transition succeeds`() {
+    fun `refund request enters refunding and defers stock and sales changes until Stripe confirms`() {
         val order = OrderEntity(
             id = 100,
             orderNo = "ORDER-100",
             customerId = 5,
             status = OrderStatus.PAID,
+            paymentStatus = OrderPaymentStatus.PAID,
             paymentIntentId = "pi_100",
         )
         val item = OrderItem(id = 200, order = order, productId = 10, quantity = 2)
-        val cancelled = OrderEntity(
+        val refunding = OrderEntity(
             id = 100,
             orderNo = order.orderNo,
             customerId = order.customerId,
-            status = OrderStatus.CANCELLED,
+            status = OrderStatus.REFUNDING,
+            paymentStatus = OrderPaymentStatus.REFUNDING,
         )
         `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
-        `when`(orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(100)).thenReturn(listOf(item))
         `when`(
-            orderRepository.markCancelled(
+            orderRepository.markRefunding(
                 100,
                 OrderStatus.PAID,
-                OrderStatus.CANCELLED,
-                clock.instant(),
+                OrderPaymentStatus.PAID,
+                OrderStatus.REFUNDING,
+                OrderPaymentStatus.REFUNDING,
+                java.time.LocalDateTime.now(clock),
                 "customer request",
             ),
         ).thenReturn(1)
         `when`(eventPublisher.publishInTx(anyString(), anyLong(), anyString(), anyString()))
             .thenReturn(OutboxEvent())
-        `when`(productRepository.restock(10, 2)).thenReturn(1)
-        `when`(productRepository.decrementSales(10, 2)).thenReturn(1)
-        `when`(orderRepository.findById(100)).thenReturn(Optional.of(cancelled))
+        `when`(orderRepository.findById(100)).thenReturn(Optional.of(refunding))
 
         val result = service.refund(9, order.orderNo, "customer request")
 
-        assertEquals(OrderStatus.CANCELLED, result.order.status)
-        verify(productRepository).restock(10, 2)
-        verify(productRepository).decrementSales(10, 2)
-        verify(paymentService).cancelOrRefund(order, "admin-refund")
+        assertEquals(OrderStatus.REFUNDING, result.order.status)
+        assertEquals(OrderPaymentStatus.REFUNDING, result.order.paymentStatus)
+        verify(paymentService).requestRefund(order)
+        verify(productRepository, never()).restock(10, 2)
+        verify(productRepository, never()).decrementSales(10, 2)
     }
 
     @Test

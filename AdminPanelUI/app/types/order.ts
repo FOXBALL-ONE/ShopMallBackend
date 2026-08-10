@@ -1,6 +1,8 @@
 export type OrderStatus =
     | "PENDING_PAYMENT"
     | "PAID"
+    | "REFUNDING"
+    | "REFUNDED"
     | "SHIPPED"
     | "DELIVERED"
     | "COMPLETED"
@@ -20,6 +22,14 @@ export type StripeCollectionStatus =
 
 export type OrderPaymentQuerySource = "PAYMENT_INTENT" | "CHECKOUT_SESSION";
 
+export type OrderPaymentStatus =
+    | "PENDING_PAYMENT"
+    | "PAID"
+    | "REFUNDING"
+    | "PARTIALLY_REFUNDED"
+    | "REFUNDED"
+    | "CANCELLED";
+
 export interface OrderListQuery {
     page: number;
     size: number;
@@ -34,6 +44,7 @@ export interface OrderListItem {
     customer_id: number;
     customer_username: string;
     status: OrderStatus;
+    payment_status: OrderPaymentStatus;
     total_amount: number | string;
     currency: string;
     created_at: string | null;
@@ -52,6 +63,7 @@ export interface RefundOrderResponse {
     id: number;
     order_no: string;
     status: OrderStatus;
+    payment_status: OrderPaymentStatus;
     cancel_reason: string | null;
     updated_at: string | null;
 }
@@ -99,6 +111,7 @@ export interface OrderDetail {
     customer_id: number;
     customer_username: string;
     status: OrderStatus;
+    payment_status: OrderPaymentStatus;
     items_subtotal: number | string;
     shipping_fee: number | string;
     tax_amount: number | string;
@@ -107,10 +120,13 @@ export interface OrderDetail {
     currency: string;
     payment_intent_id: string | null;
     stripe_checkout_session_id: string | null;
+    stripe_refund_id: string | null;
     shipping_address: OrderShippingAddress;
     client_message: string | null;
     expires_at: string | null;
     paid_at: string | null;
+    refund_requested_at: string | null;
+    refunded_at: string | null;
     cancelled_at: string | null;
     shipped_at: string | null;
     delivered_at: string | null;
@@ -123,6 +139,7 @@ export interface OrderDetail {
 export interface OrderPaymentStatusResponse {
     order_no: string;
     order_status: OrderStatus;
+    payment_status: OrderPaymentStatus;
     provider: string;
     provider_status: StripeCollectionStatus;
     query_source: OrderPaymentQuerySource;
@@ -136,4 +153,15 @@ export interface OrderPaymentStatusResponse {
     amount_matches_order: boolean | null;
     failure_code: string | null;
     failure_message: string | null;
+}
+
+export interface OrderRefundStatusResponse {
+    order_no: string;
+    order_status: OrderStatus;
+    payment_status: OrderPaymentStatus;
+    stripe_refund_id: string | null;
+    provider_refund_status: string | null;
+    refund_amount: number | string | null;
+    currency: string | null;
+    amount_matches_order: boolean | null;
 }

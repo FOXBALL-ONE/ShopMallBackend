@@ -36,6 +36,7 @@ class OutboxMessageHandler(
                 "PAID" -> orderMailService.sendPaymentConfirmation(aggregateId)
                 "PAYMENT_CANCEL_OR_REFUND" -> paymentService.reconcileCancellation(aggregateId)
                 "PAYMENT_CONFLICT_REFUND" -> paymentService.reconcileConflictRefund(aggregateId)
+                "PAYMENT_REFUND_REQUESTED" -> paymentService.reconcileRequestedRefund(aggregateId)
             }
             "SHIPMENT" -> shipmentOutboxProcessor.handle(aggregateId, eventType)
         }

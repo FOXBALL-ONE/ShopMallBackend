@@ -2,6 +2,7 @@ package top.foxball.shopmall.service
 
 import org.springframework.data.domain.Page
 import top.foxball.shopmall.entity.jdbc.OrderEntity
+import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import java.time.Instant
@@ -45,8 +46,20 @@ data class AdminOrderDetails(
 data class OrderPaymentView(
     val orderNo: String,
     val status: OrderStatus,
+    val paymentStatus: OrderPaymentStatus,
     val checkoutSessionId: String?,
     val expiresAt: Instant?,
+)
+
+data class OrderRefundView(
+    val orderNo: String,
+    val orderStatus: OrderStatus,
+    val paymentStatus: OrderPaymentStatus,
+    val stripeRefundId: String?,
+    val providerRefundStatus: String?,
+    val refundAmount: java.math.BigDecimal?,
+    val currency: String?,
+    val amountMatchesOrder: Boolean?,
 )
 
 /**
@@ -77,13 +90,19 @@ interface OrderService {
     /** 取消当前客户仍可取消的订单，恢复库存并登记后续支付补偿任务；取消原因可省略。 */
     fun cancel(customerId: Long, orderNo: String, reason: String?): OrderView
 
+    /** 客户对尚未发货的已付款订单申请全额退款。 */
+    fun refundCustomer(customerId: Long, orderNo: String, reason: String?): OrderView
+
+    /** 查询客户退款状态；Stripe 已确认成功时同步本地订单与付款状态。 */
+    fun queryCustomerRefund(customerId: Long, orderNo: String): OrderRefundView
+
     /** 以管理员权限按筛选条件分页查询订单。 */
     fun listAdmin(adminId: Long, query: AdminOrderQuery): Page<OrderView>
 
     /** 以管理员权限查询订单详情及当前有效的履约分配。 */
     fun getAdmin(adminId: Long, orderNo: String): AdminOrderDetails
 
-    /** 由管理员取消可退款订单、恢复库存，并登记第三方支付退款补偿任务。 */
+    /** 由管理员为未发货的已付款订单申请退款，Stripe 确认成功后再恢复库存。 */
     fun refund(adminId: Long, orderNo: String, reason: String): OrderView
 
     /** 将订单标记为已删除；重复调用保持逻辑删除状态，不执行物理删除。 */

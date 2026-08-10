@@ -50,3 +50,7 @@ Follow `docs/CONTROLLER_CONVENTIONS.md` and the established style in `UserContro
   use the offset-free `ISO_LOCAL_DATE_TIME` representation (for example, `2026-08-06T19:25:14`).
 - Bind `LocalDateTime` directly for JDBC date-time parameters. Do not pass `Instant` directly to
   `JdbcTemplate`; convert it to the intended local date-time first when integration boundaries require it.
+
+## Currency Convention
+
+- The project's default business and order currency is `USD`.

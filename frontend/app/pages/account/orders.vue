@@ -52,7 +52,7 @@ const visibleOrders = computed(() => orders.value.filter(order => {
   if (activeFilter.value === 'OPEN') return ['PENDING_PAYMENT', 'PAID'].includes(order.status)
   if (activeFilter.value === 'SHIPPED') return ['SHIPPED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(order.status)
   if (activeFilter.value === 'DELIVERED') return ['DELIVERED', 'COMPLETED'].includes(order.status)
-  return ['CANCELLED', 'DELETED'].includes(order.status)
+  return ['REFUNDING', 'REFUNDED', 'CANCELLED', 'DELETED'].includes(order.status)
 }))
 
 const pageLabel = computed(() => `${page.value} / ${Math.max(totalPages.value, 1)}`)

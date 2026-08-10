@@ -9,6 +9,7 @@ import type {
   OrderListItem,
   OrderListQuery,
   OrderPaymentStatusResponse,
+  OrderRefundStatusResponse,
   OrderStatus,
   StripeCollectionStatus,
 } from '~/types/order'
@@ -23,8 +24,10 @@ const orders = ref<OrderListItem[]>([])
 const selectedOrder = ref<OrderListItem | null>(null)
 const selectedOrderDetail = ref<OrderDetail | null>(null)
 const paymentStatus = ref<OrderPaymentStatusResponse | null>(null)
+const refundStatus = ref<OrderRefundStatusResponse | null>(null)
 const detailLoading = ref(false)
 const paymentStatusLoading = ref(false)
+const refundStatusLoading = ref(false)
 const detailOpen = ref(false)
 const refundOpen = ref(false)
 const refundLoading = ref(false)
@@ -72,7 +75,10 @@ const pageStats = computed(() => ({
   fulfilling: orders.value.filter(order => order.status === 'SHIPPED' || order.status === 'DELIVERED').length,
 }))
 
-const refundOrder = computed(() => selectedOrder.value?.status === 'PAID' ? selectedOrder.value : null)
+const refundOrder = computed(() => selectedOrder.value?.status === 'PAID' && selectedOrder.value.payment_status === 'PAID'
+  ? selectedOrder.value
+  : null)
+const canQueryRefundStatus = computed(() => ['REFUNDING', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(selectedOrderDetail.value?.payment_status || ''))
 const canQueryPaymentStatus = computed(() => Boolean(
   selectedOrderDetail.value?.payment_intent_id
   || selectedOrderDetail.value?.stripe_checkout_session_id,
@@ -86,6 +92,8 @@ function statusTagType(status: OrderStatus): TagProps['type'] {
   const types: Record<OrderStatus, TagProps['type']> = {
     PENDING_PAYMENT: 'warning',
     PAID: 'info',
+    REFUNDING: 'warning',
+    REFUNDED: 'default',
     SHIPPED: 'info',
     DELIVERED: 'success',
     COMPLETED: 'success',
@@ -93,6 +101,18 @@ function statusTagType(status: OrderStatus): TagProps['type'] {
     DELETED: 'default',
   }
   return types[status]
+}
+
+function localPaymentStatusLabel(status: OrderListItem['payment_status']): string {
+  const labels: Record<OrderListItem['payment_status'], string> = {
+    PENDING_PAYMENT: '待付款',
+    PAID: '已付款',
+    REFUNDING: '退款中',
+    PARTIALLY_REFUNDED: '部分退款',
+    REFUNDED: '退款成功',
+    CANCELLED: '已取消',
+  }
+  return labels[status]
 }
 
 function paymentStatusLabel(status: StripeCollectionStatus): string {
@@ -219,6 +239,7 @@ async function openDetail(order: OrderListItem) {
   selectedOrder.value = order
   selectedOrderDetail.value = null
   paymentStatus.value = null
+  refundStatus.value = null
   detailOpen.value = true
   detailLoading.value = true
   try {
@@ -241,14 +262,48 @@ async function queryStripePaymentStatus() {
     paymentStatus.value = result
     if (selectedOrder.value?.order_no === result.order_no) {
       selectedOrder.value.status = result.order_status
+      selectedOrder.value.payment_status = result.payment_status
     }
     const listOrder = orders.value.find(order => order.order_no === result.order_no)
-    if (listOrder) listOrder.status = result.order_status
+    if (listOrder) {
+      listOrder.status = result.order_status
+      listOrder.payment_status = result.payment_status
+    }
     message.success(`已查询订单 ${result.order_no} 的 Stripe 收款状态`)
   } catch (error) {
     message.error(`查询 Stripe 收款状态失败：${errorMessage(error)}`)
   } finally {
     paymentStatusLoading.value = false
+  }
+}
+
+async function queryStripeRefundStatus() {
+  const detail = selectedOrderDetail.value
+  if (!detail || !canQueryRefundStatus.value || refundStatusLoading.value) return
+
+  refundStatusLoading.value = true
+  refundStatus.value = null
+  try {
+    const result = await api.queryRefundStatus(detail.order_no)
+    refundStatus.value = result
+    if (selectedOrder.value?.order_no === result.order_no) {
+      selectedOrder.value.status = result.order_status
+      selectedOrder.value.payment_status = result.payment_status
+    }
+    const listOrder = orders.value.find(order => order.order_no === result.order_no)
+    if (listOrder) {
+      listOrder.status = result.order_status
+      listOrder.payment_status = result.payment_status
+    }
+    if (selectedOrderDetail.value?.order_no === result.order_no) {
+      selectedOrderDetail.value.status = result.order_status
+      selectedOrderDetail.value.payment_status = result.payment_status
+    }
+    message.success(`已查询订单 ${result.order_no} 的 Stripe 退款状态`)
+  } catch (error) {
+    message.error(`查询 Stripe 退款状态失败：${errorMessage(error)}`)
+  } finally {
+    refundStatusLoading.value = false
   }
 }
 
@@ -296,12 +351,14 @@ async function submitRefund() {
     const matchedOrder = orders.value.find(item => item.id === result.id)
     if (matchedOrder) {
       matchedOrder.status = result.status
+      matchedOrder.payment_status = result.payment_status
       matchedOrder.updated_at = result.updated_at
     }
     if (selectedOrder.value?.id === result.id) {
       selectedOrder.value = {
         ...selectedOrder.value,
         status: result.status,
+        payment_status: result.payment_status,
         updated_at: result.updated_at,
       }
     }
@@ -651,6 +708,9 @@ onMounted(() => {
               <NDescriptionsItem label="更新时间">
                 {{ formatDate(selectedOrder.updated_at) }}
               </NDescriptionsItem>
+              <NDescriptionsItem label="本地付款状态">
+                {{ localPaymentStatusLabel(selectedOrder.payment_status) }}
+              </NDescriptionsItem>
             </NDescriptions>
 
             <template v-if="selectedOrderDetail">
@@ -714,6 +774,9 @@ onMounted(() => {
                   <NDescriptionsItem label="本地订单状态">
                     {{ statusLabel(paymentStatus.order_status) }}
                   </NDescriptionsItem>
+                  <NDescriptionsItem label="本地付款状态">
+                    {{ localPaymentStatusLabel(paymentStatus.payment_status) }}
+                  </NDescriptionsItem>
                   <NDescriptionsItem label="查询来源">
                     {{ paymentQuerySourceLabel(paymentStatus.query_source) }}
                   </NDescriptionsItem>
@@ -751,6 +814,35 @@ onMounted(() => {
                 </NDescriptions>
 
                 <NEmpty v-else class="payment-empty" size="small" description="尚未查询 Stripe 收款状态" />
+              </div>
+
+              <div v-if="canQueryRefundStatus || refundStatus">
+                <div class="detail-section-heading">
+                  <NText strong>Stripe 退款状态</NText>
+                  <NButton size="small" secondary type="warning" :loading="refundStatusLoading" @click="queryStripeRefundStatus">
+                    <template #icon><RefreshCw :size="16" /></template>
+                    查询退款
+                  </NButton>
+                </div>
+                <NDescriptions v-if="refundStatus" class="detail-block" label-placement="top" bordered :column="2" size="small">
+                  <NDescriptionsItem label="本地订单状态">{{ statusLabel(refundStatus.order_status) }}</NDescriptionsItem>
+                  <NDescriptionsItem label="本地付款状态">{{ localPaymentStatusLabel(refundStatus.payment_status) }}</NDescriptionsItem>
+                  <NDescriptionsItem label="Stripe 退款状态">{{ refundStatus.provider_refund_status || '退款请求待投递' }}</NDescriptionsItem>
+                  <NDescriptionsItem label="Stripe 退款 ID"><span class="payment-reference">{{ refundStatus.stripe_refund_id || '-' }}</span></NDescriptionsItem>
+                  <NDescriptionsItem label="退款金额">
+                    <template v-if="refundStatus.refund_amount !== null && refundStatus.currency">
+                      {{ formatAmount(refundStatus.refund_amount, refundStatus.currency) }}
+                    </template>
+                    <template v-else>-</template>
+                  </NDescriptionsItem>
+                  <NDescriptionsItem label="金额校验">
+                    <template v-if="refundStatus.amount_matches_order === null">-</template>
+                    <NTag v-else :type="refundStatus.amount_matches_order ? 'success' : 'error'" :bordered="false" size="small">
+                      {{ refundStatus.amount_matches_order ? '金额一致' : '金额不一致' }}
+                    </NTag>
+                  </NDescriptionsItem>
+                </NDescriptions>
+                <NEmpty v-else class="payment-empty" size="small" description="尚未查询 Stripe 退款状态" />
               </div>
 
               <div>
@@ -824,7 +916,7 @@ onMounted(() => {
             <NButton @click="detailOpen = false">关闭</NButton>
             <NButton
               type="error"
-              :disabled="selectedOrder?.status !== 'PAID'"
+              :disabled="selectedOrder?.status !== 'PAID' || selectedOrder.payment_status !== 'PAID'"
               @click="selectedOrder && openRefund(selectedOrder)"
             >
               退款
@@ -852,7 +944,7 @@ onMounted(() => {
     >
       <NSpace v-if="refundOrder" vertical :size="16">
         <NAlert type="warning" :bordered="false">
-          确认对订单 <strong>{{ refundOrder.order_no }}</strong> 发起退款？该操作会取消订单并恢复库存。
+          确认对订单 <strong>{{ refundOrder.order_no }}</strong> 发起退款？订单和付款状态将进入退款中，Stripe 确认成功后才恢复库存并作废订单。
         </NAlert>
         <NDescriptions :column="2" label-placement="top" size="small">
           <NDescriptionsItem label="客户用户名">{{ refundOrder.customer_username }}</NDescriptionsItem>
