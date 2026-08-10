@@ -31,7 +31,7 @@ export interface HttpRequestOptions<T> extends Omit<FetchOptions<"json">, "baseU
     body?: T;
 }
 
-const AUTH_FAILURE_STATUSES = new Set([401, 403]);
+const UNAUTHORIZED_STATUS = 401;
 const MAX_REFRESH_ATTEMPTS = 2;
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const TOKEN_COOKIE = "admin_auth_token";
@@ -65,7 +65,7 @@ function getResponseMessage(response: ApiResult<unknown>): string {
 }
 
 function isAuthenticationFailure(status: number): boolean {
-    return AUTH_FAILURE_STATUSES.has(status);
+    return status === UNAUTHORIZED_STATUS;
 }
 
 function isAuthenticationEndpoint(url: string): boolean {

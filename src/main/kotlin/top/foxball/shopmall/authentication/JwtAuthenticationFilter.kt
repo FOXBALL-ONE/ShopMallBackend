@@ -29,6 +29,9 @@ class JwtAuthenticationFilter(
     private val devTokenManager: DevTokenManager,
 ) : OncePerRequestFilter() {
 
+    // suspend 控制器完成时会触发 ASYNC 二次派发；无状态会话需要重新从 Bearer token 恢复认证。
+    override fun shouldNotFilterAsyncDispatch(): Boolean = false
+
     override fun doFilterInternal(
         request: HttpServletRequest,
         response: HttpServletResponse,

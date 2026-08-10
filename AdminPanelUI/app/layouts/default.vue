@@ -58,10 +58,10 @@ function handleMenuSelect(key: string) {
 }
 
 const logoutLoading = ref(false)
-const { post, token, user, setAuth, clearAuth } = useHttp()
 const runtimeConfig = useRuntimeConfig()
 const adminApiBase = (runtimeConfig.public.adminApiBase as string) || 'http://127.0.0.1:8080/admin/api'
-const { get: getAdmin } = useHttp(adminApiBase)
+const { post, clearAuth } = useHttp()
+const { get: getAdmin, token, user, setAuth } = useHttp(adminApiBase)
 const administratorName = computed(() => {
   const fullName = [user.value?.first_name, user.value?.last_name].filter(Boolean).join(' ')
   return fullName || user.value?.username || '管理员'
@@ -79,11 +79,11 @@ onMounted(async () => {
   siderCollapsed.value = narrowScreenQuery.matches
   narrowScreenQuery.addEventListener('change', handleNarrowScreenChange)
 
-  const currentToken = token.value
-  if (!currentToken) return
+  if (!token.value) return
   try {
     const session = await getAdmin<AdminSession>('/session')
-    setAuth(currentToken, session)
+    const currentToken = token.value
+    if (currentToken) setAuth(currentToken, session)
   } catch {
     // 401 由 useHttp 统一清理并跳转；短暂网络故障保留当前本地会话。
   }
