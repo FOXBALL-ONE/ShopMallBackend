@@ -33,7 +33,7 @@ import type {
   Tag,
   TorsoFit,
 } from "~/types/product";
-import { useProductApi } from "~/composables/useProductApi";
+import { CATEGORIES, useProductApi } from "~/composables/useProductApi";
 
 /**
  * 商品新增/编辑抽屉表单。
@@ -285,9 +285,32 @@ const formRef = ref<FormInst | null>(null);
 const loading = ref(false);
 const pendingUploads = ref(0);
 const uploading = computed(() => pendingUploads.value > 0);
+const manualImageUrl = ref("");
 /** 编辑时商品 id（新增时为 null）。 */
 const editingId = ref<number | null>(null);
 const isEditing = computed(() => editingId.value !== null);
+
+const categoryLabel = computed(
+  () => CATEGORIES.find((item) => item.type === props.category)?.label ?? "商品",
+);
+
+/** 上新时展示轻量进度，帮助运营在提交前快速发现尚未补全的核心信息。 */
+const setupProgress = computed(() => {
+  const categoryFieldReady = {
+    DRESS: !!model.dressSize,
+    BIKINI: !!model.topSize || !!model.bottomSize,
+    ONE_PIECE: !!model.onePieceSize,
+    COVER_UP: !!model.coverUpSize,
+  }[props.category];
+  const completeCount = [
+    !!model.name.trim(),
+    !!model.color.trim(),
+    typeof model.price === "number" && model.price > 0,
+    model.images.length > 0,
+    categoryFieldReady,
+  ].filter(Boolean).length;
+  return { completeCount, total: 5 };
+});
 
 const message = useMessage();
 const productApi = useProductApi();
@@ -417,6 +440,7 @@ watch(
   (open) => {
     if (!open) return;
     Object.assign(model, createDefaultModel());
+    manualImageUrl.value = "";
     if (props.product) {
       const p = props.product;
       editingId.value = p.id ?? null;
@@ -515,6 +539,39 @@ async function handleUploadRequest({
 /** 移除已上传图片（按索引）。 */
 function removeImage(index: number) {
   model.images.splice(index, 1);
+}
+
+/** 将第一张图片作为商城商品列表卡片的封面。 */
+function moveImage(index: number, direction: -1 | 1) {
+  const targetIndex = index + direction;
+  if (targetIndex < 0 || targetIndex >= model.images.length) return;
+  const image = model.images[index];
+  if (image === undefined) return;
+  model.images.splice(index, 1);
+  model.images.splice(targetIndex, 0, image);
+}
+
+/** 支持补录已经托管在 CDN / 图片服务中的 HTTPS 地址。 */
+function addImageUrl() {
+  if (model.images.length >= 12) {
+    message.warning("图片最多 12 张，请先移除已有图片");
+    return;
+  }
+  const url = manualImageUrl.value.trim();
+  if (!url) return;
+  try {
+    const parsedUrl = new URL(url);
+    if (!/^https?:$/.test(parsedUrl.protocol)) throw new Error("unsupported protocol");
+  } catch {
+    message.warning("请输入以 http:// 或 https:// 开头的有效图片地址");
+    return;
+  }
+  if (model.images.includes(url)) {
+    message.warning("该图片已经添加");
+    return;
+  }
+  model.images.push(url);
+  manualImageUrl.value = "";
 }
 
 /* ===================== 提交 ===================== */
@@ -618,8 +675,6 @@ function closeDrawer() {
 /** 抽屉在窄屏下不超出视口。 */
 const drawerWidth = "min(720px, 100vw)";
 
-/** 图片网格样式占位（内联避免 scoped 全局污染）。 */
-const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 1px solid #e0e0e6; border-radius: 6px; overflow: hidden;";
 </script>
 
 <template>
@@ -634,6 +689,28 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
       :native-scrollbar="false"
       closable
     >
+      <div class="product-form-intro">
+        <div>
+          <NSpace align="center" :size="8">
+            <NTag type="info" size="small" :bordered="false">{{ categoryLabel }}</NTag>
+            <NText strong>{{ isEditing ? "更新商品资料" : "创建一件新商品" }}</NText>
+          </NSpace>
+          <NText depth="3" class="product-form-intro-copy">
+            {{ isEditing ? "保存后会同步更新商城中的商品内容。" : "先完成核心信息、商品图片和品类属性，再发布到商城。" }}
+          </NText>
+        </div>
+        <div v-if="!isEditing" class="setup-progress">
+          <NText depth="3" style="font-size: 12px">核心信息 {{ setupProgress.completeCount }} / {{ setupProgress.total }}</NText>
+          <NProgress
+            type="line"
+            :percentage="(setupProgress.completeCount / setupProgress.total) * 100"
+            :show-indicator="false"
+            :height="6"
+            status="success"
+          />
+        </div>
+      </div>
+
       <NForm
         ref="formRef"
         :model="model"
@@ -643,10 +720,10 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
         require-mark-placement="right-hanging"
       >
         <!-- 公共字段区 -->
-        <NDivider title-placement="left">基础信息</NDivider>
+        <NDivider title-placement="left">1. 上新核心</NDivider>
         <NGrid cols="1 s:2" :x-gap="16" responsive="screen">
           <NFormItemGi label="商品名称" path="name" :span="2">
-            <NInput v-model:value="model.name" placeholder="不超过 200 字符" clearable maxlength="200" show-count />
+            <NInput v-model:value="model.name" placeholder="用清晰的名称帮助顾客快速识别商品" clearable maxlength="200" show-count />
           </NFormItemGi>
           <NFormItemGi label="颜色" path="color">
             <NInput v-model:value="model.color" placeholder="如：黑色 / 海军蓝" clearable maxlength="50" />
@@ -660,7 +737,7 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
               :min="0.01"
               :step="0.01"
               :precision="2"
-              placeholder="大于 0"
+              placeholder="输入售价，例如 299.00"
               style="width: 100%"
             />
           </NFormItemGi>
@@ -679,22 +756,84 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
           <NDescriptionsItem label="累计销量">{{ model.salesVolume }}</NDescriptionsItem>
         </NDescriptions>
 
+        <!-- 图片上传区 -->
+        <NDivider title-placement="left">2. 商品图片</NDivider>
+        <NFormItem label="商品图片" path="images">
+          <NSpace vertical :size="12" style="width: 100%">
+            <NUpload
+              :custom-request="handleUploadRequest"
+              multiple
+              :show-file-list="false"
+              :default-upload="true"
+              accept="image/*"
+            >
+              <NUploadDragger :disabled="uploading || model.images.length >= 12" class="image-upload-dragger">
+                <div class="image-upload-content">
+                  <NText strong>{{ uploading ? "正在上传图片…" : "拖拽图片到这里，或点击选择文件" }}</NText>
+                  <NText depth="3" style="font-size: 12px">支持一次选择多张图片，最多 12 张。</NText>
+                </div>
+              </NUploadDragger>
+            </NUpload>
+            <NInputGroup>
+              <NInput
+                v-model:value="manualImageUrl"
+                :disabled="model.images.length >= 12"
+                clearable
+                placeholder="或粘贴已有图片的 HTTPS 地址"
+                @keyup.enter="addImageUrl"
+              />
+              <NButton :disabled="!manualImageUrl.trim() || model.images.length >= 12" @click="addImageUrl">
+                添加链接
+              </NButton>
+            </NInputGroup>
+            <div class="image-section-note">
+              <NText depth="3" style="font-size: 12px">
+                已添加 {{ model.images.length }} / 12 张。第一张会作为商品封面显示在商城列表中。
+              </NText>
+            </div>
+            <div v-if="model.images.length" class="image-grid">
+              <div
+                v-for="(url, idx) in model.images"
+                :key="url + idx"
+                class="image-card"
+                :class="{ 'image-card-cover': idx === 0 }"
+              >
+                <NImage
+                  :src="url"
+                  object-fit="cover"
+                  width="112"
+                  height="128"
+                  preview-disabled
+                  style="display: block"
+                />
+                <NTag v-if="idx === 0" type="success" size="small" :bordered="false" class="image-cover-tag">封面</NTag>
+                <div class="image-card-actions">
+                  <NButton size="tiny" :disabled="idx === 0" @click="moveImage(idx, -1)">前移</NButton>
+                  <NButton size="tiny" :disabled="idx === model.images.length - 1" @click="moveImage(idx, 1)">后移</NButton>
+                  <NButton size="tiny" type="error" @click="removeImage(idx)">移除</NButton>
+                </div>
+              </div>
+            </div>
+          </NSpace>
+        </NFormItem>
+
         <!-- 描述与卖点 -->
+        <NDivider title-placement="left">3. 商品内容</NDivider>
         <NGrid :cols="1" :x-gap="16" responsive="screen">
           <NFormItemGi label="版型感受" path="fitSense">
-            <NInput v-model:value="model.fitSense" placeholder="可选，不超过 255 字符" clearable maxlength="255" />
+            <NInput v-model:value="model.fitSense" placeholder="例如：修身、高腰、弹力舒适" clearable maxlength="255" />
           </NFormItemGi>
-          <NFormItemGi label="描述" path="description">
+          <NFormItemGi label="商品描述" path="description">
             <NInput
               v-model:value="model.description"
               type="textarea"
               :autosize="{ minRows: 3, maxRows: 8 }"
-              placeholder="可选，不超过 4000 字符"
+              placeholder="介绍面料、穿着场景和设计特点，最多 4000 字符"
               maxlength="4000"
               show-count
             />
           </NFormItemGi>
-          <NFormItemGi label="卖点" path="highlight">
+          <NFormItemGi label="核心卖点" path="highlight">
             <NDynamicTags v-model:value="model.highlight" :max="10" type="success" />
           </NFormItemGi>
           <NFormItemGi label="设计细节" path="designAndExtras">
@@ -705,54 +844,8 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
           </NFormItemGi>
         </NGrid>
 
-        <!-- 图片上传区 -->
-        <NDivider title-placement="left">图片</NDivider>
-        <NFormItem label="商品图片" path="images">
-          <NSpace vertical :size="12" style="width: 100%">
-            <NUpload
-              :custom-request="handleUploadRequest"
-              multiple
-              :show-file-list="false"
-              :default-upload="true"
-              accept="image/*"
-            >
-              <NButton :loading="uploading" :disabled="model.images.length >= 12">
-                上传图片
-              </NButton>
-            </NUpload>
-            <NText depth="3" style="font-size: 12px">
-              已上传 {{ model.images.length }} / 12 张；上传后自动回填签名下载地址。
-            </NText>
-            <NSpace v-if="model.images.length" wrap :size="8">
-              <div
-                v-for="(url, idx) in model.images"
-                :key="url + idx"
-                :style="imageThumbStyle"
-              >
-                <NImage
-                  :src="url"
-                  object-fit="cover"
-                  width="96"
-                  height="96"
-                  preview-disabled
-                  style="display: block"
-                />
-                <NButton
-                  size="tiny"
-                  type="error"
-                  ghost
-                  style="position: absolute; top: 2px; right: 2px"
-                  @click="removeImage(idx)"
-                >
-                  ×
-                </NButton>
-              </div>
-            </NSpace>
-          </NSpace>
-        </NFormItem>
-
         <!-- 标签区 -->
-        <NDivider title-placement="left">标签</NDivider>
+        <NDivider title-placement="left">4. 标签与商品属性</NDivider>
         <NFormItem label="商品标签" path="tagIds">
           <NSelect
             v-model:value="model.tagIds"
@@ -766,7 +859,7 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
         </NFormItem>
 
         <!-- 品类专属字段区 -->
-        <NDivider title-placement="left">品类专属</NDivider>
+        <NText depth="3" class="category-fields-hint">请补充 {{ categoryLabel }} 的规格信息；标记为“必选”的字段需要完成后才能创建。</NText>
 
         <!-- Dress -->
         <template v-if="category === 'DRESS'">
@@ -854,13 +947,112 @@ const imageThumbStyle = "width: 96px; height: 96px; position: relative; border: 
       </NForm>
 
       <template #footer>
-        <NSpace>
+        <NSpace justify="end">
           <NButton @click="closeDrawer">取消</NButton>
           <NButton type="primary" :loading="loading" :disabled="uploading" @click="handleSubmit">
-            {{ editingId !== null ? "保存" : "创建" }}
+            {{ editingId !== null ? "保存更新" : "创建商品" }}
           </NButton>
         </NSpace>
       </template>
     </NDrawerContent>
   </NDrawer>
 </template>
+
+<style scoped>
+.product-form-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 4px 0 18px;
+}
+
+.product-form-intro-copy {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.setup-progress {
+  flex: 0 0 148px;
+}
+
+.image-upload-dragger {
+  min-height: 96px;
+}
+
+.image-upload-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  min-height: 74px;
+  text-align: center;
+}
+
+.image-section-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 12px;
+}
+
+.image-card {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--n-border-color);
+  border-radius: 8px;
+  background: var(--n-color-modal);
+}
+
+.image-card-cover {
+  border-color: var(--n-primary-color);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--n-primary-color) 20%, transparent);
+}
+
+.image-card :deep(img) {
+  width: 100%;
+}
+
+.image-cover-tag {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+}
+
+.image-card-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 6px;
+}
+
+.image-card-actions :last-child {
+  grid-column: 1 / -1;
+}
+
+.category-fields-hint {
+  display: block;
+  margin: -4px 0 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 520px) {
+  .product-form-intro {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .setup-progress {
+    width: 100%;
+  }
+}
+</style>

@@ -5,11 +5,11 @@ import {
   collectionMeta,
   collectionNavigation,
   displayProductType,
-  getCollection,
-  productsForCollection
+  getCollection
 } from '~/data/catalog'
 
 const route = useRoute()
+const catalogApi = useCatalogApi()
 
 const activeSlug = computed<CollectionSlug>(() => {
   const candidate = String(route.params.slug || 'shop')
@@ -19,17 +19,26 @@ const activeSlug = computed<CollectionSlug>(() => {
 const activeCollection = computed(() => getCollection(activeSlug.value))
 const productType = ref<'ALL' | ProductType>('ALL')
 const sortBy = ref('featured')
+const availableTypes: ProductType[] = ['BIKINI', 'ONE_PIECE', 'DRESS', 'COVER_UP']
 
-const availableTypes = computed(() => {
-  const types = productsForCollection(activeSlug.value).map(product => product.product_type)
-  return [...new Set(types)]
-})
+const {
+  data: products,
+  status: productRequestStatus,
+  error: productRequestError,
+  refresh: refreshProducts
+} = await useAsyncData(
+  'catalog-products',
+  () => catalogApi.listProducts(),
+  { default: () => [] }
+)
 
 const visibleProducts = computed(() => {
-  let result = productsForCollection(activeSlug.value).filter(product => product.status === 'ACTIVE')
+  let result = products.value.filter(product => product.status === 'ACTIVE')
 
   if (productType.value !== 'ALL') {
     result = result.filter(product => product.product_type === productType.value)
+  } else if (activeSlug.value !== 'shop') {
+    result = result.filter(product => product.collections.includes(activeSlug.value))
   }
 
   const sorted = [...result]
@@ -44,6 +53,10 @@ watch(activeSlug, () => {
   productType.value = 'ALL'
   sortBy.value = 'featured'
 })
+
+function selectProductType(type: 'ALL' | ProductType) {
+  productType.value = type
+}
 
 useHead(() => ({
   title: `${activeCollection.value.englishLabel} | Pelissa`,
@@ -94,14 +107,19 @@ useHead(() => ({
         <div>
           <p class="store-eyebrow">CURATED FOR YOU</p>
           <h2>{{ activeCollection.englishLabel }}</h2>
-          <span>{{ visibleProducts.length }} pieces</span>
+          <span>{{ productRequestStatus === 'pending' ? 'Loading pieces' : `${visibleProducts.length} pieces` }}</span>
         </div>
         <p>Every piece is designed around soft structure, thoughtful detail, and an easy sense of confidence.</p>
       </div>
 
       <div class="collection-toolbar">
         <div class="collection-type-filter" aria-label="Filter by product type">
-          <button type="button" :class="{ active: productType === 'ALL' }" @click="productType = 'ALL'">
+          <button
+            type="button"
+            :class="{ active: productType === 'ALL' }"
+            :aria-pressed="productType === 'ALL'"
+            @click="selectProductType('ALL')"
+          >
             All types
           </button>
           <button
@@ -109,7 +127,8 @@ useHead(() => ({
             :key="type"
             type="button"
             :class="{ active: productType === type }"
-            @click="productType = type"
+            :aria-pressed="productType === type"
+            @click="selectProductType(type)"
           >
             {{ displayProductType(type) }}
           </button>
@@ -128,7 +147,27 @@ useHead(() => ({
         </label>
       </div>
 
-      <div v-if="visibleProducts.length" class="collection-product-grid">
+      <div
+        v-if="productRequestStatus === 'pending'"
+        class="collection-product-grid"
+        aria-label="Loading products"
+        aria-busy="true"
+      >
+        <article v-for="index in 4" :key="index" class="collection-product-skeleton" aria-hidden="true">
+          <div class="collection-product-skeleton-media" />
+          <span />
+          <small />
+        </article>
+      </div>
+
+      <div v-else-if="productRequestError" class="collection-empty" role="alert">
+        <UIcon name="i-lucide-cloud-alert" />
+        <h3>We could not load this edit.</h3>
+        <p>The catalog service is unavailable right now. Please try again.</p>
+        <button class="store-button" type="button" @click="refreshProducts()">Try again</button>
+      </div>
+
+      <div v-else-if="visibleProducts.length" class="collection-product-grid">
         <ProductCard
           v-for="(product, index) in visibleProducts"
           :key="product.id"
@@ -141,7 +180,7 @@ useHead(() => ({
         <UIcon name="i-lucide-search-x" />
         <h3>No pieces in this edit yet.</h3>
         <p>Try another product type or explore the full Pelissa collection.</p>
-        <button class="store-button" type="button" @click="productType = 'ALL'">Clear filter</button>
+        <button v-if="productType !== 'ALL'" class="store-button" type="button" @click="selectProductType('ALL')">Clear filter</button>
       </div>
     </section>
 
@@ -448,6 +487,36 @@ useHead(() => ({
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 44px 16px;
   margin-top: 36px;
+}
+
+.collection-product-skeleton {
+  min-width: 0;
+}
+
+.collection-product-skeleton-media {
+  aspect-ratio: .785;
+  background: #eee7e9;
+  animation: collection-skeleton-pulse 1.15s ease-in-out infinite alternate;
+}
+
+.collection-product-skeleton span,
+.collection-product-skeleton small {
+  width: 72%;
+  height: 11px;
+  display: block;
+  margin-top: 14px;
+  background: #eee7e9;
+}
+
+.collection-product-skeleton small {
+  width: 42%;
+  height: 8px;
+  margin-top: 9px;
+}
+
+@keyframes collection-skeleton-pulse {
+  from { opacity: .55; }
+  to { opacity: 1; }
 }
 
 .collection-empty {

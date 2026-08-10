@@ -54,7 +54,7 @@ const alternateImage = computed(() => props.product.images[1] || primaryImage.va
           <h3>{{ product.name }}</h3>
           <p>{{ product.color }}</p>
         </div>
-        <span class="catalog-rating"><UIcon name="i-lucide-star" /> {{ product.score.toFixed(1) }}</span>
+        <span v-if="product.score > 0" class="catalog-rating"><UIcon name="i-lucide-star" /> {{ product.score.toFixed(1) }}</span>
       </div>
       <div class="catalog-price-row">
         <strong :class="{ sale: product.is_sale }">{{ formatPrice(product.price) }}</strong>

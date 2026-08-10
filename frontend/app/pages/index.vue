@@ -24,6 +24,16 @@ type HeroSlide = {
   position: string
 }
 
+type StoreLocation = {
+  label: string
+  value: string
+}
+
+type StoreCurrency = {
+  label: string
+  value: string
+}
+
 const navItems = [
   { label: 'New in', to: '/collections/new' },
   { label: 'Lounge', to: '/collections/lounge' },
@@ -96,16 +106,38 @@ const categories = [
 
 const products = catalogProducts.filter(product => product.is_new).slice(0, 4)
 
+const locationOptions: StoreLocation[] = [
+  { label: 'United States', value: 'US' },
+  { label: 'United Kingdom', value: 'GB' },
+  { label: 'Canada', value: 'CA' },
+  { label: 'Australia', value: 'AU' },
+  { label: 'China', value: 'CN' }
+]
+
+const currencyOptions: StoreCurrency[] = [
+  { label: 'USD - US Dollar', value: 'USD' },
+  { label: 'GBP - British Pound', value: 'GBP' },
+  { label: 'CAD - Canadian Dollar', value: 'CAD' },
+  { label: 'AUD - Australian Dollar', value: 'AUD' },
+  { label: 'CNY - Chinese Yuan', value: 'CNY' }
+]
+
 const isMenuOpen = ref(false)
 const isSearchOpen = ref(false)
 const isBagOpen = ref(false)
+const isLocationMenuOpen = ref(false)
+const isCurrencyMenuOpen = ref(false)
 const activeSlide = ref(0)
 const email = ref('')
 const searchQuery = ref('')
 const isSubscribed = ref(false)
+const selectedLocation = ref('US')
+const selectedCurrency = ref('USD')
 let carouselTimer: ReturnType<typeof setInterval> | undefined
 
 const activeHero = computed<HeroSlide>(() => heroSlides[activeSlide.value] ?? heroSlides[0]!)
+const locationLabel = computed(() => locationOptions.find(option => option.value === selectedLocation.value)?.label ?? locationOptions[0]!.label)
+const currencyLabel = computed(() => selectedCurrency.value)
 
 function setActiveSlide(index: number) {
   activeSlide.value = index
@@ -129,6 +161,18 @@ function toggleSearch() {
   isMenuOpen.value = false
 }
 
+function selectLocation(value: string) {
+  selectedLocation.value = value
+  isLocationMenuOpen.value = false
+  localStorage.setItem('pelissa-location', value)
+}
+
+function selectCurrency(value: string) {
+  selectedCurrency.value = value
+  isCurrencyMenuOpen.value = false
+  localStorage.setItem('pelissa-currency', value)
+}
+
 function subscribe() {
   if (email.value.trim()) {
     isSubscribed.value = true
@@ -142,6 +186,10 @@ async function submitSearch() {
 }
 
 onMounted(() => {
+  const savedLocation = localStorage.getItem('pelissa-location')
+  const savedCurrency = localStorage.getItem('pelissa-currency')
+  if (locationOptions.some(option => option.value === savedLocation)) selectedLocation.value = savedLocation!
+  if (currencyOptions.some(option => option.value === savedCurrency)) selectedCurrency.value = savedCurrency!
   carouselTimer = setInterval(nextSlide, 8000)
 })
 
@@ -161,10 +209,57 @@ onBeforeUnmount(() => {
 
     <header class="site-header">
       <div class="utility-row">
-        <button class="utility-link location-link" type="button" aria-label="Choose shipping location">
-          <UIcon name="i-lucide-map-pin" /> United States
-        </button>
-        <button class="utility-link" type="button">USD <UIcon name="i-lucide-chevron-down" /></button>
+        <div class="utility-picker location-link">
+          <button
+            class="utility-link"
+            type="button"
+            aria-label="Choose shipping location"
+            :aria-expanded="isLocationMenuOpen"
+            @click="isLocationMenuOpen = !isLocationMenuOpen; isCurrencyMenuOpen = false"
+          >
+            <UIcon name="i-lucide-map-pin" /> {{ locationLabel }}
+            <UIcon name="i-lucide-chevron-down" />
+          </button>
+          <div v-if="isLocationMenuOpen" class="utility-menu" role="menu" aria-label="Shipping locations">
+            <button
+              v-for="option in locationOptions"
+              :key="option.value"
+              type="button"
+              role="menuitemradio"
+              :aria-checked="selectedLocation === option.value"
+              :class="{ active: selectedLocation === option.value }"
+              @click="selectLocation(option.value)"
+            >
+              <span>{{ option.label }}</span>
+              <UIcon v-if="selectedLocation === option.value" name="i-lucide-check" />
+            </button>
+          </div>
+        </div>
+        <div class="utility-picker">
+          <button
+            class="utility-link"
+            type="button"
+            aria-label="Choose currency"
+            :aria-expanded="isCurrencyMenuOpen"
+            @click="isCurrencyMenuOpen = !isCurrencyMenuOpen; isLocationMenuOpen = false"
+          >
+            {{ currencyLabel }} <UIcon name="i-lucide-chevron-down" />
+          </button>
+          <div v-if="isCurrencyMenuOpen" class="utility-menu currency-menu" role="menu" aria-label="Currencies">
+            <button
+              v-for="option in currencyOptions"
+              :key="option.value"
+              type="button"
+              role="menuitemradio"
+              :aria-checked="selectedCurrency === option.value"
+              :class="{ active: selectedCurrency === option.value }"
+              @click="selectCurrency(option.value)"
+            >
+              <span>{{ option.label }}</span>
+              <UIcon v-if="selectedCurrency === option.value" name="i-lucide-check" />
+            </button>
+          </div>
+        </div>
         <button class="utility-link utility-help" type="button">Help</button>
       </div>
 
@@ -363,7 +458,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="page-width footer-bottom">
         <span>© 2026 Pelissa. All rights reserved.</span>
-        <div><a href="#top">Privacy</a><a href="#top">Terms</a><button type="button">United States / USD <UIcon name="i-lucide-chevron-down" /></button></div>
+        <div><a href="#top">Privacy</a><a href="#top">Terms</a><button type="button">{{ locationLabel }} / {{ currencyLabel }}</button></div>
       </div>
     </footer>
   </main>
@@ -400,9 +495,15 @@ a { color: inherit; text-decoration: none; }
 .announcement .iconify { width: 12px; height: 12px; }
 
 .site-header { position: relative; z-index: 10; background: var(--off-white); border-bottom: 1px solid var(--line); }
-.utility-row { height: 37px; display: flex; align-items: center; gap: 18px; width: min(100% - 64px, 1440px); margin: auto; color: #5f655f; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .04em; }
-.utility-link { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: transparent; cursor: pointer; }
-.utility-link .iconify { width: 12px; height: 12px; }
+.utility-row { height: 42px; display: flex; align-items: center; gap: 20px; width: min(100% - 64px, 1440px); margin: auto; color: #5f655f; font-family: 'DM Mono', monospace; font-size: 12px; letter-spacing: .025em; }
+.utility-picker { position: relative; }
+.utility-link { min-height: 32px; display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.utility-link .iconify { width: 14px; height: 14px; }
+.utility-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; width: max-content; min-width: 188px; padding: 5px; border: 1px solid var(--line); background: #fff; box-shadow: 0 10px 22px rgba(36, 29, 33, .12); }
+.currency-menu { min-width: 220px; }
+.utility-menu button { width: 100%; min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 0 9px; border: 0; color: var(--ink); background: transparent; font-family: 'DM Sans', Arial, sans-serif; font-size: 13px; text-align: left; cursor: pointer; }
+.utility-menu button:hover, .utility-menu button.active { background: var(--linen); }
+.utility-menu .iconify { width: 14px; height: 14px; color: var(--coral); }
 .utility-help { margin-left: auto; }
 .brand-row { height: 75px; width: min(100% - 64px, 1440px); margin: auto; position: relative; display: flex; justify-content: center; align-items: center; }
 .brand { display: inline-flex; align-items: flex-start; color: var(--ink); font-size: 28px; font-weight: 700; letter-spacing: .09em; line-height: 1; }
@@ -564,7 +665,7 @@ a { color: inherit; text-decoration: none; }
   .page-width, .brand-row, .utility-row { width: min(100% - 32px, 1440px); }
   .desktop-only { display: none; }
   .mobile-only { display: grid !important; position: absolute; left: 0; }
-  .utility-row { justify-content: space-between; height: 33px; }
+  .utility-row { justify-content: space-between; height: 38px; font-size: 11px; }
   .utility-help { margin-left: 0; }
   .location-link { display: none; }
   .brand-row { height: 65px; }
