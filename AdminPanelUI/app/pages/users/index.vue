@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Pencil, Plus, Trash2 } from '@lucide/vue'
+import { ChevronsUpDown, Pencil, Plus, Trash2 } from '@lucide/vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import type {
+  AutoCompleteOption,
   DataTableColumns,
   DataTableRowKey,
   DropdownOption,
@@ -111,6 +112,59 @@ const enabledOptions = [
   { label: '禁止登录', value: 'disabled' },
 ]
 
+const localeOptions: AutoCompleteOption[] = [
+  { label: 'zh-CN', value: 'zh-CN', description: '简体中文（中国大陆）' },
+  { label: 'zh-HK', value: 'zh-HK', description: '繁体中文（中国香港）' },
+  { label: 'zh-TW', value: 'zh-TW', description: '繁体中文（中国台湾）' },
+  { label: 'en-US', value: 'en-US', description: '英语（美国）' },
+  { label: 'en-GB', value: 'en-GB', description: '英语（英国）' },
+  { label: 'en-AU', value: 'en-AU', description: '英语（澳大利亚）' },
+  { label: 'en-CA', value: 'en-CA', description: '英语（加拿大）' },
+  { label: 'en-HK', value: 'en-HK', description: '英语（中国香港）' },
+  { label: 'ja-JP', value: 'ja-JP', description: '日语（日本）' },
+  { label: 'ko-KR', value: 'ko-KR', description: '韩语（韩国）' },
+  { label: 'de-DE', value: 'de-DE', description: '德语（德国）' },
+  { label: 'fr-FR', value: 'fr-FR', description: '法语（法国）' },
+  { label: 'fr-CA', value: 'fr-CA', description: '法语（加拿大）' },
+  { label: 'es-ES', value: 'es-ES', description: '西班牙语（西班牙）' },
+  { label: 'es-MX', value: 'es-MX', description: '西班牙语（墨西哥）' },
+  { label: 'it-IT', value: 'it-IT', description: '意大利语（意大利）' },
+  { label: 'pt-BR', value: 'pt-BR', description: '葡萄牙语（巴西）' },
+  { label: 'pt-PT', value: 'pt-PT', description: '葡萄牙语（葡萄牙）' },
+  { label: 'nl-NL', value: 'nl-NL', description: '荷兰语（荷兰）' },
+  { label: 'ru-RU', value: 'ru-RU', description: '俄语（俄罗斯）' },
+  { label: 'ar-SA', value: 'ar-SA', description: '阿拉伯语（沙特阿拉伯）' },
+  { label: 'hi-IN', value: 'hi-IN', description: '印地语（印度）' },
+  { label: 'th-TH', value: 'th-TH', description: '泰语（泰国）' },
+  { label: 'vi-VN', value: 'vi-VN', description: '越南语（越南）' },
+  { label: 'id-ID', value: 'id-ID', description: '印度尼西亚语（印度尼西亚）' },
+  { label: 'ms-MY', value: 'ms-MY', description: '马来语（马来西亚）' },
+  { label: 'tr-TR', value: 'tr-TR', description: '土耳其语（土耳其）' },
+  { label: 'pl-PL', value: 'pl-PL', description: '波兰语（波兰）' },
+  { label: 'sv-SE', value: 'sv-SE', description: '瑞典语（瑞典）' },
+  { label: 'nb-NO', value: 'nb-NO', description: '挪威语（挪威）' },
+  { label: 'da-DK', value: 'da-DK', description: '丹麦语（丹麦）' },
+  { label: 'fi-FI', value: 'fi-FI', description: '芬兰语（芬兰）' },
+]
+
+const intl = Intl as typeof Intl & {
+  supportedValuesOf?: (key: 'currency') => string[]
+}
+const currencyCodes = intl.supportedValuesOf?.('currency') ?? [
+  'AED', 'AUD', 'BRL', 'CAD', 'CHF', 'CNY', 'EUR', 'GBP', 'HKD', 'IDR',
+  'INR', 'JPY', 'KRW', 'MOP', 'MXN', 'MYR', 'NZD', 'PHP', 'RUB', 'SAR',
+  'SEK', 'SGD', 'THB', 'TRY', 'TWD', 'USD', 'VND', 'ZAR',
+]
+const currencyDisplayNames = new Intl.DisplayNames('zh-CN', { type: 'currency' })
+const currencyOptions: AutoCompleteOption[] = currencyCodes.map((code) => {
+  const displayName = currencyDisplayNames.of(code)
+  return {
+    label: code,
+    value: code,
+    description: displayName && displayName !== code ? displayName : 'ISO 4217 币种',
+  }
+})
+
 const batchOptions: DropdownOption[] = [
   { label: '允许登录', key: 'enable' },
   { label: '禁止登录', key: 'disable' },
@@ -123,6 +177,10 @@ const batchOptions: DropdownOption[] = [
 ]
 
 const pageSizeOptions = [10, 25, 50, 100]
+const localeQuery = ref('')
+const currencyQuery = ref('')
+const localeSuggestions = computed(() => filterCodeOptions(localeOptions, localeQuery.value))
+const currencySuggestions = computed(() => filterCodeOptions(currencyOptions, currencyQuery.value))
 const currentAdminId = computed(() => (currentSession.value as { id?: number } | null)?.id ?? null)
 const selectedRows = computed(() => {
   const ids = new Set(checkedRowKeys.value.map(Number))
@@ -161,8 +219,39 @@ const formRules = computed<FormRules>(() => ({
       ]
     : [],
   phone: [{ pattern: /^\+[1-9]\d{7,14}$/, message: '电话需使用 E.164 格式，例如 +14155550123', trigger: ['blur', 'input'] }],
+  locale: [{
+    validator: (_rule, value: string) => {
+      if (!value.trim()) return true
+      try {
+        return Intl.getCanonicalLocales(value.trim()).length === 1
+      } catch {
+        return false
+      }
+    },
+    message: '语言区域需为 BCP 47 代码，例如 zh-CN',
+    trigger: ['blur', 'input'],
+  }],
   currency: [{ pattern: /^[A-Za-z]{3}$/, message: '币种需为 3 位代码，例如 USD', trigger: ['blur', 'input'] }],
 }))
+
+function filterCodeOptions(options: AutoCompleteOption[], query: string): AutoCompleteOption[] {
+  const keyword = query.trim().toLowerCase()
+  if (!keyword) return options
+  return options.filter((option) => {
+    const code = String(option.value ?? '').toLowerCase()
+    const description = typeof option.description === 'string' ? option.description.toLowerCase() : ''
+    return code.includes(keyword) || description.includes(keyword)
+  })
+}
+
+function renderCodeOption(option: AutoCompleteOption) {
+  const code = typeof option.label === 'string' ? option.label : String(option.value ?? '')
+  const description = typeof option.description === 'string' ? option.description : ''
+  return h('div', { style: { display: 'grid', gridTemplateColumns: '72px minmax(0, 1fr)', gap: '8px' } }, [
+    h('strong', code),
+    h('span', { style: { color: '#8c8c8c', overflow: 'hidden', textOverflow: 'ellipsis' } }, description),
+  ])
+}
 
 function roleLabel(role: AdminUserRole): string {
   return role === 'ADMIN' ? '管理员' : '客户'
@@ -331,6 +420,10 @@ async function submitEditor() {
     message.warning('非正常状态的用户不能允许登录')
     return
   }
+  form.locale = form.locale.trim()
+    ? Intl.getCanonicalLocales(form.locale.trim())[0] ?? form.locale.trim()
+    : ''
+  form.currency = form.currency.trim().toUpperCase()
   const payload: AdminUserMutation = {
     email: form.email.trim(),
     username: form.username.trim(),
@@ -338,8 +431,8 @@ async function submitEditor() {
     last_name: form.lastName.trim(),
     phone: form.phone.trim() || undefined,
     avatar: form.avatar.trim() || undefined,
-    locale: form.locale.trim() || undefined,
-    currency: form.currency.trim().toUpperCase() || undefined,
+    locale: form.locale || undefined,
+    currency: form.currency || undefined,
     birthday: form.birthday || undefined,
     email_verified: form.emailVerified,
     marketing_consent: form.marketingConsent,
@@ -702,11 +795,38 @@ onMounted(() => {
                   :disabled="saving"
                 />
               </NFormItemGi>
-              <NFormItemGi label="语言区域">
-                <NInput v-model:value="form.locale" maxlength="16" placeholder="zh-CN" :disabled="saving" />
+              <NFormItemGi label="语言区域" path="locale">
+                <NAutoComplete
+                  :value="form.locale"
+                  :options="localeSuggestions"
+                  :render-label="renderCodeOption"
+                  :get-show="() => true"
+                  :input-props="{ maxlength: 16 }"
+                  placeholder="选择或输入，例如 zh-CN"
+                  clearable
+                  :disabled="saving"
+                  @focus="localeQuery = ''"
+                  @update:value="(value: string | null) => { form.locale = value ?? ''; localeQuery = form.locale }"
+                >
+                  <template #suffix><ChevronsUpDown class="code-picker-icon" :size="15" /></template>
+                </NAutoComplete>
               </NFormItemGi>
               <NFormItemGi label="币种" path="currency">
-                <NInput v-model:value="form.currency" maxlength="3" placeholder="USD" :disabled="saving" />
+                <NAutoComplete
+                  :value="form.currency"
+                  :options="currencySuggestions"
+                  :render-label="renderCodeOption"
+                  :get-show="() => true"
+                  :input-props="{ maxlength: 3 }"
+                  placeholder="选择或输入，例如 USD"
+                  clearable
+                  :disabled="saving"
+                  @focus="currencyQuery = ''"
+                  @update:value="(value: string | null) => { form.currency = value ?? ''; currencyQuery = form.currency }"
+                  @blur="form.currency = form.currency.trim().toUpperCase(); currencyQuery = form.currency"
+                >
+                  <template #suffix><ChevronsUpDown class="code-picker-icon" :size="15" /></template>
+                </NAutoComplete>
               </NFormItemGi>
               <NFormItemGi label="头像 URL" :span="2">
                 <NInput v-model:value="form.avatar" maxlength="512" :disabled="saving" />
@@ -803,6 +923,10 @@ onMounted(() => {
 
 .login-blocked {
   color: #d03050;
+}
+
+.code-picker-icon {
+  color: #8c8c8c;
 }
 
 .table-actions {
