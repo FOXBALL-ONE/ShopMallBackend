@@ -25,7 +25,7 @@ interface UserRepository : JpaRepository<User, Long> {
 
     @Query(
         "select u from User u where " +
-            "(:keyword is null or lower(u.username) like lower(concat('%', :keyword, '%')) or " +
+            "(:keyword = '' or lower(u.username) like lower(concat('%', :keyword, '%')) or " +
             "lower(u.email) like lower(concat('%', :keyword, '%')) or " +
             "lower(u.firstName) like lower(concat('%', :keyword, '%')) or " +
             "lower(u.lastName) like lower(concat('%', :keyword, '%'))) and " +
@@ -35,7 +35,7 @@ interface UserRepository : JpaRepository<User, Long> {
             "order by u.createdAt desc, u.id desc",
     )
     fun findAllForAdmin(
-        @Param("keyword") keyword: String?,
+        @Param("keyword") keyword: String,
         @Param("role") role: Role?,
         @Param("status") status: Status?,
         @Param("enabled") enabled: Boolean?,

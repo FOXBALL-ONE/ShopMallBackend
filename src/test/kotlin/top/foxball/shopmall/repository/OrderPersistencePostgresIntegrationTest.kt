@@ -22,7 +22,11 @@ import top.foxball.shopmall.entity.jdbc.Dress
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
 import top.foxball.shopmall.entity.jdbc.OrderStatus
+import top.foxball.shopmall.entity.jdbc.Role
 import top.foxball.shopmall.entity.jdbc.ShipmentStatus
+import top.foxball.shopmall.entity.jdbc.User
+import top.foxball.shopmall.service.AdminUserQuery
+import top.foxball.shopmall.service.AdminUserService
 import top.foxball.shopmall.service.OrderPaymentService
 import java.math.BigDecimal
 import java.time.Instant
@@ -44,7 +48,39 @@ class OrderPersistencePostgresIntegrationTest @Autowired constructor(
     private val orderPaymentService: OrderPaymentService,
     private val dashboardReportRepository: AdminDashboardReportRepository,
     private val shipmentRepository: ShipmentRepository,
+    private val userRepository: UserRepository,
+    private val adminUserService: AdminUserService,
 ) {
+    @Test
+    fun `admin user query binds an absent keyword as text on PostgreSQL`() {
+        val admin = userRepository.saveAndFlush(
+            User(
+                email = "pg-query-admin@example.test",
+                username = "pg-query-admin",
+                password = "encoded-password",
+                role = Role.ADMIN,
+            ),
+        )
+        userRepository.saveAndFlush(
+            User(
+                email = "alice@example.test",
+                username = "alice",
+                password = "encoded-password",
+                firstName = "Alice",
+                lastName = "Smith",
+            ),
+        )
+
+        val allUsers = adminUserService.list(requireNotNull(admin.id), AdminUserQuery())
+        val matchedUsers = adminUserService.list(
+            requireNotNull(admin.id),
+            AdminUserQuery(keyword = "ALI"),
+        )
+
+        assertEquals(setOf("pg-query-admin", "alice"), allUsers.content.map(User::username).toSet())
+        assertEquals(listOf("alice"), matchedUsers.content.map(User::username))
+    }
+
     @Test
     fun `admin shipment query binds an absent tracking number as text on PostgreSQL`() {
         val shipments = shipmentRepository.findAllForAdmin(

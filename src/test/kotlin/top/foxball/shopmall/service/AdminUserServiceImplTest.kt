@@ -8,6 +8,8 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.PageRequest
 import top.foxball.shopmall.entity.jdbc.Role
 import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.User
@@ -19,6 +21,7 @@ import java.util.Optional
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AdminUserServiceImplTest {
     private lateinit var userRepository: UserRepository
@@ -32,6 +35,19 @@ class AdminUserServiceImplTest {
         userService = mock(UserService::class.java)
         adminAccessService = mock(AdminAccessService::class.java)
         service = AdminUserServiceImpl(userRepository, userService, adminAccessService)
+    }
+
+    @Test
+    fun `list binds an absent keyword as a non-null empty string`() {
+        val pageable = PageRequest.of(0, 25)
+        `when`(userRepository.findAllForAdmin("", null, null, null, pageable))
+            .thenReturn(Page.empty(pageable))
+
+        val users = service.list(99, AdminUserQuery())
+
+        assertTrue(users.isEmpty)
+        verify(adminAccessService).requireAdmin(99)
+        verify(userRepository).findAllForAdmin("", null, null, null, pageable)
     }
 
     @Test

@@ -26,7 +26,7 @@ class AdminUserServiceImpl(
 ) : AdminUserService {
     override fun list(adminId: Long, query: AdminUserQuery): Page<User> {
         adminAccessService.requireAdmin(adminId)
-        val keyword = query.keyword?.trim()?.takeIf(String::isNotEmpty)
+        val keyword = query.keyword?.trim()?.takeIf(String::isNotEmpty).orEmpty()
         return userRepository.findAllForAdmin(
             keyword = keyword,
             role = query.role,
