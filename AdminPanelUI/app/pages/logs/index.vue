@@ -12,6 +12,7 @@ import {
 } from '@lucide/vue'
 import { useMessage, type VirtualListInst } from 'naive-ui'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import type { CSSProperties } from 'vue'
 import type {
   HistoricalLogFile,
   HistoryContentResponse,
@@ -26,6 +27,9 @@ definePageMeta({ layout: 'default' })
 
 type TabKey = 'live' | 'history' | 'settings'
 type HistoryReadMode = 'tail' | 'start'
+type LogVirtualListInst = VirtualListInst & {
+  getScrollContainer: () => HTMLElement | null | undefined
+}
 
 const LOG_LEVELS: LogLevel[] = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'OFF']
 const LIVE_LEVELS: Exclude<LogLevel, 'OFF'>[] = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR']
@@ -34,8 +38,11 @@ const MAX_VISIBLE_LIVE_CHARACTERS = 4 * 1024 * 1024
 const MAX_VISIBLE_HISTORY_LINES = 10_000
 const MAX_VISIBLE_HISTORY_CHARACTERS = 8 * 1024 * 1024
 const LOG_ROW_SIZE = 26
+const LOG_ROW_HORIZONTAL_CHROME = 112
+const LOG_FONT = '12px ui-monospace, SFMono-Regular, Consolas, monospace'
 const LIVE_RETRY_DELAYS_MS = [500, 1_000, 2_000, 5_000]
 const LOGGER_NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$/
+const HISTORY_LOG_LEVEL_PATTERN = /(?:^|\s|\[)(TRACE|DEBUG|INFO|WARN|ERROR)(?=$|\s|\])/
 const AUDIT_LOGGER = 'top.foxball.shopmall.logging.audit'
 
 const api = useLoggingApi()
@@ -84,11 +91,13 @@ const liveGapMessage = ref<string | null>(null)
 const liveTemplateVersion = ref<number | null>(null)
 const liveTemplateMessage = ref<string | null>(null)
 const liveError = ref<string | null>(null)
-const liveOutputRef = ref<VirtualListInst | null>(null)
+const liveOutputRef = ref<LogVirtualListInst | null>(null)
+const liveContentWidth = ref(0)
 let liveAbortController: AbortController | null = null
 let liveLoopGeneration = 0
 let liveRetryAttempt = 0
 let liveRetainedCharacters = 0
+let logMeasureContext: CanvasRenderingContext2D | null = null
 
 const historyDates = ref<{ date: string; file_count: number; size_bytes: number }[]>([])
 const historyDate = ref<string | null>(null)
@@ -102,6 +111,8 @@ const historyReadMode = ref<HistoryReadMode>('tail')
 const historyDatesLoading = ref(false)
 const historyFilesLoading = ref(false)
 const historyContentLoading = ref(false)
+const historyOutputRef = ref<LogVirtualListInst | null>(null)
+const historyContentWidth = ref(0)
 let historyRetainedCharacters = 0
 let historySelectionGeneration = 0
 let historyDatesRequestId = 0
@@ -112,6 +123,12 @@ const historyDateOptions = computed(() => historyDates.value.map(item => ({
   label: `${item.date} · ${item.file_count} 个文件 · ${formatBytes(item.size_bytes)}`,
   value: item.date,
 })))
+const liveItemsStyle = computed<CSSProperties>(() => ({
+  '--log-content-width': `${liveContentWidth.value}px`,
+}))
+const historyItemsStyle = computed<CSSProperties>(() => ({
+  '--log-content-width': `${historyContentWidth.value}px`,
+}))
 
 function errorMessage(error: unknown): string {
   if (error && typeof error === 'object') {
@@ -138,6 +155,32 @@ function formatDateTime(value: string | null | undefined): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
   return parsed.toLocaleString('zh-CN', { hour12: false })
+}
+
+function historyLineLevelClass(text: string): string | null {
+  const level = HISTORY_LOG_LEVEL_PATTERN.exec(text)?.[1]
+  return level ? `history-line--${level.toLowerCase()}` : null
+}
+
+function measureLogContentWidth(lines: readonly string[]): number {
+  if (!import.meta.client || lines.length === 0) return 0
+  if (!logMeasureContext) {
+    logMeasureContext = document.createElement('canvas').getContext('2d')
+  }
+  if (!logMeasureContext) return 0
+  logMeasureContext.font = LOG_FONT
+  let widestLine = 0
+  for (const line of lines) {
+    for (const segment of line.split(/\r?\n/)) {
+      const measured = logMeasureContext.measureText(segment.replaceAll('\t', '        ')).width
+      widestLine = Math.max(widestLine, measured)
+    }
+  }
+  return Math.ceil(widestLine) + LOG_ROW_HORIZONTAL_CHROME
+}
+
+function syncLogViewportWidth(list: LogVirtualListInst | null) {
+  list?.getScrollContainer()?.dispatchEvent(new Event('scroll'))
 }
 
 function applySettings(value: LoggingSettings) {
@@ -263,11 +306,13 @@ function cancelLiveRequest() {
 function clearLiveEvents() {
   liveEvents.value = []
   liveRetainedCharacters = 0
+  liveContentWidth.value = 0
 }
 
 function clearHistoryLines() {
   historyLines.value = []
   historyRetainedCharacters = 0
+  historyContentWidth.value = 0
 }
 
 async function appendLiveBatch(batch: Awaited<ReturnType<typeof api.getLive>>) {
@@ -307,7 +352,9 @@ async function appendLiveBatch(batch: Awaited<ReturnType<typeof api.getLive>>) {
       liveEvents.value.splice(0, removeCount)
       liveRetainedCharacters = retainedAfterRemoval
     }
+    liveContentWidth.value = measureLogContentWidth(liveEvents.value.map(event => event.rendered))
     await nextTick()
+    syncLogViewportWidth(liveOutputRef.value)
     if (liveAutoScroll.value && liveEvents.value.length > 0) {
       liveOutputRef.value?.scrollTo({ index: liveEvents.value.length - 1, position: 'bottom' })
     }
@@ -539,6 +586,9 @@ async function loadHistoryContent(append: boolean, force = false) {
       historyLines.value.splice(0, removeCount)
       historyRetainedCharacters = retainedAfterRemoval
     }
+    historyContentWidth.value = measureLogContentWidth(historyLines.value.map(line => line.text))
+    await nextTick()
+    syncLogViewportWidth(historyOutputRef.value)
   } catch (error) {
     if (requestId !== historyContentRequestId || selectionGeneration !== historySelectionGeneration) return
     message.error(`读取日志内容失败：${errorMessage(error)}`)
@@ -706,6 +756,8 @@ onBeforeUnmount(() => {
           aria-label="实时日志输出"
           :items="liveEvents"
           :item-size="LOG_ROW_SIZE"
+          :items-style="liveItemsStyle"
+          :scrollbar-props="{ xScrollable: true, trigger: 'none' }"
           key-field="sequence"
         >
           <template #default="{ item: event }">
@@ -816,13 +868,16 @@ onBeforeUnmount(() => {
               </div>
               <NVirtualList
                 v-else
+                ref="historyOutputRef"
                 class="history-viewport"
                 :items="historyLines"
                 :item-size="LOG_ROW_SIZE"
+                :items-style="historyItemsStyle"
+                :scrollbar-props="{ xScrollable: true, trigger: 'none' }"
                 key-field="offset"
               >
                 <template #default="{ item: line }">
-                  <div class="history-line">
+                  <div class="history-line" :class="historyLineLevelClass(line.text)">
                     <span class="log-offset">{{ line.offset }}</span>
                     <span class="log-text">{{ line.text }}</span>
                   </div>
@@ -1085,27 +1140,49 @@ onBeforeUnmount(() => {
 .log-line,
 .history-line {
   display: grid;
-  grid-template-columns: 68px minmax(0, 1fr);
+  grid-template-columns: 68px max-content;
   gap: 12px;
+  width: max-content;
+  min-width: 100%;
   height: 26px;
   min-height: 26px;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
   padding: 2px 12px;
   border-bottom: 1px solid #20252b;
 }
 
-.log-line--warn {
-  color: #f0c36a;
+.log-viewport :deep(.v-vl-items),
+.history-viewport :deep(.v-vl-items),
+.log-viewport :deep(.v-vl-visible-items),
+.history-viewport :deep(.v-vl-visible-items) {
+  width: var(--log-content-width, 100%) !important;
+  min-width: 100%;
 }
 
-.log-line--error {
-  color: #ff8f8f;
+.log-line--trace,
+.history-line--trace {
+  color: #8b949e;
 }
 
 .log-line--debug,
-.log-line--trace {
-  color: #9aa4b1;
+.history-line--debug {
+  color: #79c0ff;
+}
+
+.log-line--info,
+.history-line--info {
+  color: #7ee787;
+}
+
+.log-line--warn,
+.history-line--warn {
+  color: #f2cc60;
+}
+
+.log-line--error,
+.history-line--error {
+  color: #ff7b72;
 }
 
 .log-sequence,
@@ -1116,7 +1193,8 @@ onBeforeUnmount(() => {
 }
 
 .log-text {
-  min-width: 0;
+  width: max-content;
+  min-width: max-content;
   white-space: pre;
 }
 
@@ -1397,7 +1475,7 @@ onBeforeUnmount(() => {
 
   .log-line,
   .history-line {
-    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-columns: 48px max-content;
     gap: 8px;
     padding: 2px 8px;
   }
