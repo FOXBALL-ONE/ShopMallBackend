@@ -211,14 +211,6 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="auth-page">
-    <div class="announcement-bar">
-      <span>Complimentary shipping on orders over $79</span>
-      <NuxtLink to="/">
-        Return to shop
-        <UIcon name="i-lucide-arrow-up-right" />
-      </NuxtLink>
-    </div>
-
     <header class="auth-header">
       <NuxtLink class="back-link" to="/" aria-label="Return to the Pelissa home page">
         <UIcon name="i-lucide-arrow-left" />
@@ -572,32 +564,6 @@ onBeforeUnmount(() => {
   background: var(--off-white);
   color: var(--ink);
 }
-
-.announcement-bar {
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 21px;
-  padding: 7px 24px;
-  background: var(--coral);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .035em;
-  text-transform: uppercase;
-}
-
-.announcement-bar a {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: inherit;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.announcement-bar .iconify { width: 12px; height: 12px; }
 
 .auth-header {
   position: relative;
@@ -1066,9 +1032,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 560px) {
-  .announcement-bar { justify-content: space-between; gap: 8px; padding-inline: 14px; font-size: 8px; }
-  .announcement-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .announcement-bar a { flex: 0 0 auto; }
   .auth-header { height: 68px; padding: 0 17px; }
   .brand { font-size: 21px; letter-spacing: .07em; }
   .brand i { font-size: 17px; }

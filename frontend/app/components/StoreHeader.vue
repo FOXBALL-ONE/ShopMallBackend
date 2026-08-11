@@ -81,13 +81,6 @@ watch(() => session.userId.value, userId => {
 
 <template>
   <div class="store-header-wrap">
-    <div class="store-announcement" aria-label="Promotion">
-      <span>Complimentary shipping on orders over $79</span>
-      <NuxtLink to="/collections/new">
-        Shop new arrivals <UIcon name="i-lucide-arrow-up-right" />
-      </NuxtLink>
-    </div>
-
     <header class="store-header">
       <div class="store-utility store-container">
         <span><UIcon name="i-lucide-map-pin" /> United States</span>
@@ -209,34 +202,6 @@ watch(() => session.userId.value, userId => {
 .store-header-wrap {
   position: relative;
   z-index: 40;
-}
-
-.store-announcement {
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 22px;
-  padding: 7px 24px;
-  color: #fff;
-  background: var(--store-wine);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .045em;
-  text-transform: uppercase;
-}
-
-.store-announcement a {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: inherit;
-  text-underline-offset: 3px;
-}
-
-.store-announcement .iconify {
-  width: 12px;
-  height: 12px;
 }
 
 .store-header {
@@ -605,13 +570,6 @@ watch(() => session.userId.value, userId => {
 }
 
 @media (max-width: 820px) {
-  .store-announcement {
-    justify-content: space-between;
-    gap: 10px;
-    padding-inline: 16px;
-    font-size: 9px;
-  }
-
   .store-utility {
     height: 33px;
     justify-content: space-between;
@@ -691,12 +649,4 @@ watch(() => session.userId.value, userId => {
   }
 }
 
-@media (max-width: 480px) {
-  .store-announcement span {
-    overflow: hidden;
-    max-width: 58%;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }
-}
 </style>

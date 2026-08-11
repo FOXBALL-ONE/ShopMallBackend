@@ -202,11 +202,6 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="site-shell">
-    <div class="announcement" aria-label="Promotion">
-      <span>Complimentary shipping on orders over $79</span>
-      <NuxtLink to="/collections/new">Shop new arrivals <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
-    </div>
-
     <header class="site-header">
       <div class="utility-row">
         <div class="utility-picker location-link">
@@ -490,9 +485,6 @@ a { color: inherit; text-decoration: none; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .mobile-only { display: none !important; }
 
-.announcement { min-height: 36px; display: flex; align-items: center; justify-content: center; gap: 21px; padding: 7px 24px; color: #fff; background: var(--coral); font-size: 11px; font-weight: 600; letter-spacing: .035em; text-transform: uppercase; }
-.announcement a { display: inline-flex; align-items: center; gap: 4px; text-decoration: underline; text-underline-offset: 3px; }
-.announcement .iconify { width: 12px; height: 12px; }
 
 .site-header { position: relative; z-index: 10; background: var(--off-white); border-bottom: 1px solid var(--line); }
 .utility-row { height: 42px; display: flex; align-items: center; gap: 20px; width: min(100% - 64px, 1440px); margin: auto; color: #5f655f; font-family: 'DM Mono', monospace; font-size: 12px; letter-spacing: .025em; }
@@ -703,9 +695,6 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 490px) {
-  .announcement { gap: 9px; padding-inline: 12px; font-size: 9px; }
-  .announcement span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .announcement a { flex: 0 0 auto; }
   .hero { min-height: 555px; background-position: 58% var(--hero-position); }
   .hero-shade { background: linear-gradient(90deg, rgba(30, 16, 22, .53), rgba(30, 16, 22, .08)); }
   .hero h1 { font-size: 50px; }

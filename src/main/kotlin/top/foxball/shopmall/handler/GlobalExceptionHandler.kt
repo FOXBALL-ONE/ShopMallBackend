@@ -39,6 +39,22 @@ class GlobalExceptionHandler {
     private val log = LoggerFactory.getLogger(this.javaClass)
     private val builder = ResponseBuilder()
 
+    @ExceptionHandler(AnnouncementVersionConflictException::class)
+    fun onAnnouncementVersionConflictException(
+        ex: AnnouncementVersionConflictException,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:com.fasterxml.jackson.annotation.JsonProperty("actual_version")
+            val actualVersion: Long,
+        )
+
+        val rs = Response(actualVersion = ex.actualVersion)
+        return builder.status(ex.status)
+            .message(ex.message)
+            .data(rs)
+            .build()
+    }
+
     @ExceptionHandler(BusinessException::class)
     fun onBusinessException(ex: BusinessException): ResponseEntity<Response> {
         return builder.status(ex.status)
@@ -188,7 +204,7 @@ class GlobalExceptionHandler {
             .message(ex?.message ?: "Invalid argument.")
             .build()
     }
-    
+
     @ExceptionHandler(TransientDataAccessException::class)
     fun onTransientDataAccessException(ex: TransientDataAccessException): ResponseEntity<Response> {
         log.warn("Transient data access error: {}", ex.message)

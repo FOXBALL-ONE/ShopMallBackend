@@ -42,6 +42,12 @@ class ParamErrorException(
     message: String = "参数错误"
 ) : BusinessException(HttpStatus.BAD_REQUEST, message)
 
+
+class AnnouncementVersionConflictException(
+    val actualVersion: Long,
+    message: String = "公告已被其他操作更新，请刷新后重试",
+) : BusinessException(HttpStatus.CONFLICT, message)
+
 class VerificationCodeInvalidException(
     message: String = "验证码错误或已过期"
 ) : BusinessException(HttpStatus.BAD_REQUEST, message)

@@ -59,6 +59,8 @@ redis:
   clear-on-startup: "${REDIS_CLEAR_ON_STARTUP:false}"
 
 shopmall:
+  announcement:
+    time-zone: "${ANNOUNCEMENT_TIME_ZONE:Asia/Shanghai}"
   mock-data:
     # 本地演示数据：显式开启后在应用启动完成时写入；按哨兵账号幂等执行，生产必须保持关闭
     enabled: "${MOCK_DATA_ENABLED:false}"

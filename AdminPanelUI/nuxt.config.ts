@@ -14,6 +14,8 @@ export default defineNuxtConfig({
       adminApiBase: 'http://127.0.0.1:8080/admin/api',
       // 是否启用管理后台的登录验证路由守卫
       loginAuthEnabled: true,
+      // 公告的业务时区，须与后端 ANNOUNCEMENT_TIME_ZONE 保持一致。
+      announcementTimeZone: 'Asia/Shanghai',
     },
   },
   vite: {

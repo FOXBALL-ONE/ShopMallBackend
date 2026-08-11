@@ -14,6 +14,7 @@ import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -46,6 +47,26 @@ class AdminApiSecurityIntegrationTest @Autowired constructor(
     @Test
     fun `anonymous request to a protected customer api is unauthorized`() {
         mockMvc.perform(get("/api/support-tickets/options"))
+            .andExpect(status().isUnauthorized)
+            .andExpect(jsonPath("$.status").value(401))
+    }
+
+    @Test
+    fun `anonymous customer can read public announcements`() {
+        mockMvc.perform(
+            get("/api/announcements/current")
+                .param("limit", "1"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.items").isArray)
+    }
+
+    @Test
+    fun `anonymous customer cannot write announcement state`() {
+        mockMvc.perform(
+            post("/api/announcements/999/state")
+                .param("state", "SEEN"),
+        )
             .andExpect(status().isUnauthorized)
             .andExpect(jsonPath("$.status").value(401))
     }
