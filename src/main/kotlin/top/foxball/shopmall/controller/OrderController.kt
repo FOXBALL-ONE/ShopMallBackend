@@ -26,6 +26,7 @@ import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDateTime
 import java.util.UUID
 
 /**
@@ -63,8 +64,8 @@ class OrderController(
     /**
      * @api 创建订单
      * @param idempotencyKey 服务端签发的幂等键（必须先调用申请接口）
-     * @param productIds 商品 ID 列表
-     * @param quantities 各商品对应的购买数量
+     * @param variantIds SKU ID 列表
+     * @param quantities 各 SKU 对应的购买数量
      * @param addressId 配送地址 ID
      * @param clientMessage 客户留言
      */
@@ -72,19 +73,19 @@ class OrderController(
     fun placeOrder(
         @AuthenticationPrincipal userId: Long,
         @RequestHeader("Idempotency-Key") @NotBlank idempotencyKey: String,
-        @RequestParam("product_ids") @Size(min = 1, max = 10) productIds: List<Long>,
+        @RequestParam("variant_ids") @Size(min = 1, max = 10) variantIds: List<Long>,
         @RequestParam("quantities") @Size(min = 1, max = 10) quantities: List<Int>,
         @RequestParam("address_id") addressId: UUID,
         @RequestParam("client_message", required = false) @Size(max = 500) clientMessage: String?,
     ): ResponseEntity<Response> {
-        if (productIds.size != quantities.size) {
+        if (variantIds.size != quantities.size) {
             return builder.badRequest()
                 .message("商品列表与数量列表必须一一对应")
                 .build()
         }
-        if (productIds.any { it < 1 } || quantities.any { it !in 1..99 }) {
+        if (variantIds.any { it < 1 } || quantities.any { it !in 1..99 }) {
             return builder.badRequest()
-                .message("商品 ID 必须大于 0，数量必须在 1 到 99 之间")
+                .message("SKU ID 必须大于 0，数量必须在 1 到 99 之间")
                 .build()
         }
 
@@ -92,6 +93,9 @@ class OrderController(
             val id: Long,
             @param:JsonProperty("product_id")
             val productId: Long,
+            @param:JsonProperty("variant_id")
+            val variantId: Long,
+            val sku: String,
             @param:JsonProperty("product_snapshot")
             val productSnapshot: String,
             @param:JsonProperty("unit_price")
@@ -100,7 +104,7 @@ class OrderController(
             @param:JsonProperty("line_total")
             val lineTotal: BigDecimal,
             @param:JsonProperty("created_at")
-            val createdAt: Instant?,
+            val createdAt: LocalDateTime?,
         )
 
         data class AddressData(
@@ -168,8 +172,8 @@ class OrderController(
         val view = orderService.placeOrder(
             customerId = userId,
             command = PlaceOrderCommand(
-                items = productIds.zip(quantities).map { (productId, quantity) ->
-                    OrderLineCommand(productId, quantity)
+                items = variantIds.zip(quantities).map { (variantId, quantity) ->
+                    OrderLineCommand(variantId, quantity)
                 },
                 addressId = addressId,
                 clientMessage = clientMessage,
@@ -217,6 +221,8 @@ class OrderController(
                 ItemData(
                     id = requireNotNull(it.id),
                     productId = it.productId,
+                    variantId = it.variantId,
+                    sku = it.sku,
                     productSnapshot = it.productSnapshot,
                     unitPrice = it.unitPrice,
                     quantity = it.quantity,
@@ -245,6 +251,9 @@ class OrderController(
             val id: Long,
             @param:JsonProperty("product_id")
             val productId: Long,
+            @param:JsonProperty("variant_id")
+            val variantId: Long,
+            val sku: String,
             @param:JsonProperty("product_snapshot")
             val productSnapshot: String,
             @param:JsonProperty("unit_price")
@@ -253,7 +262,7 @@ class OrderController(
             @param:JsonProperty("line_total")
             val lineTotal: BigDecimal,
             @param:JsonProperty("created_at")
-            val createdAt: Instant?,
+            val createdAt: LocalDateTime?,
         )
 
         data class AddressData(
@@ -368,6 +377,8 @@ class OrderController(
                     ItemData(
                         id = requireNotNull(it.id),
                         productId = it.productId,
+                        variantId = it.variantId,
+                        sku = it.sku,
                         productSnapshot = it.productSnapshot,
                         unitPrice = it.unitPrice,
                         quantity = it.quantity,
@@ -396,6 +407,9 @@ class OrderController(
             val id: Long,
             @param:JsonProperty("product_id")
             val productId: Long,
+            @param:JsonProperty("variant_id")
+            val variantId: Long,
+            val sku: String,
             @param:JsonProperty("product_snapshot")
             val productSnapshot: String,
             @param:JsonProperty("unit_price")
@@ -404,7 +418,7 @@ class OrderController(
             @param:JsonProperty("line_total")
             val lineTotal: BigDecimal,
             @param:JsonProperty("created_at")
-            val createdAt: Instant?,
+            val createdAt: LocalDateTime?,
         )
 
         data class AddressData(
@@ -511,6 +525,8 @@ class OrderController(
                 ItemData(
                     id = requireNotNull(it.id),
                     productId = it.productId,
+                    variantId = it.variantId,
+                    sku = it.sku,
                     productSnapshot = it.productSnapshot,
                     unitPrice = it.unitPrice,
                     quantity = it.quantity,
@@ -602,6 +618,9 @@ class OrderController(
             val id: Long,
             @param:JsonProperty("product_id")
             val productId: Long,
+            @param:JsonProperty("variant_id")
+            val variantId: Long,
+            val sku: String,
             @param:JsonProperty("product_snapshot")
             val productSnapshot: String,
             @param:JsonProperty("unit_price")
@@ -632,6 +651,8 @@ class OrderController(
                 ItemData(
                     id = requireNotNull(it.id),
                     productId = it.productId,
+                    variantId = it.variantId,
+                    sku = it.sku,
                     productSnapshot = it.productSnapshot,
                     unitPrice = it.unitPrice,
                     quantity = it.quantity,

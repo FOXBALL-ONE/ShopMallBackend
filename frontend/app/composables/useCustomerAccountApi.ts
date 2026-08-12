@@ -106,9 +106,9 @@ export function useCustomerAccountApi() {
       return http.get<CustomerCart>('/cart')
     },
 
-    addCartItem(productId: number, quantity: number) {
-      return http.post<CustomerCart, { product_id: number, quantity: number }>('/cart/items', {
-        product_id: productId,
+    addCartItem(variantId: number, quantity: number) {
+      return http.post<CustomerCart, { variant_id: number, quantity: number }>('/cart/items', {
+        variant_id: variantId,
         quantity
       })
     },

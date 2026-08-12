@@ -17,7 +17,7 @@ import top.foxball.shopmall.service.ShoppingCartService
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 import java.math.BigDecimal
-import java.time.Instant
+import java.time.LocalDateTime
 
 /**
  * @folder 购物车
@@ -38,6 +38,9 @@ class ShoppingCartController(
             val id: Long,
             @param:JsonProperty("product_id")
             val productId: Long,
+            @param:JsonProperty("variant_id")
+            val variantId: Long,
+            val sku: String,
             @param:JsonProperty("product_type")
             val productType: String,
             val name: String,
@@ -55,13 +58,15 @@ class ShoppingCartController(
             val stock: Int,
             @param:JsonProperty("product_status")
             val productStatus: String,
+            @param:JsonProperty("variant_status")
+            val variantStatus: String,
             val purchasable: Boolean,
             @param:JsonProperty("primary_image")
             val primaryImage: String?,
             @param:JsonProperty("created_at")
-            val createdAt: Instant?,
+            val createdAt: LocalDateTime?,
             @param:JsonProperty("updated_at")
-            val updatedAt: Instant?,
+            val updatedAt: LocalDateTime?,
         )
 
         data class Response(
@@ -72,7 +77,7 @@ class ShoppingCartController(
             val totalQuantity: Int,
             val subtotal: BigDecimal,
             @param:JsonProperty("updated_at")
-            val updatedAt: Instant?,
+            val updatedAt: LocalDateTime?,
         )
 
         val cart = shoppingCartService.getCart(userId)
@@ -80,6 +85,8 @@ class ShoppingCartController(
             ItemData(
                 id = item.id,
                 productId = item.productId,
+                variantId = item.variantId,
+                sku = item.sku,
                 productType = item.productType,
                 name = item.name,
                 color = item.color,
@@ -91,6 +98,7 @@ class ShoppingCartController(
                 lineTotal = item.lineTotal,
                 stock = item.stock,
                 productStatus = item.productStatus,
+                variantStatus = item.variantStatus,
                 purchasable = item.purchasable,
                 primaryImage = item.primaryImage,
                 createdAt = item.createdAt,
@@ -103,23 +111,26 @@ class ShoppingCartController(
 
     /**
      * @api 添加商品到购物车
-     * @param productId 商品 ID
+     * @param variantId SKU ID
      * @param quantity 增加的商品数量
      */
     @PostMapping("/api/cart/items")
     fun addItem(
         @AuthenticationPrincipal userId: Long,
-        @RequestParam("product_id") @Min(1) productId: Long,
+        @RequestParam("variant_id") @Min(1) variantId: Long,
         @RequestParam("quantity", defaultValue = "1") @Min(1) @Max(99) quantity: Int,
     ): ResponseEntity<Response> {
-        if (productId < 1 || quantity !in 1..99) {
-            return builder.badRequest().message("商品 ID 必须大于 0，数量必须在 1 到 99 之间").build()
+        if (variantId < 1 || quantity !in 1..99) {
+            return builder.badRequest().message("SKU ID 必须大于 0，数量必须在 1 到 99 之间").build()
         }
 
         data class ItemData(
             val id: Long,
             @param:JsonProperty("product_id")
             val productId: Long,
+            @param:JsonProperty("variant_id")
+            val variantId: Long,
+            val sku: String,
             @param:JsonProperty("product_type")
             val productType: String,
             val name: String,
@@ -137,13 +148,15 @@ class ShoppingCartController(
             val stock: Int,
             @param:JsonProperty("product_status")
             val productStatus: String,
+            @param:JsonProperty("variant_status")
+            val variantStatus: String,
             val purchasable: Boolean,
             @param:JsonProperty("primary_image")
             val primaryImage: String?,
             @param:JsonProperty("created_at")
-            val createdAt: Instant?,
+            val createdAt: LocalDateTime?,
             @param:JsonProperty("updated_at")
-            val updatedAt: Instant?,
+            val updatedAt: LocalDateTime?,
         )
 
         data class Response(
@@ -154,14 +167,16 @@ class ShoppingCartController(
             val totalQuantity: Int,
             val subtotal: BigDecimal,
             @param:JsonProperty("updated_at")
-            val updatedAt: Instant?,
+            val updatedAt: LocalDateTime?,
         )
 
-        val cart = shoppingCartService.addItem(userId, productId, quantity)
+        val cart = shoppingCartService.addItem(userId, variantId, quantity)
         val list = cart.items.map { item ->
             ItemData(
                 id = item.id,
                 productId = item.productId,
+                variantId = item.variantId,
+                sku = item.sku,
                 productType = item.productType,
                 name = item.name,
                 color = item.color,
@@ -173,6 +188,7 @@ class ShoppingCartController(
                 lineTotal = item.lineTotal,
                 stock = item.stock,
                 productStatus = item.productStatus,
+                variantStatus = item.variantStatus,
                 purchasable = item.purchasable,
                 primaryImage = item.primaryImage,
                 createdAt = item.createdAt,
@@ -202,6 +218,9 @@ class ShoppingCartController(
             val id: Long,
             @param:JsonProperty("product_id")
             val productId: Long,
+            @param:JsonProperty("variant_id")
+            val variantId: Long,
+            val sku: String,
             @param:JsonProperty("product_type")
             val productType: String,
             val name: String,
@@ -219,13 +238,15 @@ class ShoppingCartController(
             val stock: Int,
             @param:JsonProperty("product_status")
             val productStatus: String,
+            @param:JsonProperty("variant_status")
+            val variantStatus: String,
             val purchasable: Boolean,
             @param:JsonProperty("primary_image")
             val primaryImage: String?,
             @param:JsonProperty("created_at")
-            val createdAt: Instant?,
+            val createdAt: LocalDateTime?,
             @param:JsonProperty("updated_at")
-            val updatedAt: Instant?,
+            val updatedAt: LocalDateTime?,
         )
 
         data class Response(
@@ -236,7 +257,7 @@ class ShoppingCartController(
             val totalQuantity: Int,
             val subtotal: BigDecimal,
             @param:JsonProperty("updated_at")
-            val updatedAt: Instant?,
+            val updatedAt: LocalDateTime?,
         )
 
         val cart = shoppingCartService.updateItem(userId, itemId, quantity)
@@ -245,6 +266,8 @@ class ShoppingCartController(
             ItemData(
                 id = item.id,
                 productId = item.productId,
+                variantId = item.variantId,
+                sku = item.sku,
                 productType = item.productType,
                 name = item.name,
                 color = item.color,
@@ -256,6 +279,7 @@ class ShoppingCartController(
                 lineTotal = item.lineTotal,
                 stock = item.stock,
                 productStatus = item.productStatus,
+                variantStatus = item.variantStatus,
                 purchasable = item.purchasable,
                 primaryImage = item.primaryImage,
                 createdAt = item.createdAt,
@@ -283,6 +307,9 @@ class ShoppingCartController(
             val id: Long,
             @param:JsonProperty("product_id")
             val productId: Long,
+            @param:JsonProperty("variant_id")
+            val variantId: Long,
+            val sku: String,
             @param:JsonProperty("product_type")
             val productType: String,
             val name: String,
@@ -300,13 +327,15 @@ class ShoppingCartController(
             val stock: Int,
             @param:JsonProperty("product_status")
             val productStatus: String,
+            @param:JsonProperty("variant_status")
+            val variantStatus: String,
             val purchasable: Boolean,
             @param:JsonProperty("primary_image")
             val primaryImage: String?,
             @param:JsonProperty("created_at")
-            val createdAt: Instant?,
+            val createdAt: LocalDateTime?,
             @param:JsonProperty("updated_at")
-            val updatedAt: Instant?,
+            val updatedAt: LocalDateTime?,
         )
 
         data class Response(
@@ -317,7 +346,7 @@ class ShoppingCartController(
             val totalQuantity: Int,
             val subtotal: BigDecimal,
             @param:JsonProperty("updated_at")
-            val updatedAt: Instant?,
+            val updatedAt: LocalDateTime?,
         )
 
         val cart = shoppingCartService.removeItem(userId, itemId)
@@ -326,6 +355,8 @@ class ShoppingCartController(
             ItemData(
                 id = item.id,
                 productId = item.productId,
+                variantId = item.variantId,
+                sku = item.sku,
                 productType = item.productType,
                 name = item.name,
                 color = item.color,
@@ -337,6 +368,7 @@ class ShoppingCartController(
                 lineTotal = item.lineTotal,
                 stock = item.stock,
                 productStatus = item.productStatus,
+                variantStatus = item.variantStatus,
                 purchasable = item.purchasable,
                 primaryImage = item.primaryImage,
                 createdAt = item.createdAt,
@@ -356,6 +388,9 @@ class ShoppingCartController(
             val id: Long,
             @param:JsonProperty("product_id")
             val productId: Long,
+            @param:JsonProperty("variant_id")
+            val variantId: Long,
+            val sku: String,
             @param:JsonProperty("product_type")
             val productType: String,
             val name: String,
@@ -373,13 +408,15 @@ class ShoppingCartController(
             val stock: Int,
             @param:JsonProperty("product_status")
             val productStatus: String,
+            @param:JsonProperty("variant_status")
+            val variantStatus: String,
             val purchasable: Boolean,
             @param:JsonProperty("primary_image")
             val primaryImage: String?,
             @param:JsonProperty("created_at")
-            val createdAt: Instant?,
+            val createdAt: LocalDateTime?,
             @param:JsonProperty("updated_at")
-            val updatedAt: Instant?,
+            val updatedAt: LocalDateTime?,
         )
 
         data class Response(
@@ -390,7 +427,7 @@ class ShoppingCartController(
             val totalQuantity: Int,
             val subtotal: BigDecimal,
             @param:JsonProperty("updated_at")
-            val updatedAt: Instant?,
+            val updatedAt: LocalDateTime?,
         )
 
         val cart = shoppingCartService.clearCart(userId)
@@ -398,6 +435,8 @@ class ShoppingCartController(
             ItemData(
                 id = item.id,
                 productId = item.productId,
+                variantId = item.variantId,
+                sku = item.sku,
                 productType = item.productType,
                 name = item.name,
                 color = item.color,
@@ -409,6 +448,7 @@ class ShoppingCartController(
                 lineTotal = item.lineTotal,
                 stock = item.stock,
                 productStatus = item.productStatus,
+                variantStatus = item.variantStatus,
                 purchasable = item.purchasable,
                 primaryImage = item.primaryImage,
                 createdAt = item.createdAt,

@@ -24,7 +24,7 @@ import java.time.LocalDateTime
 
 /**
  * 客户对某个商品提交的评价。
- * 通过多态的 [Product] 关联任意品类的商品，并以客户 ID 标识评价作者。
+ * 通过统一的 [Product] 关联商品款式，并以客户 ID 标识评价作者。
  */
 @Entity
 @Table(

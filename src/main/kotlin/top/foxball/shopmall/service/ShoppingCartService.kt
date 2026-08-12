@@ -1,11 +1,13 @@
 package top.foxball.shopmall.service
 
 import java.math.BigDecimal
-import java.time.Instant
+import java.time.LocalDateTime
 
 data class ShoppingCartItemView(
     val id: Long,
     val productId: Long,
+    val variantId: Long,
+    val sku: String,
     val productType: String,
     val name: String,
     val color: String,
@@ -17,10 +19,11 @@ data class ShoppingCartItemView(
     val lineTotal: BigDecimal,
     val stock: Int,
     val productStatus: String,
+    val variantStatus: String,
     val purchasable: Boolean,
     val primaryImage: String?,
-    val createdAt: Instant?,
-    val updatedAt: Instant?,
+    val createdAt: LocalDateTime?,
+    val updatedAt: LocalDateTime?,
 )
 
 data class ShoppingCartView(
@@ -28,15 +31,15 @@ data class ShoppingCartView(
     val items: List<ShoppingCartItemView>,
     val totalQuantity: Int,
     val subtotal: BigDecimal,
-    val updatedAt: Instant?,
+    val updatedAt: LocalDateTime?,
 )
 
 /** 用户购物车服务；价格与库存均从当前商品记录实时计算，加入购物车不会预占库存。 */
 interface ShoppingCartService {
     fun getCart(customerId: Long): ShoppingCartView
 
-    /** 新商品创建明细，已有商品则累加数量。 */
-    fun addItem(customerId: Long, productId: Long, quantity: Int): ShoppingCartView
+    /** 新 SKU 创建明细，已有 SKU 则累加数量。 */
+    fun addItem(customerId: Long, variantId: Long, quantity: Int): ShoppingCartView
 
     /** 设置明细的绝对数量；明细不存在时返回 `null`，属于其他用户时拒绝访问。 */
     fun updateItem(customerId: Long, itemId: Long, quantity: Int): ShoppingCartView?

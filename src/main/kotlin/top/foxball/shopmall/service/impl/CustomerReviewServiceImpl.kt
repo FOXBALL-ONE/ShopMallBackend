@@ -3,8 +3,8 @@ package top.foxball.shopmall.service.impl
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.entity.jdbc.CustomerReview
-import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.entity.jdbc.ReviewStatus
+import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.repository.CustomerReviewRepository
 import top.foxball.shopmall.repository.ProductRepository

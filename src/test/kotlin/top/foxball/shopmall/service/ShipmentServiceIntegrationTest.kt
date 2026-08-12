@@ -264,6 +264,8 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
             OrderItem(
                 order = order,
                 productId = 1,
+                variantId = 10,
+                sku = "SHIPMENT-TEST-SKU",
                 productSnapshot = "{}",
                 unitPrice = BigDecimal.TEN,
                 quantity = 1,

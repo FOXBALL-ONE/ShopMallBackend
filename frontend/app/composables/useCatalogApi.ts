@@ -1,109 +1,66 @@
-import type { CatalogProduct, CollectionSlug, ProductType } from '~/data/catalog'
+import type {
+  CatalogAttribute,
+  CatalogImage,
+  CatalogMaterial,
+  CatalogProduct,
+  CatalogVariant,
+  CollectionSlug,
+} from '~/data/catalog'
 
-type CatalogTag = string | {
-  name?: string | null
-}
-
-type MeasurementRange = {
-  min?: number | null
-  max?: number | null
-}
-
-type SizeRecommendation = {
-  braSizes?: string[] | null
-  bust?: MeasurementRange | null
-  underbust?: MeasurementRange | null
-  waist?: MeasurementRange | null
-  hip?: MeasurementRange | null
-  torso?: MeasurementRange | null
-}
-
-type CatalogApiProduct = {
+export type CatalogAttributeDefinition = {
   id: number
-  product_type?: string | null
+  code: string
   name: string
-  color: string
-  price: number | string
-  warehouse_volume: number
-  sales_volume: number
+  scope: 'PRODUCT' | 'VARIANT'
+  value_type: 'STRING' | 'BOOLEAN' | 'INTEGER' | 'DECIMAL' | 'ENUM'
+  required: boolean
+  filterable: boolean
+  allowed_values: string[]
+  max_length?: number | null
+  display_order: number
+  active: boolean
+}
+
+type RawProduct = {
+  id: number
+  product_type: string
+  category_id?: number | null
+  name: string
   status: string
-  highlight?: string[] | null
-  images?: string[] | null
+  highlights?: string[] | null
+  materials?: CatalogMaterial[] | null
+  images?: CatalogImage[] | null
+  attributes?: CatalogAttribute[] | null
   fit_sense?: string | null
   description?: string | null
   design_and_extras?: string[] | null
   care_instructions?: string[] | null
+  tags?: string[] | null
   score?: number | null
-  tags?: CatalogTag[] | null
+  variants?: Array<{
+    id: number
+    sku: string
+    size?: string | null
+    color: string
+    price: string | number
+    currency: string
+    warehouse_volume: number
+    sales_volume?: number
+    display_order?: number
+    attributes?: CatalogAttribute[] | null
+  }> | null
   created_at?: string | null
   updated_at?: string | null
-  top_size?: string | null
-  top_size_recommendation?: string | SizeRecommendation | null
-  bottom_size?: string | null
-  bottom_size_recommendation?: string | SizeRecommendation | null
-  size?: string | null
-  size_recommendation?: string | SizeRecommendation | null
-  support_level?: string | null
-  coverage?: string | null
-  torso_fit?: string | null
-  neckline?: string | null
-  back_style?: string | null
-  tummy_control?: boolean | string | null
-  removable_padding?: boolean | string | null
-  length?: string | null
-  silhouette?: string | null
-  sleeve_type?: string | null
-  fabric?: string | null
-  style?: string | null
-  sheer_level?: string | null
 }
 
-type CatalogListResponse = {
-  list: CatalogApiProduct[]
+type ProductListResponse = {
+  list: RawProduct[]
+  pagination?: { page: number; size: number; total_items: number; total_pages: number }
 }
+type ProductTypeResponse = { list: Array<{ id: number; code: string; name: string }> }
+type DefinitionResponse = { list: CatalogAttributeDefinition[] }
 
-const productTypes: ProductType[] = ['BIKINI', 'ONE_PIECE', 'DRESS', 'COVER_UP']
-
-function isProductType(value: unknown): value is ProductType {
-  return productTypes.includes(value as ProductType)
-}
-
-function stringList(value: string[] | null | undefined): string[] {
-  return Array.isArray(value) ? value.filter(item => typeof item === 'string' && item.trim().length > 0) : []
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value : undefined
-}
-
-function booleanLabel(value: boolean | string | null | undefined): string | undefined {
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
-  return optionalString(value)
-}
-
-function rangeLabel(label: string, range: MeasurementRange | null | undefined): string | null {
-  if (!range || (range.min == null && range.max == null)) return null
-  if (range.min != null && range.max != null) return `${label} ${range.min}-${range.max}`
-  return `${label} ${range.min ?? range.max}`
-}
-
-function recommendationLabel(value: string | SizeRecommendation | null | undefined): string | undefined {
-  if (typeof value === 'string') return optionalString(value)
-  if (!value || typeof value !== 'object') return undefined
-
-  const labels = [
-    Array.isArray(value.braSizes) && value.braSizes.length ? `Bra ${value.braSizes.join(', ')}` : null,
-    rangeLabel('Bust', value.bust),
-    rangeLabel('Underbust', value.underbust),
-    rangeLabel('Waist', value.waist),
-    rangeLabel('Hip', value.hip),
-    rangeLabel('Torso', value.torso)
-  ].filter((label): label is string => Boolean(label))
-
-  return labels.length ? labels.join(' / ') : undefined
-}
-
-function collectionSlugs(productType: ProductType, tags: string[]): CollectionSlug[] {
+function collectionSlugs(tags: string[]): CollectionSlug[] {
   const normalizedTags = tags.map(tag => tag.trim().toLocaleLowerCase())
   const collections = new Set<CollectionSlug>()
   const aliases: Array<[CollectionSlug, string[]]> = [
@@ -111,101 +68,87 @@ function collectionSlugs(productType: ProductType, tags: string[]): CollectionSl
     ['swim', ['swim', '泳装内衣']],
     ['intimate', ['intimate', 'intimates', '情趣内衣']],
     ['new', ['new', 'new in', '新品']],
-    ['sale', ['sale', 'discount', '折扣', '限时折扣']]
+    ['sale', ['sale', 'discount', '折扣', '限时折扣']],
   ]
-
-  for (const [slug, names] of aliases) {
+  aliases.forEach(([slug, names]) => {
     if (names.some(name => normalizedTags.includes(name))) collections.add(slug)
-  }
-
-  if (productType === 'BIKINI') {
-    collections.add('swim')
-    collections.add('intimate')
-  }
-  if (productType === 'ONE_PIECE') collections.add('swim')
-  if (productType === 'DRESS') {
-    collections.add('lounge')
-    collections.add('intimate')
-  }
-  if (productType === 'COVER_UP') {
-    collections.add('lounge')
-    collections.add('swim')
-  }
-
+  })
   return [...collections]
 }
 
-function normalizeProduct(product: CatalogApiProduct): CatalogProduct {
-  if (!isProductType(product.product_type)) throw new Error(`Unsupported product type for product ${product.id}`)
-  const productType = product.product_type
-
-  const tags = (product.tags ?? [])
-    .map(tag => typeof tag === 'string' ? tag : tag.name)
-    .filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0)
-  const collections = collectionSlugs(productType, tags)
-  const isNew = collections.includes('new')
-  const isSale = collections.includes('sale')
-
-  return {
-    id: Number(product.id),
-    name: product.name,
-    color: product.color,
-    price: Number(product.price),
-    warehouse_volume: Number(product.warehouse_volume),
-    sales_volume: Number(product.sales_volume),
-    status: product.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
-    highlight: stringList(product.highlight),
-    images: stringList(product.images),
-    fit_sense: product.fit_sense ?? null,
-    description: product.description ?? '',
-    design_and_extras: stringList(product.design_and_extras),
-    care_instructions: stringList(product.care_instructions),
-    score: Number(product.score ?? 0),
+function normalizeProduct(value: RawProduct): CatalogProduct {
+  const variants: CatalogVariant[] = (value.variants ?? []).map(variant => ({
+    id: Number(variant.id),
+    sku: String(variant.sku),
+    size: variant.size ?? null,
+    color: String(variant.color),
+    price: Number(variant.price).toFixed(2),
+    currency: 'USD',
+    warehouse_volume: Number(variant.warehouse_volume ?? 0),
+    sales_volume: Number(variant.sales_volume ?? 0),
+    display_order: Number(variant.display_order ?? 0),
+    attributes: Array.isArray(variant.attributes) ? variant.attributes : [],
+  }))
+  const images = Array.isArray(value.images) ? [...value.images].sort((left, right) => Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0)) : []
+  const tags = Array.isArray(value.tags) ? value.tags : []
+  const collections = collectionSlugs(tags)
+  const prices = variants.map(variant => Number(variant.price)).filter(Number.isFinite)
+  const colors = [...new Set(variants.map(variant => variant.color).filter(Boolean))]
+  const product: CatalogProduct = {
+    id: Number(value.id),
+    name: value.name,
+    color: colors.join(' / '),
+    price: prices.length ? Math.min(...prices) : 0,
+    warehouse_volume: variants.reduce((total, variant) => total + variant.warehouse_volume, 0),
+    sales_volume: variants.reduce((total, variant) => total + variant.sales_volume, 0),
+    status: value.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
+    highlight: Array.isArray(value.highlights) ? value.highlights : [],
+    images: images.map(image => image.url),
+    image_details: images,
+    fit_sense: value.fit_sense ?? null,
+    description: value.description ?? '',
+    design_and_extras: Array.isArray(value.design_and_extras) ? value.design_and_extras : [],
+    care_instructions: Array.isArray(value.care_instructions) ? value.care_instructions : [],
+    score: Number(value.score ?? 0),
     tags,
-    created_at: product.created_at ?? '',
-    updated_at: product.updated_at ?? product.created_at ?? '',
-    product_type: productType,
+    created_at: value.created_at ?? '',
+    updated_at: value.updated_at ?? value.created_at ?? '',
+    product_type: value.product_type,
+    category_id: value.category_id ?? null,
+    attributes: Array.isArray(value.attributes) ? value.attributes : [],
+    materials: Array.isArray(value.materials) ? value.materials : [],
+    variants,
     collections,
-    is_new: isNew,
-    is_sale: isSale,
-    badge: isSale ? 'SALE' : isNew ? 'NEW' : undefined,
-    top_size: optionalString(product.top_size),
-    top_size_recommendation: recommendationLabel(product.top_size_recommendation),
-    bottom_size: optionalString(product.bottom_size),
-    bottom_size_recommendation: recommendationLabel(product.bottom_size_recommendation),
-    size: optionalString(product.size),
-    size_recommendation: recommendationLabel(product.size_recommendation),
-    support_level: optionalString(product.support_level),
-    coverage: optionalString(product.coverage),
-    torso_fit: optionalString(product.torso_fit),
-    neckline: optionalString(product.neckline),
-    back_style: optionalString(product.back_style),
-    tummy_control: booleanLabel(product.tummy_control),
-    removable_padding: booleanLabel(product.removable_padding),
-    length: optionalString(product.length),
-    silhouette: optionalString(product.silhouette),
-    sleeve_type: optionalString(product.sleeve_type),
-    fabric: optionalString(product.fabric),
-    style: optionalString(product.style),
-    sheer_level: optionalString(product.sheer_level)
+    is_new: collections.includes('new'),
+    is_sale: collections.includes('sale'),
+    badge: collections.includes('sale') ? 'SALE' : collections.includes('new') ? 'NEW' : undefined,
   }
+  return product
 }
 
 export function useCatalogApi() {
   const http = useHttp()
 
-  /**
-   * 后端通过统一列表返回全部商品；每个条目的 product_type 是唯一的分类依据。
-   * 不为泳装、连衣裙和罩衫分别请求接口，避免分类结果依赖接口路径而非响应数据。
-   */
   async function listProducts(): Promise<CatalogProduct[]> {
-    const response = await http.get<CatalogListResponse>('/products')
-    return (response.list ?? [])
-      .filter(product => isProductType(product.product_type))
-      .map(product => normalizeProduct(product))
+    const first = await http.get<ProductListResponse>('/products', { page: 1, size: 100 })
+    const totalPages = Math.max(1, Number(first.pagination?.total_pages ?? 1))
+    const remaining = totalPages > 1
+      ? await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => http.get<ProductListResponse>('/products', { page: index + 2, size: 100 })) )
+      : []
+    return [first, ...remaining].flatMap(response => response.list ?? []).map(normalizeProduct)
   }
 
-  return {
-    listProducts
+  async function getProduct(id: number): Promise<CatalogProduct> {
+    return normalizeProduct(await http.get<RawProduct>(`/products/${id}`))
   }
+
+  async function getDefinitions(productTypeCode: string): Promise<CatalogAttributeDefinition[]> {
+    const typeResponse = await http.get<ProductTypeResponse>('/product-types')
+    const productType = typeResponse.list.find(type => type.code === productTypeCode)
+    if (!productType) return []
+    const response = await http.get<DefinitionResponse>(`/product-types/${productType.id}/attributes`)
+    return response.list ?? []
+  }
+
+  return { listProducts, getProduct, getDefinitions }
 }

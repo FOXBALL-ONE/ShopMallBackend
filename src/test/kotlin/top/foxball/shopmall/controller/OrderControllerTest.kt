@@ -95,7 +95,7 @@ class OrderControllerTest {
         mockMvc.perform(
             post("/api/orders")
                 .header("Idempotency-Key", "idem-1")
-                .param("product_ids", "40")
+                .param("variant_ids", "40")
                 .param("quantities", "1")
                 .param("address_id", addressId.toString())
                 .param("client_message", "front door"),
@@ -113,7 +113,7 @@ class OrderControllerTest {
 
         mockMvc.perform(
             post("/api/orders")
-                .param("product_ids", "40")
+                .param("variant_ids", "40")
                 .param("quantities", "1")
                 .param("address_id", UUID.randomUUID().toString()),
         )
@@ -163,7 +163,7 @@ class OrderControllerTest {
         mockMvc.perform(
             post("/api/orders")
                 .header("Idempotency-Key", "idem-invalid")
-                .param("product_ids", "40")
+                .param("variant_ids", "40")
                 .param("quantities", "100")
                 .param("address_id", UUID.randomUUID().toString()),
         )
@@ -328,6 +328,8 @@ class OrderControllerTest {
                     id = 30,
                     order = order,
                     productId = 40,
+                    variantId = 400,
+                    sku = "TEST-SKU-400",
                     productSnapshot = "{\"name\":\"Snapshot\"}",
                     unitPrice = BigDecimal("29.99"),
                     quantity = 1,

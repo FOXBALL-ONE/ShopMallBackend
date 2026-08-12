@@ -9,7 +9,7 @@ import java.time.Instant
 import java.util.UUID
 
 data class OrderLineCommand(
-    val productId: Long,
+    val variantId: Long,
     val quantity: Int,
 )
 

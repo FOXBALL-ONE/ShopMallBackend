@@ -61,6 +61,9 @@ redis:
 shopmall:
   announcement:
     time-zone: "${ANNOUNCEMENT_TIME_ZONE:Asia/Shanghai}"
+  product-metadata:
+    # 系统类型、属性和基础分类初始化必须由部署环境显式开启
+    enabled: "${PRODUCT_METADATA_INITIALIZATION_ENABLED:false}"
   mock-data:
     # 本地演示数据：显式开启后在应用启动完成时写入；按哨兵账号幂等执行，生产必须保持关闭
     enabled: "${MOCK_DATA_ENABLED:false}"

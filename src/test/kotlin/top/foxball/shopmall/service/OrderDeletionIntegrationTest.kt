@@ -67,6 +67,8 @@ class OrderDeletionIntegrationTest {
             OrderItem(
                 order = order,
                 productId = 8001,
+                variantId = 80_001,
+                sku = "DELETE-TEST-SKU",
                 productSnapshot = "{}",
                 unitPrice = BigDecimal("39.90"),
                 quantity = 1,

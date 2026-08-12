@@ -73,11 +73,18 @@ export function parseProductSnapshot(snapshot: string | null | undefined): Produ
     const size = parsed.size
     const topSize = parsed.top_size ?? parsed.topSize
     const bottomSize = parsed.bottom_size ?? parsed.bottomSize
+    const sku = parsed.sku
+    const variantAttributes = parsed.variantAttributes && typeof parsed.variantAttributes === 'object'
+      ? parsed.variantAttributes as Record<string, unknown>
+      : {}
+    const resolvedTopSize = topSize ?? variantAttributes.top_size
+    const resolvedBottomSize = bottomSize ?? variantAttributes.bottom_size
     const variant = [
       typeof color === 'string' ? color : null,
       typeof size === 'string' ? `Size ${size}` : null,
-      typeof topSize === 'string' ? `Top ${topSize}` : null,
-      typeof bottomSize === 'string' ? `Bottom ${bottomSize}` : null
+      typeof resolvedTopSize === 'string' ? `Top ${resolvedTopSize}` : null,
+      typeof resolvedBottomSize === 'string' ? `Bottom ${resolvedBottomSize}` : null,
+      typeof sku === 'string' ? sku : null
     ].filter(Boolean).join(' · ')
 
     return {

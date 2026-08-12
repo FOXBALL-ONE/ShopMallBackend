@@ -68,7 +68,7 @@ class ShoppingCartControllerTest {
 
         mockMvc.perform(
             post("/api/cart/items")
-                .param("product_id", "40")
+                .param("variant_id", "40")
                 .param("quantity", "2"),
         )
             .andExpect(status().isCreated)
@@ -93,7 +93,7 @@ class ShoppingCartControllerTest {
 
         mockMvc.perform(
             post("/api/cart/items")
-                .param("product_id", "40")
+                .param("variant_id", "40")
                 .param("quantity", "100"),
         )
             .andExpect(status().isBadRequest)
@@ -114,6 +114,8 @@ class ShoppingCartControllerTest {
             ShoppingCartItemView(
                 id = 10,
                 productId = 40,
+                variantId = 41,
+                sku = "BIKINI-BLUE-M",
                 productType = "BIKINI",
                 name = "Ocean Bikini",
                 color = "Blue",
@@ -125,6 +127,7 @@ class ShoppingCartControllerTest {
                 lineTotal = BigDecimal("59.98"),
                 stock = 8,
                 productStatus = "ACTIVE",
+                variantStatus = "ACTIVE",
                 purchasable = true,
                 primaryImage = "https://example.com/product.jpg",
                 createdAt = null,

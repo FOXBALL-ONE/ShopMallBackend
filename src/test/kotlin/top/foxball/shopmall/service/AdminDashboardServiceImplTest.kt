@@ -10,6 +10,7 @@ import top.foxball.shopmall.repository.AdminDailyRevenue
 import top.foxball.shopmall.repository.AdminDashboardReportRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ProductRepository
+import top.foxball.shopmall.repository.ProductVariantRepository
 import top.foxball.shopmall.repository.ShipmentRepository
 import top.foxball.shopmall.repository.SupportTicketRepository
 import top.foxball.shopmall.service.impl.AdminDashboardServiceImpl
@@ -23,6 +24,7 @@ class AdminDashboardServiceImplTest {
     private val shipmentRepository = mock(ShipmentRepository::class.java)
     private val supportTicketRepository = mock(SupportTicketRepository::class.java)
     private val productRepository = mock(ProductRepository::class.java)
+    private val variantRepository = mock(ProductVariantRepository::class.java)
     private val reportRepository = mock(AdminDashboardReportRepository::class.java)
     private val adminAccessService = mock(AdminAccessService::class.java)
     private val service = AdminDashboardServiceImpl(
@@ -30,6 +32,7 @@ class AdminDashboardServiceImplTest {
         shipmentRepository,
         supportTicketRepository,
         productRepository,
+        variantRepository,
         reportRepository,
         adminAccessService,
     )

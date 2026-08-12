@@ -44,7 +44,7 @@ class OrderMailServiceImpl(
         val customer = userRepository.findById(order.customerId).orElseThrow {
             IllegalStateException("Cannot send payment confirmation for missing customer ${order.customerId}")
         }
-        val orderItems = orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(orderId)
+        val orderItems = orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(orderId)
 
         data class EmailItem(
             val name: String,
@@ -55,6 +55,10 @@ class OrderMailServiceImpl(
 
         fun snapshotText(item: OrderItem, key: String): String? = runCatching {
             objectMapper.readTree(item.productSnapshot).get(key)?.asString()?.trim()?.takeIf(String::isNotBlank)
+        }.getOrNull()
+
+        fun snapshotVariantAttribute(item: OrderItem, key: String): String? = runCatching {
+            objectMapper.readTree(item.productSnapshot).get("variantAttributes")?.get(key)?.asString()?.trim()?.takeIf(String::isNotBlank)
         }.getOrNull()
 
         fun displayValue(value: String): String = value
@@ -68,8 +72,8 @@ class OrderMailServiceImpl(
         val items = orderItems.map { item ->
             val color = snapshotText(item, "color")
             val size = snapshotText(item, "size")?.let(::displayValue)
-            val topSize = snapshotText(item, "topSize")?.let(::displayValue)
-            val bottomSize = snapshotText(item, "bottomSize")?.let(::displayValue)
+            val topSize = snapshotVariantAttribute(item, "top_size")?.let(::displayValue)
+            val bottomSize = snapshotVariantAttribute(item, "bottom_size")?.let(::displayValue)
             EmailItem(
                 name = snapshotText(item, "name") ?: "Pelissa piece #${item.productId}",
                 details = listOfNotNull(
@@ -77,6 +81,7 @@ class OrderMailServiceImpl(
                     size?.let { "Size: $it" },
                     topSize?.let { "Top: $it" },
                     bottomSize?.let { "Bottom: $it" },
+                    "SKU: ${item.sku}",
                 ).takeIf(List<String>::isNotEmpty)?.joinToString(" · "),
                 quantity = item.quantity,
                 lineTotal = money(item.lineTotal),

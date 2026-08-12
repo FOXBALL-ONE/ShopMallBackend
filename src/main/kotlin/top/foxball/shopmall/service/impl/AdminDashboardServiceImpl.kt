@@ -4,12 +4,14 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.entity.jdbc.Product
+import top.foxball.shopmall.entity.jdbc.ProductVariant
 import top.foxball.shopmall.entity.jdbc.ShipmentStatus
 import top.foxball.shopmall.entity.jdbc.SupportTicketPriority
 import top.foxball.shopmall.entity.jdbc.SupportTicketStatus
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.AdminDashboardReportRepository
 import top.foxball.shopmall.repository.ProductRepository
+import top.foxball.shopmall.repository.ProductVariantRepository
 import top.foxball.shopmall.repository.ShipmentRepository
 import top.foxball.shopmall.repository.SupportTicketRepository
 import top.foxball.shopmall.service.AdminAccessService
@@ -30,6 +32,7 @@ class AdminDashboardServiceImpl(
     private val shipmentRepository: ShipmentRepository,
     private val supportTicketRepository: SupportTicketRepository,
     private val productRepository: ProductRepository,
+    private val variantRepository: ProductVariantRepository,
     private val reportRepository: AdminDashboardReportRepository,
     private val adminAccessService: AdminAccessService,
 ) : AdminDashboardService {
@@ -56,12 +59,12 @@ class AdminDashboardServiceImpl(
                 SupportTicketPriority.HIGH,
                 listOf(SupportTicketStatus.OPEN, SupportTicketStatus.IN_PROGRESS),
             ),
-            activeProducts = productRepository.countByStatus(Product.Status.ACTIVE),
-            inactiveProducts = productRepository.countByStatus(Product.Status.INACTIVE),
-            deletedProducts = productRepository.countByStatus(Product.Status.DELETED),
-            lowStockProducts = productRepository.countByWarehouseVolumeLessThanEqualAndStatus(
+            activeProducts = productRepository.countByStatusAndDeletedAtIsNull(Product.Status.ACTIVE),
+            inactiveProducts = productRepository.countByStatusAndDeletedAtIsNull(Product.Status.INACTIVE),
+            deletedProducts = productRepository.countByDeletedAtIsNotNull(),
+            lowStockProducts = variantRepository.countByStatusAndWarehouseVolumeLessThanEqual(
+                ProductVariant.Status.ACTIVE,
                 lowStockThreshold,
-                Product.Status.ACTIVE,
             ),
         )
     }

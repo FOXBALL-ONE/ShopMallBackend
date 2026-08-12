@@ -44,8 +44,8 @@ export function useCustomerCart() {
     }
   }
 
-  async function addItem(productId: number, quantity: number) {
-    return apply(await api.addCartItem(productId, quantity))
+  async function addItem(variantId: number, quantity: number) {
+    return apply(await api.addCartItem(variantId, quantity))
   }
 
   async function updateItem(itemId: number, quantity: number) {

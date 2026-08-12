@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { catalogProducts } from '~/data/catalog'
+
+const catalogApi = useCatalogApi()
+const { data: catalog } = await useAsyncData('home-catalog-products', () => catalogApi.listProducts(), { default: () => [] })
 
 const router = useRouter()
 
@@ -104,7 +106,11 @@ const categories = [
   }
 ]
 
-const products = catalogProducts.filter(product => product.is_new).slice(0, 4)
+const products = computed(() => {
+  const active = catalog.value.filter(product => product.status === 'ACTIVE')
+  const newProducts = active.filter(product => product.is_new)
+  return (newProducts.length ? newProducts : active).slice(0, 4)
+})
 
 const locationOptions: StoreLocation[] = [
   { label: 'United States', value: 'US' },

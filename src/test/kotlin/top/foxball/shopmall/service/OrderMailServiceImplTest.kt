@@ -84,6 +84,8 @@ class OrderMailServiceImplTest {
         )
         val item = OrderItem(
             productId = 31,
+            variantId = 310,
+            sku = "SILK-LACE-M",
             productSnapshot = """{"name":"Silk & Lace","color":"Rose & Ivory","size":"M"}""",
             quantity = 2,
             lineTotal = BigDecimal("88.00"),
@@ -91,7 +93,7 @@ class OrderMailServiceImplTest {
         val message = MimeMessage(Session.getInstance(Properties()))
         `when`(orderRepository.findById(7)).thenReturn(Optional.of(order))
         `when`(userRepository.findById(12)).thenReturn(Optional.of(customer))
-        `when`(orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(7)).thenReturn(listOf(item))
+        `when`(orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(7)).thenReturn(listOf(item))
         `when`(mailSender.createMimeMessage()).thenReturn(message)
 
         service.sendPaymentConfirmation(7)

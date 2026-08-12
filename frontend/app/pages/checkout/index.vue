@@ -187,7 +187,7 @@ async function openStripeCheckout() {
     if (!order) {
       if (!selectedAddress.value) throw new Error('Select a delivery address before continuing.')
       const orderInput: CustomerPlaceOrderInput = {
-        product_ids: cartItems.value.map(item => item.product_id),
+        variant_ids: cartItems.value.map(item => item.variant_id),
         quantities: cartItems.value.map(item => item.quantity),
         address_id: selectedAddress.value.id,
         client_message: clientMessage.value.trim() || undefined

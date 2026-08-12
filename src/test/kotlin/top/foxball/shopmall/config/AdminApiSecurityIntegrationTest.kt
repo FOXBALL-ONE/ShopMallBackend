@@ -62,6 +62,17 @@ class AdminApiSecurityIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `anonymous customer can read product metadata`() {
+        mockMvc.perform(get("/api/product-types"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.list").isArray)
+
+        mockMvc.perform(get("/api/product-categories"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.list").isArray)
+    }
+
+    @Test
     fun `anonymous customer cannot write announcement state`() {
         mockMvc.perform(
             post("/api/announcements/999/state")

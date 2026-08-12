@@ -10,16 +10,13 @@ import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionSynchronization
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import top.foxball.shopmall.config.OrderProperties
-import top.foxball.shopmall.entity.jdbc.BikiniSuit
-import top.foxball.shopmall.entity.jdbc.CoverUp
-import top.foxball.shopmall.entity.jdbc.Dress
-import top.foxball.shopmall.entity.jdbc.OnePieceSuit
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.entity.jdbc.Product
+import top.foxball.shopmall.entity.jdbc.ProductVariant
 import top.foxball.shopmall.handler.BusinessException
 import top.foxball.shopmall.handler.EmailNotVerifiedException
 import top.foxball.shopmall.handler.ForbiddenException
@@ -34,7 +31,7 @@ import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.ResourceNotFoundException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
-import top.foxball.shopmall.repository.ProductRepository
+import top.foxball.shopmall.repository.ProductVariantRepository
 import top.foxball.shopmall.repository.ShipmentItemRepository
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.AdminAccessService
@@ -66,7 +63,7 @@ class OrderServiceImpl(
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
     private val shipmentItemRepository: ShipmentItemRepository,
-    private val productRepository: ProductRepository,
+    private val productVariantRepository: ProductVariantRepository,
     private val userRepository: UserRepository,
     private val userService: UserService,
     private val adminAccessService: AdminAccessService,
@@ -89,8 +86,8 @@ class OrderServiceImpl(
         if (command.items.isEmpty() || command.items.size > MAX_ORDER_LINES) {
             throw ParamErrorException("订单商品行数必须在 1 到 $MAX_ORDER_LINES 之间")
         }
-        if (command.items.any { it.productId < 1 || it.quantity < 1 }) {
-            throw ParamErrorException("商品编号和数量必须为正数")
+        if (command.items.any { it.variantId < 1 || it.quantity < 1 }) {
+            throw ParamErrorException("SKU 编号和数量必须为正数")
         }
         if (command.clientMessage != null && command.clientMessage.length > MAX_CLIENT_MESSAGE_LENGTH) {
             throw ParamErrorException("客户留言不能超过 $MAX_CLIENT_MESSAGE_LENGTH 个字符")
@@ -101,19 +98,19 @@ class OrderServiceImpl(
         val address = userService.getDeliveryAddress(customerId, command.addressId)
             ?: throw ResourceNotFoundException("配送地址不存在")
         val normalizedLines = command.items
-            .groupingBy { it.productId }
+            .groupingBy { it.variantId }
             .fold(0) { total, line -> total + line.quantity }
-            .map { (productId, quantity) ->
+            .map { (variantId, quantity) ->
                 if (quantity > orderProperties.maxQuantityPerLine) {
                     throw ParamErrorException("单个商品数量不能超过 ${orderProperties.maxQuantityPerLine}")
                 }
-                NormalizedLine(productId, quantity)
+                NormalizedLine(variantId, quantity)
             }
-            .sortedBy(NormalizedLine::productId)
+            .sortedBy(NormalizedLine::variantId)
         val clientKey = idempotencyKey.trim()
         val canonicalRequest = buildString {
-            command.items.sortedWith(compareBy({ it.productId }, { it.quantity })).forEach {
-                append(it.productId).append(':').append(it.quantity).append(';')
+            command.items.sortedWith(compareBy({ it.variantId }, { it.quantity })).forEach {
+                append(it.variantId).append(':').append(it.quantity).append(';')
             }
             append('|').append(command.addressId)
             append('|').append(command.clientMessage.orEmpty())
@@ -146,37 +143,41 @@ class OrderServiceImpl(
                             ?: throw ResourceNotFoundException("用户不存在")
                         enforceCreationWindow(customerId)
 
-                        // 一次批量查询得到生成快照所需的商品实体列表，避免按订单行逐个查询形成 N+1。
-                        val productsById = productRepository.findAllById(
-                            normalizedLines.map(NormalizedLine::productId)
+                        // 按稳定 SKU 顺序加锁，保证相同购物车并发结算时不会发生死锁。
+                        val variantsById = productVariantRepository.findAllDetailedByIdForUpdate(
+                            normalizedLines.map(NormalizedLine::variantId),
                         ).associateBy { requireNotNull(it.id) }
-                        val missingId = normalizedLines.firstOrNull { it.productId !in productsById }?.productId
-                        if (missingId != null) throw ResourceNotFoundException("商品不存在: $missingId")
+                        val missingId = normalizedLines.firstOrNull { it.variantId !in variantsById }?.variantId
+                        if (missingId != null) throw ResourceNotFoundException("SKU 不存在: $missingId")
 
                         // 使用服务端商品价格和展示数据构造订单快照；后续商品改价或修改展示信息不会影响历史订单。
                         val orderItems = normalizedLines.map { line ->
-                            val product = productsById.getValue(line.productId)
-                            if (product.status != Product.Status.ACTIVE) {
-                                throw ResourceNotFoundException("商品不存在或已下架: ${line.productId}")
+                            val variant = variantsById.getValue(line.variantId)
+                            val product = requireNotNull(variant.product) { "SKU 缺少商品引用" }
+                            if (
+                                product.status != Product.Status.ACTIVE || product.deletedAt != null ||
+                                variant.status != ProductVariant.Status.ACTIVE
+                            ) {
+                                throw ResourceNotFoundException("SKU 不存在或已下架: ${line.variantId}")
                             }
-                            val unitPrice = product.price.setScale(MONEY_SCALE, RoundingMode.UNNECESSARY)
+                            val unitPrice = variant.price.setScale(MONEY_SCALE, RoundingMode.UNNECESSARY)
                             val snapshot = linkedMapOf<String, Any?>(
                                 "productId" to product.id,
-                                "productType" to product::class.simpleName,
+                                "variantId" to variant.id,
+                                "sku" to variant.sku,
+                                "productType" to requireNotNull(product.productType).code,
                                 "name" to product.name,
-                                "color" to product.color,
+                                "color" to variant.color,
+                                "size" to variant.size,
+                                "currency" to DEFAULT_CURRENCY,
+                                "attributes" to product.attributes.associate { it.code to it.value },
+                                "variantAttributes" to variant.attributes.associate { it.code to it.value },
+                                "primaryImage" to product.images.firstOrNull { it.primary }?.url,
                             )
-                            when (product) {
-                                is BikiniSuit -> {
-                                    snapshot["topSize"] = product.topSize?.name
-                                    snapshot["bottomSize"] = product.bottomSize?.name
-                                }
-                                is OnePieceSuit -> snapshot["size"] = product.size?.name
-                                is Dress -> snapshot["size"] = product.size?.name
-                                is CoverUp -> snapshot["size"] = product.size.name
-                            }
                             OrderItem(
-                                productId = line.productId,
+                                productId = requireNotNull(product.id),
+                                variantId = requireNotNull(variant.id),
+                                sku = variant.sku,
                                 productSnapshot = objectMapper.writeValueAsString(snapshot),
                                 unitPrice = unitPrice,
                                 quantity = line.quantity,
@@ -237,13 +238,12 @@ class OrderServiceImpl(
 
                         // 条件更新是库存并发控制的最终门闩；任一行失败都会使整个下单事务回滚。
                         normalizedLines.forEach { line ->
-                            if (productRepository.decrementStock(line.productId, line.quantity) == 0) {
-                                val stillActive = productRepository.findByIdAndStatus(
-                                    line.productId,
-                                    Product.Status.ACTIVE,
-                                ) != null
-                                if (!stillActive) throw ResourceNotFoundException("商品不存在或已下架: ${line.productId}")
-                                throw InsufficientStockException("商品库存不足: ${line.productId}")
+                            if (productVariantRepository.decrementStock(line.variantId, line.quantity) == 0) {
+                                val current = productVariantRepository.findDetailedById(line.variantId)
+                                if (current == null || current.status != ProductVariant.Status.ACTIVE ||
+                                    current.product?.status != Product.Status.ACTIVE || current.product?.deletedAt != null
+                                ) throw ResourceNotFoundException("SKU 不存在或已下架: ${line.variantId}")
+                                throw InsufficientStockException("SKU 库存不足: ${line.variantId}")
                             }
                         }
                         OrderView(order, orderItems)
@@ -353,7 +353,7 @@ class OrderServiceImpl(
         if (order.status == OrderStatus.DELETED) throw OrderNotFoundException()
         if (order.customerId != customerId) throw ForbiddenException("只能操作自己的订单")
         val orderId = requireNotNull(order.id)
-        val items = orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(orderId)
+        val items = orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(orderId)
         val changed = orderRepository.markCancelled(
             orderId,
             OrderStatus.PENDING_PAYMENT,
@@ -390,7 +390,7 @@ class OrderServiceImpl(
     override fun getAdmin(adminId: Long, orderNo: String): AdminOrderDetails {
         adminAccessService.requireAdmin(adminId)
         val order = orderRepository.findByOrderNo(orderNo) ?: throw OrderNotFoundException()
-        val items = orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(requireNotNull(order.id))
+        val items = orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(requireNotNull(order.id))
         val itemIds = items.map { requireNotNull(it.id) }
         val allocatedQuantities = if (itemIds.isEmpty()) {
             emptyMap()
@@ -505,9 +505,9 @@ class OrderServiceImpl(
     }
 
     private fun restock(items: List<OrderItem>) {
-        items.sortedBy(OrderItem::productId).forEach { item ->
-            check(productRepository.restock(item.productId, item.quantity) == 1) {
-                "无法回补订单商品库存: ${item.productId}"
+        items.sortedBy(OrderItem::variantId).forEach { item ->
+            check(productVariantRepository.restock(item.variantId, item.quantity) == 1) {
+                "无法回补订单 SKU 库存: ${item.variantId}"
             }
         }
     }
@@ -525,7 +525,7 @@ class OrderServiceImpl(
 
     private fun view(order: OrderEntity): OrderView = OrderView(
         order = order,
-        items = orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(requireNotNull(order.id)),
+        items = orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(requireNotNull(order.id)),
     )
 
     private fun reload(orderId: Long): OrderEntity =
@@ -542,7 +542,7 @@ class OrderServiceImpl(
         return PageRequest.of(page, size)
     }
 
-    private data class NormalizedLine(val productId: Long, val quantity: Int)
+    private data class NormalizedLine(val variantId: Long, val quantity: Int)
 
     private companion object {
         const val DEFAULT_CURRENCY = "USD"

@@ -15,7 +15,7 @@ import jakarta.validation.constraints.Digits
 import jakarta.validation.constraints.Size
 import org.hibernate.annotations.CreationTimestamp
 import java.math.BigDecimal
-import java.time.Instant
+import java.time.LocalDateTime
 
 /**
  * 订单中的商品行快照。
@@ -37,10 +37,20 @@ class OrderItem(
     @JoinColumn(name = "order_id", nullable = false, updatable = false)
     var order: OrderEntity? = null,
 
-    /** 下单时所购买商品的标识。 */
+    /** 下单时所购买商品款式的标识。 */
     @field:Min(1)
     @Column(name = "product_id", nullable = false, updatable = false)
     var productId: Long = 0,
+
+    /** 下单时所购买 SKU 的标识。 */
+    @field:Min(1)
+    @Column(name = "variant_id", nullable = false, updatable = false)
+    var variantId: Long = 0,
+
+    /** 下单时所购买的稳定 SKU。 */
+    @field:Size(max = 64)
+    @Column(nullable = false, updatable = false, length = 64)
+    var sku: String = "",
 
     /** 下单时保存的商品展示信息快照。 */
     @field:Size(max = 2000)
@@ -65,5 +75,5 @@ class OrderItem(
     /** 订单明细创建时间，由 Hibernate 自动写入。 */
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    var createdAt: Instant? = null,
+    var createdAt: LocalDateTime? = null,
 )

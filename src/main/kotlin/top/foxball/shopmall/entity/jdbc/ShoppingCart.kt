@@ -25,11 +25,11 @@ import org.hibernate.annotations.CreationTimestamp
 import org.hibernate.annotations.OnDelete
 import org.hibernate.annotations.OnDeleteAction
 import org.hibernate.annotations.UpdateTimestamp
-import java.time.Instant
+import java.time.LocalDateTime
 
 /**
- * 用户购物车。购物车只保存商品引用与期望数量，不锁定商品价格或库存。
- * 展示与下单时必须以 [Product] 的当前数据为准。
+ * 用户购物车。购物车只保存 SKU 引用与期望数量，不锁定商品价格或库存。
+ * 展示与下单时必须以 [ProductVariant] 的当前数据为准。
  */
 @Entity
 @Table(
@@ -66,11 +66,11 @@ class ShoppingCart(
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    var createdAt: Instant? = null,
+    var createdAt: LocalDateTime? = null,
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    var updatedAt: Instant? = null,
+    var updatedAt: LocalDateTime? = null,
 
     /** 防止未加锁的并发修改静默覆盖购物车内容。 */
     @Version
@@ -93,15 +93,15 @@ class ShoppingCart(
     }
 }
 
-/** 购物车中的单个商品及期望购买数量。 */
+/** 购物车中的单个 SKU 及期望购买数量。 */
 @Entity
 @Table(
     name = "shopping_cart_items",
     indexes = [
-        Index(name = "idx_cart_items_product", columnList = "product_id"),
+        Index(name = "idx_cart_items_variant", columnList = "variant_id"),
     ],
     uniqueConstraints = [
-        UniqueConstraint(name = "uk_cart_items_cart_product", columnNames = ["cart_id", "product_id"]),
+        UniqueConstraint(name = "uk_cart_items_cart_variant", columnNames = ["cart_id", "variant_id"]),
     ],
 )
 class CartItem(
@@ -117,8 +117,8 @@ class CartItem(
     @get:JsonIgnore
     @field:NotNull
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "product_id", nullable = false, updatable = false)
-    var product: Product? = null,
+    @JoinColumn(name = "variant_id", nullable = false, updatable = false)
+    var variant: ProductVariant? = null,
 
     @field:Min(1)
     @field:Max(99)
@@ -127,9 +127,9 @@ class CartItem(
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    var createdAt: Instant? = null,
+    var createdAt: LocalDateTime? = null,
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    var updatedAt: Instant? = null,
+    var updatedAt: LocalDateTime? = null,
 )

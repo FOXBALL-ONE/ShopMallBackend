@@ -81,6 +81,8 @@ export interface PermanentDeleteOrderResponse {
 export interface OrderDetailItem {
     id: number;
     product_id: number;
+    variant_id: number;
+    sku: string;
     product_snapshot: string;
     unit_price: number | string;
     quantity: number;

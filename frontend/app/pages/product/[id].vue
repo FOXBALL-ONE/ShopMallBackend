@@ -1,118 +1,129 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import {
-  catalogProducts,
-  displayProductType,
-  formatPrice,
-  getCollection,
-  getProductById
-} from '~/data/catalog'
+import type { CatalogProduct, CatalogVariant } from '~/data/catalog'
+import { displayProductType, formatPrice, getCollection } from '~/data/catalog'
+import type { CatalogAttributeDefinition } from '~/composables/useCatalogApi'
 import { customerRequestMessage } from '~/composables/useCustomerAccountApi'
 
 const route = useRoute()
+const catalogApi = useCatalogApi()
 const session = useCustomerSession()
 const customerCart = useCustomerCart()
 const toast = useToast()
+const productId = computed(() => Number(route.params.id))
 
-const product = computed(() => getProductById(Number(route.params.id)))
+const { data: pageData, status, error, refresh } = await useAsyncData(
+  () => `product-${productId.value}`,
+  async () => {
+    const product = await catalogApi.getProduct(productId.value)
+    const [definitions, allProducts] = await Promise.all([
+      catalogApi.getDefinitions(product.product_type),
+      catalogApi.listProducts(),
+    ])
+    return { product, definitions, allProducts }
+  },
+  { watch: [productId] },
+)
+
+const product = computed(() => pageData.value?.product ?? null)
+const definitions = computed(() => pageData.value?.definitions ?? [])
+const variants = computed(() => product.value?.variants ?? [])
 const selectedImage = ref(0)
-const selectedTopSize = ref('S')
-const selectedBottomSize = ref('S')
-const selectedSize = ref('M')
+const selection = ref<Record<string, string>>({})
 const quantity = ref(1)
 const isFavorite = ref(false)
-const isAdded = ref(false)
 const isAdding = ref(false)
+const isAdded = ref(false)
 const addError = ref('')
-const activePanel = ref('highlights')
 let feedbackTimer: ReturnType<typeof setTimeout> | undefined
 
-const topSizeOptions = computed(() => product.value?.top_size ? [product.value.top_size] : [])
-const bottomSizeOptions = computed(() => product.value?.bottom_size ? [product.value.bottom_size] : [])
-const standardSizeOptions = computed(() => product.value?.size ? [product.value.size] : [])
-const availableStock = computed(() => Math.max(0, Number(product.value?.warehouse_volume || 0)))
+type OptionDimension = { code: string; label: string; values: string[] }
+
+function optionValue(variant: CatalogVariant, code: string): string {
+  if (code === 'size') return variant.size ?? ''
+  if (code === 'color') return variant.color
+  return variant.attributes.find(attribute => attribute.code === code)?.value ?? ''
+}
+
+const dimensions = computed<OptionDimension[]>(() => {
+  const result: OptionDimension[] = []
+  const sizeValues = [...new Set(variants.value.map(variant => variant.size).filter((value): value is string => Boolean(value)))]
+  const colorValues = [...new Set(variants.value.map(variant => variant.color).filter(Boolean))]
+  if (sizeValues.length) result.push({ code: 'size', label: 'Size', values: sizeValues })
+  if (colorValues.length) result.push({ code: 'color', label: 'Color', values: colorValues })
+  definitions.value
+    .filter(definition => definition.active && definition.scope === 'VARIANT')
+    .forEach(definition => {
+      const values = [...new Set(variants.value.map(variant => optionValue(variant, definition.code)).filter(Boolean))]
+      if (values.length) result.push({ code: definition.code, label: definition.name, values })
+    })
+  return result
+})
+
+const selectedVariant = computed(() => {
+  if (!dimensions.value.every(dimension => selection.value[dimension.code])) return null
+  return variants.value.find(variant => dimensions.value.every(dimension => optionValue(variant, dimension.code) === selection.value[dimension.code])) ?? null
+})
+
+const displayedPrice = computed(() => {
+  if (selectedVariant.value) return formatPrice(Number(selectedVariant.value.price))
+  const prices = variants.value.map(variant => Number(variant.price)).filter(Number.isFinite)
+  if (!prices.length) return formatPrice(0)
+  const min = Math.min(...prices)
+  const max = Math.max(...prices)
+  return min === max ? formatPrice(min) : `${formatPrice(min)} - ${formatPrice(max)}`
+})
+const availableStock = computed(() => selectedVariant.value?.warehouse_volume ?? 0)
 const maximumQuantity = computed(() => Math.min(availableStock.value, 99))
-const canAddToBag = computed(() => Boolean(
-  product.value
-  && product.value.status === 'ACTIVE'
-  && availableStock.value > 0
-  && !isAdding.value
-))
-
-const mainImage = computed(() => product.value?.images[selectedImage.value] || product.value?.images[0] || '/lingerie/hero-corset.jpg')
-const mainImagePosition = computed(() => product.value?.image_positions?.[selectedImage.value] || 'center')
-
+const canAddToBag = computed(() => Boolean(selectedVariant.value && availableStock.value > 0 && !isAdding.value))
 const productCollection = computed(() => getCollection(product.value?.collections[0] || 'shop'))
-
-const singleSizeOptions = computed(() => {
-  if (product.value?.product_type === 'COVER_UP' && product.value.size === 'ONE_SIZE') return ['ONE_SIZE']
-  return standardSizeOptions.value
-})
-
-const attributeRows = computed(() => {
-  if (!product.value) return []
-
-  if (product.value.product_type === 'ONE_PIECE') {
-    return [
-      { label: 'Support level', value: product.value.support_level },
-      { label: 'Coverage', value: product.value.coverage },
-      { label: 'Torso fit', value: product.value.torso_fit },
-      { label: 'Neckline', value: product.value.neckline },
-      { label: 'Back style', value: product.value.back_style },
-      { label: 'Tummy control', value: product.value.tummy_control },
-      { label: 'Padding', value: product.value.removable_padding }
-    ].filter(row => row.value)
-  }
-
-  if (product.value.product_type === 'DRESS') {
-    return [
-      { label: 'Length', value: product.value.length },
-      { label: 'Silhouette', value: product.value.silhouette },
-      { label: 'Neckline', value: product.value.neckline },
-      { label: 'Sleeve', value: product.value.sleeve_type },
-      { label: 'Fabric', value: product.value.fabric }
-    ].filter(row => row.value)
-  }
-
-  if (product.value.product_type === 'COVER_UP') {
-    return [
-      { label: 'Style', value: product.value.style },
-      { label: 'Sheer level', value: product.value.sheer_level },
-      { label: 'Fabric', value: product.value.fabric }
-    ].filter(row => row.value)
-  }
-
-  return [
-    { label: 'Top fit', value: product.value.top_size_recommendation },
-    { label: 'Bottom fit', value: product.value.bottom_size_recommendation }
-  ].filter(row => row.value)
-})
-
+const images = computed(() => product.value?.image_details?.length
+  ? product.value.image_details
+  : [{ url: '/lingerie/hero-corset.jpg', alt_text: product.value?.name ?? '', is_primary: true }])
+const mainImage = computed(() => images.value[selectedImage.value] ?? images.value[0])
+const definitionNames = computed(() => new Map(definitions.value.map(definition => [definition.code, definition.name])))
+const productAttributes = computed(() => (product.value?.attributes ?? []).map(attribute => ({
+  label: definitionNames.value.get(attribute.code) ?? displayCode(attribute.code),
+  value: formatAttribute(attribute.value),
+})))
 const relatedProducts = computed(() => {
-  if (!product.value) return []
-  const collections = product.value.collections
-  return catalogProducts
-    .filter(item => item.id !== product.value?.id && item.collections.some(collection => collections.includes(collection)))
-    .sort((a, b) => b.score - a.score)
+  const current = product.value
+  if (!current) return []
+  return (pageData.value?.allProducts ?? [])
+    .filter(item => item.id !== current.id && (
+      item.product_type === current.product_type
+      || item.collections.some(collection => current.collections.includes(collection))
+    ))
     .slice(0, 4)
 })
 
-watch(product, value => {
-  selectedImage.value = 0
-  selectedTopSize.value = value?.top_size || 'S'
-  selectedBottomSize.value = value?.bottom_size || 'S'
-  selectedSize.value = value?.size || 'M'
+watch(dimensions, value => {
+  const next: Record<string, string> = {}
+  value.forEach(dimension => {
+    if (dimension.values.length === 1) next[dimension.code] = dimension.values[0]!
+  })
+  selection.value = next
   quantity.value = 1
-  isAdded.value = false
-  addError.value = ''
+  selectedImage.value = 0
 }, { immediate: true })
 
-function formatAttribute(value: string | undefined) {
-  if (!value) return '—'
-  return value
-    .toLocaleLowerCase()
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, letter => letter.toLocaleUpperCase())
+watch(selectedVariant, () => { quantity.value = 1 })
+
+function matchingVariants(candidateSelection: Record<string, string>): CatalogVariant[] {
+  return variants.value.filter(variant => Object.entries(candidateSelection).every(([code, value]) => !value || optionValue(variant, code) === value))
+}
+
+function isOptionAvailable(code: string, value: string): boolean {
+  return matchingVariants({ ...selection.value, [code]: value }).some(variant => variant.warehouse_volume > 0)
+}
+
+function selectOption(code: string, value: string) {
+  const next = { ...selection.value, [code]: value }
+  dimensions.value.forEach(dimension => {
+    if (dimension.code === code || !next[dimension.code]) return
+    if (!matchingVariants(next).length) delete next[dimension.code]
+  })
+  selection.value = next
 }
 
 function changeQuantity(delta: number) {
@@ -120,30 +131,38 @@ function changeQuantity(delta: number) {
 }
 
 async function addToBag() {
-  if (!product.value || !canAddToBag.value) return
+  const variant = selectedVariant.value
+  if (!product.value || !variant || !canAddToBag.value) return
   const userId = await session.requireSignIn(route.fullPath)
   if (!userId) return
-
   isAdding.value = true
   addError.value = ''
   try {
-    await customerCart.addItem(product.value.id, quantity.value)
+    await customerCart.addItem(variant.id, quantity.value)
     isAdded.value = true
     toast.add({
       title: 'Added to bag',
       description: `${quantity.value} ${quantity.value === 1 ? 'piece' : 'pieces'} of ${product.value.name} added.`,
-      color: 'success'
+      color: 'success',
     })
     if (feedbackTimer) clearTimeout(feedbackTimer)
-    feedbackTimer = setTimeout(() => {
-      isAdded.value = false
-    }, 2400)
-  } catch (error: unknown) {
-    addError.value = customerRequestMessage(error, 'We could not add this piece to your bag.')
+    feedbackTimer = setTimeout(() => { isAdded.value = false }, 2400)
+  } catch (requestError: unknown) {
+    addError.value = customerRequestMessage(requestError, 'We could not add this piece to your bag.')
     toast.add({ title: 'Bag not updated', description: addError.value, color: 'error' })
   } finally {
     isAdding.value = false
   }
+}
+
+function displayCode(code: string): string {
+  return code.toLocaleLowerCase().replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toLocaleUpperCase())
+}
+
+function formatAttribute(value: string): string {
+  if (value === 'true') return 'Yes'
+  if (value === 'false') return 'No'
+  return displayCode(value)
 }
 
 onBeforeUnmount(() => {
@@ -151,13 +170,8 @@ onBeforeUnmount(() => {
 })
 
 useHead(() => ({
-  title: product.value ? `${product.value.name} | Pelissa` : 'Product not found | Pelissa',
-  meta: [
-    {
-      name: 'description',
-      content: product.value?.description || 'Explore the Pelissa lingerie collection.'
-    }
-  ]
+  title: product.value ? `${product.value.name} | Pelissa` : 'Product | Pelissa',
+  meta: [{ name: 'description', content: product.value?.description || 'Explore the Pelissa collection.' }],
 }))
 </script>
 
@@ -165,47 +179,46 @@ useHead(() => ({
   <main class="store-page">
     <StoreHeader />
 
-    <template v-if="product">
-      <div class="store-container product-breadcrumb">
+    <section v-if="status === 'pending'" class="product-state" aria-busy="true">
+      <UIcon name="i-lucide-loader-circle" class="is-spinning" />
+      <p>Loading product</p>
+    </section>
+
+    <section v-else-if="error || !product" class="product-state">
+      <UIcon name="i-lucide-package-x" />
+      <h1>Product unavailable</h1>
+      <button class="store-button" type="button" @click="refresh()">Try again</button>
+    </section>
+
+    <template v-else>
+      <nav class="store-container product-breadcrumb" aria-label="Breadcrumb">
         <NuxtLink to="/">Home</NuxtLink>
         <UIcon name="i-lucide-chevron-right" />
         <NuxtLink :to="`/collections/${productCollection.slug}`">{{ productCollection.englishLabel }}</NuxtLink>
         <UIcon name="i-lucide-chevron-right" />
         <span>{{ product.name }}</span>
-      </div>
+      </nav>
 
       <section class="product-detail store-container">
         <div class="product-gallery">
-          <div class="product-thumbnails" aria-label="Product images">
+          <div class="product-thumbnails">
             <button
-              v-for="(image, index) in product.images"
-              :key="`${image}-${index}`"
+              v-for="(image, index) in images"
+              :key="`${image.url}-${index}`"
               type="button"
               :class="{ active: selectedImage === index }"
               :aria-label="`View image ${index + 1}`"
               @click="selectedImage = index"
             >
-              <img :src="image" alt="" :style="{ objectPosition: product.image_positions?.[index] || 'center' }">
+              <img :src="image.url" :alt="image.alt_text || ''">
             </button>
           </div>
-
           <div class="product-main-image">
-            <img :src="mainImage" :alt="product.name" :style="{ objectPosition: mainImagePosition }">
+            <img :src="mainImage?.url" :alt="mainImage?.alt_text || product.name">
             <span v-if="product.badge" :class="{ sale: product.is_sale }">{{ product.badge }}</span>
-            <button type="button" aria-label="Zoom product image"><UIcon name="i-lucide-expand" /></button>
-          </div>
-        </div>
-
-        <aside class="product-purchase">
-          <div class="product-type-line">
-            <span>{{ displayProductType(product.product_type) }}</span>
-            <span>SKU {{ String(product.id).padStart(4, '0') }}</span>
-          </div>
-
-          <div class="product-title-row">
-            <h1>{{ product.name }}</h1>
             <button
               type="button"
+              class="favorite-button"
               :class="{ active: isFavorite }"
               :aria-label="isFavorite ? 'Remove from favorites' : 'Add to favorites'"
               @click="isFavorite = !isFavorite"
@@ -213,200 +226,136 @@ useHead(() => ({
               <UIcon name="i-lucide-heart" />
             </button>
           </div>
+        </div>
 
-          <div class="product-price-row">
-            <strong :class="{ sale: product.is_sale }">{{ formatPrice(product.price) }}</strong>
-            <del v-if="product.compare_at_price">{{ formatPrice(product.compare_at_price) }}</del>
-            <span v-if="product.is_sale">Final sale</span>
+        <div class="product-purchase">
+          <p class="store-eyebrow">{{ displayProductType(product.product_type) }}</p>
+          <div class="product-title-row">
+            <h1>{{ product.name }}</h1>
+            <span v-if="product.score > 0"><UIcon name="i-lucide-star" /> {{ product.score.toFixed(1) }}</span>
           </div>
+          <p class="product-price">{{ displayedPrice }} <small>USD</small></p>
+          <p v-if="product.fit_sense" class="product-fit">{{ product.fit_sense }}</p>
 
-          <a class="product-rating" href="#product-details">
-            <span class="product-stars">
-              <UIcon
-                v-for="index in 5"
-                :key="index"
-                name="i-lucide-star"
-                :class="{ filled: index <= Math.round(product.score) }"
-              />
-            </span>
-            {{ product.score.toFixed(1) }} · {{ Math.max(18, Math.round(product.sales_volume / 3)) }} reviews
-          </a>
-
-          <div class="product-color">
-            <div><span>Color</span><strong>{{ product.color }}</strong></div>
-            <span class="product-swatch" :class="`swatch-${product.id % 6}`" />
-          </div>
-
-          <div v-if="product.product_type === 'BIKINI'" class="product-size-groups">
-            <div class="product-size-group">
-              <div class="product-option-heading">
-                <span>Top size: <strong>{{ selectedTopSize }}</strong></span>
-                <button type="button"><UIcon name="i-lucide-ruler" /> Size guide</button>
-              </div>
-              <div class="product-size-options">
+          <div class="product-options">
+            <fieldset v-for="dimension in dimensions" :key="dimension.code">
+              <legend>
+                <span>{{ dimension.label }}</span>
+                <strong>{{ selection[dimension.code] ? formatAttribute(selection[dimension.code] ?? '') : '—' }}</strong>
+              </legend>
+              <div class="option-grid">
                 <button
-                  v-for="size in topSizeOptions"
-                  :key="`top-${size}`"
+                  v-for="value in dimension.values"
+                  :key="value"
                   type="button"
-                  :class="{ active: selectedTopSize === size }"
-                  @click="selectedTopSize = size"
+                  :class="{ active: selection[dimension.code] === value, color: dimension.code === 'color' }"
+                  :disabled="!isOptionAvailable(dimension.code, value)"
+                  @click="selectOption(dimension.code, value)"
                 >
-                  {{ size }}
+                  <span v-if="dimension.code === 'color'" class="option-swatch" :style="{ backgroundColor: value }" />
+                  {{ formatAttribute(value) }}
                 </button>
               </div>
-              <small>{{ product.top_size_recommendation }}</small>
-            </div>
-
-            <div class="product-size-group">
-              <div class="product-option-heading">
-                <span>Bottom size: <strong>{{ selectedBottomSize }}</strong></span>
-              </div>
-              <div class="product-size-options">
-                <button
-                  v-for="size in bottomSizeOptions"
-                  :key="`bottom-${size}`"
-                  type="button"
-                  :class="{ active: selectedBottomSize === size }"
-                  @click="selectedBottomSize = size"
-                >
-                  {{ size }}
-                </button>
-              </div>
-              <small>{{ product.bottom_size_recommendation }}</small>
-            </div>
-          </div>
-
-          <div v-else class="product-size-group product-single-size">
-            <div class="product-option-heading">
-              <span>Size: <strong>{{ formatAttribute(selectedSize) }}</strong></span>
-              <button type="button"><UIcon name="i-lucide-ruler" /> Size guide</button>
-            </div>
-            <div class="product-size-options">
-              <button
-                v-for="size in singleSizeOptions"
-                :key="size"
-                type="button"
-                :class="{ active: selectedSize === size }"
-                @click="selectedSize = size"
-              >
-                {{ size === 'ONE_SIZE' ? 'One size' : size }}
-              </button>
-            </div>
-            <small>{{ product.size_recommendation }}</small>
+            </fieldset>
           </div>
 
           <div class="product-cart-row">
             <div class="product-quantity">
-              <button type="button" :disabled="quantity <= 1 || !canAddToBag" aria-label="Decrease quantity" @click="changeQuantity(-1)"><UIcon name="i-lucide-minus" /></button>
+              <button type="button" aria-label="Decrease quantity" :disabled="quantity <= 1" @click="changeQuantity(-1)"><UIcon name="i-lucide-minus" /></button>
               <span>{{ quantity }}</span>
-              <button type="button" :disabled="quantity >= maximumQuantity || !canAddToBag" aria-label="Increase quantity" @click="changeQuantity(1)"><UIcon name="i-lucide-plus" /></button>
+              <button type="button" aria-label="Increase quantity" :disabled="!selectedVariant || quantity >= maximumQuantity" @click="changeQuantity(1)"><UIcon name="i-lucide-plus" /></button>
             </div>
             <button class="product-add-button" type="button" :disabled="!canAddToBag" @click="addToBag">
-              <template v-if="isAdding"><UIcon name="i-lucide-loader-circle" class="is-spinning" /> Adding…</template>
-              <template v-else-if="isAdded"><UIcon name="i-lucide-check" /> Added to bag</template>
-              <template v-else-if="availableStock <= 0 || product.status !== 'ACTIVE'">Unavailable</template>
-              <template v-else>Add to bag · {{ formatPrice(product.price * quantity) }}</template>
+              <UIcon v-if="isAdding" name="i-lucide-loader-circle" class="is-spinning" />
+              <UIcon v-else-if="isAdded" name="i-lucide-check" />
+              <UIcon v-else name="i-lucide-shopping-bag" />
+              {{ isAdded ? 'Added' : selectedVariant ? (availableStock > 0 ? 'Add to bag' : 'Sold out') : 'Select options' }}
             </button>
           </div>
-
-          <p v-if="availableStock > 0 && availableStock <= 15" class="product-low-stock">
-            <span /> Only {{ availableStock }} left in this color
-          </p>
-          <p v-if="addError" class="product-cart-error" role="status"><UIcon name="i-lucide-circle-alert" /> {{ addError }}</p>
-
-          <div class="product-service-notes">
-            <div><UIcon name="i-lucide-truck" /><span><strong>Complimentary shipping</strong>On orders over $79</span></div>
-            <div><UIcon name="i-lucide-refresh-ccw" /><span><strong>30-day returns</strong>Try it in your own space</span></div>
-          </div>
-        </aside>
-      </section>
-
-      <section id="product-details" class="product-story">
-        <div class="store-container product-story-grid">
-          <div class="product-story-intro">
-            <p class="store-eyebrow">WHY YOU'LL LOVE IT</p>
-            <h2>Made to feel like you.</h2>
-            <p>{{ product.description }}</p>
-            <blockquote v-if="product.fit_sense">“{{ product.fit_sense }}”</blockquote>
-          </div>
-
-          <div class="product-attributes">
-            <div class="product-attribute-title">
-              <span>Product type</span>
-              <strong>{{ displayProductType(product.product_type) }}</strong>
-            </div>
-            <div v-for="row in attributeRows" :key="row.label" class="product-attribute-row">
-              <span>{{ row.label }}</span>
-              <strong>{{ formatAttribute(row.value) }}</strong>
-            </div>
-          </div>
-
-          <div class="product-accordions">
-            <div class="product-accordion">
-              <button type="button" @click="activePanel = activePanel === 'highlights' ? '' : 'highlights'">
-                Highlights <UIcon :name="activePanel === 'highlights' ? 'i-lucide-minus' : 'i-lucide-plus'" />
-              </button>
-              <ul v-if="activePanel === 'highlights'">
-                <li v-for="item in product.highlight" :key="item">{{ item }}</li>
-              </ul>
-            </div>
-            <div class="product-accordion">
-              <button type="button" @click="activePanel = activePanel === 'design' ? '' : 'design'">
-                Design &amp; extras <UIcon :name="activePanel === 'design' ? 'i-lucide-minus' : 'i-lucide-plus'" />
-              </button>
-              <ul v-if="activePanel === 'design'">
-                <li v-for="item in product.design_and_extras" :key="item">{{ item }}</li>
-              </ul>
-            </div>
-            <div class="product-accordion">
-              <button type="button" @click="activePanel = activePanel === 'care' ? '' : 'care'">
-                Care instructions <UIcon :name="activePanel === 'care' ? 'i-lucide-minus' : 'i-lucide-plus'" />
-              </button>
-              <ul v-if="activePanel === 'care'">
-                <li v-for="item in product.care_instructions" :key="item">{{ item }}</li>
-              </ul>
-            </div>
-          </div>
+          <p v-if="selectedVariant && availableStock > 0" class="stock-line">{{ availableStock }} in stock · {{ selectedVariant.sku }}</p>
+          <p v-if="addError" class="product-error"><UIcon name="i-lucide-circle-alert" /> {{ addError }}</p>
         </div>
       </section>
 
-      <section class="product-related store-container">
-        <div class="product-related-heading">
+      <section class="product-story">
+        <div class="store-container story-grid">
           <div>
-            <p class="store-eyebrow">YOU MAY ALSO LIKE</p>
-            <h2>Complete the mood.</h2>
+            <p class="store-eyebrow">DETAILS</p>
+            <h2>{{ product.name }}</h2>
+            <p>{{ product.description }}</p>
+            <ul v-if="product.highlight.length">
+              <li v-for="highlight in product.highlight" :key="highlight">{{ highlight }}</li>
+            </ul>
           </div>
-          <NuxtLink :to="`/collections/${productCollection.slug}`">View the edit <UIcon name="i-lucide-arrow-right" /></NuxtLink>
+
+          <dl class="attribute-list">
+            <template v-for="attribute in productAttributes" :key="attribute.label">
+              <dt>{{ attribute.label }}</dt>
+              <dd>{{ attribute.value }}</dd>
+            </template>
+            <template v-for="material in product.materials ?? []" :key="material.name">
+              <dt>{{ material.name }}</dt>
+              <dd>{{ material.percentage }}%</dd>
+            </template>
+          </dl>
+
+          <div class="care-list">
+            <div v-if="product.design_and_extras.length">
+              <h3>Design</h3>
+              <ul><li v-for="item in product.design_and_extras" :key="item">{{ item }}</li></ul>
+            </div>
+            <div v-if="product.care_instructions.length">
+              <h3>Care</h3>
+              <ul><li v-for="item in product.care_instructions" :key="item">{{ item }}</li></ul>
+            </div>
+          </div>
         </div>
-        <div class="product-related-grid">
+      </section>
+
+      <section v-if="relatedProducts.length" class="product-related store-container">
+        <div class="related-heading">
+          <div><p class="store-eyebrow">MORE TO EXPLORE</p><h2>You may also like</h2></div>
+          <NuxtLink to="/collections/shop">Shop all <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
+        </div>
+        <div class="related-grid">
           <ProductCard v-for="item in relatedProducts" :key="item.id" :product="item" />
         </div>
       </section>
     </template>
-
-    <section v-else class="product-not-found store-container">
-      <UIcon name="i-lucide-package-x" />
-      <p class="store-eyebrow">PRODUCT NOT FOUND</p>
-      <h1>This piece has slipped away.</h1>
-      <p>The product ID does not exist in the current catalog.</p>
-      <NuxtLink class="store-button" to="/collections/shop">Back to the collection</NuxtLink>
-    </section>
 
     <StoreFooter />
   </main>
 </template>
 
 <style scoped>
+.product-state {
+  min-height: 620px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.product-state > .iconify {
+  width: 42px;
+  height: 42px;
+  color: var(--store-wine);
+}
+
+.product-state h1,
+.product-state p {
+  margin: 0;
+}
+
 .product-breadcrumb {
-  min-height: 56px;
+  min-height: 58px;
   display: flex;
   align-items: center;
   gap: 8px;
+  overflow: hidden;
   color: var(--store-muted);
-  font-family: 'DM Mono', monospace;
-  font-size: 8px;
-  letter-spacing: .04em;
-  text-transform: uppercase;
+  font-size: 10px;
 }
 
 .product-breadcrumb a {
@@ -414,18 +363,13 @@ useHead(() => ({
   text-decoration: none;
 }
 
-.product-breadcrumb a:hover {
-  color: var(--store-wine);
-}
-
 .product-breadcrumb .iconify {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
 }
 
 .product-breadcrumb span {
   overflow: hidden;
-  max-width: 320px;
   color: var(--store-ink);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -433,30 +377,31 @@ useHead(() => ({
 
 .product-detail {
   display: grid;
-  grid-template-columns: minmax(0, 1.36fr) minmax(390px, .64fr);
-  gap: clamp(36px, 5vw, 82px);
-  padding-bottom: 112px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(360px, .8fr);
+  gap: clamp(36px, 6vw, 90px);
+  padding-top: 16px;
+  padding-bottom: 102px;
 }
 
 .product-gallery {
   min-width: 0;
   display: grid;
-  grid-template-columns: 94px minmax(0, 1fr);
-  gap: 13px;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 12px;
 }
 
 .product-thumbnails {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 9px;
 }
 
 .product-thumbnails button {
-  overflow: hidden;
   aspect-ratio: .78;
+  overflow: hidden;
   padding: 0;
   border: 1px solid transparent;
-  background: var(--store-linen);
+  background: #eee;
   cursor: pointer;
 }
 
@@ -464,7 +409,8 @@ useHead(() => ({
   border-color: var(--store-ink);
 }
 
-.product-thumbnails img {
+.product-thumbnails img,
+.product-main-image > img {
   width: 100%;
   height: 100%;
   display: block;
@@ -473,38 +419,30 @@ useHead(() => ({
 
 .product-main-image {
   position: relative;
+  min-height: 680px;
   overflow: hidden;
-  min-height: 690px;
-  background: #d9ced0;
-}
-
-.product-main-image > img {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
+  background: #ded6d5;
 }
 
 .product-main-image > span {
   position: absolute;
-  top: 15px;
-  left: 15px;
-  padding: 7px 9px;
+  top: 18px;
+  left: 18px;
+  padding: 7px 10px;
   color: #fff;
   background: var(--store-plum);
   font-family: 'DM Mono', monospace;
-  font-size: 8px;
-  letter-spacing: .08em;
+  font-size: 9px;
 }
 
 .product-main-image > span.sale {
   background: var(--store-wine);
 }
 
-.product-main-image > button {
+.favorite-button {
   position: absolute;
+  top: 14px;
   right: 14px;
-  bottom: 14px;
   width: 40px;
   height: 40px;
   display: grid;
@@ -513,252 +451,139 @@ useHead(() => ({
   border: 0;
   border-radius: 50%;
   color: var(--store-ink);
-  background: rgba(255, 255, 255, .92);
+  background: rgba(255, 255, 255, .9);
   cursor: pointer;
 }
 
-.product-purchase {
-  align-self: start;
-  padding-top: 15px;
+.favorite-button.active {
+  color: #fff;
+  background: var(--store-wine);
 }
 
-.product-type-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  color: var(--store-muted);
-  font-family: 'DM Mono', monospace;
-  font-size: 8px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+.favorite-button.active .iconify {
+  fill: currentColor;
+}
+
+.product-purchase {
+  padding-top: 24px;
 }
 
 .product-title-row {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
-  margin-top: 15px;
+  justify-content: space-between;
+  gap: 18px;
 }
 
 .product-title-row h1 {
-  flex: 1;
   margin: 0;
   font-family: 'Playfair Display', Georgia, serif;
-  font-size: clamp(40px, 4vw, 57px);
+  font-size: clamp(40px, 4vw, 58px);
   font-weight: 500;
-  letter-spacing: -.025em;
-  line-height: 1;
+  line-height: 1.02;
 }
 
-.product-title-row button {
-  width: 41px;
-  height: 41px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  padding: 0;
-  border: 1px solid var(--store-line);
-  border-radius: 50%;
-  color: var(--store-ink);
-  background: transparent;
-  cursor: pointer;
-}
-
-.product-title-row button.active {
-  color: #fff;
-  border-color: var(--store-wine);
-  background: var(--store-wine);
-}
-
-.product-title-row button.active .iconify {
-  fill: currentColor;
-}
-
-.product-price-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-top: 20px;
-  font-family: 'DM Mono', monospace;
-}
-
-.product-price-row strong {
-  font-size: 16px;
-  font-weight: 500;
-}
-
-.product-price-row strong.sale {
-  color: var(--store-wine);
-}
-
-.product-price-row del {
-  color: #96898e;
-  font-size: 11px;
-}
-
-.product-price-row > span {
-  padding: 4px 6px;
-  color: #fff;
-  background: var(--store-wine);
-  font-size: 7px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-
-.product-rating {
+.product-title-row span {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  margin-top: 13px;
+  gap: 4px;
   color: var(--store-muted);
-  font-size: 10px;
-  text-decoration: none;
-}
-
-.product-stars {
-  display: flex;
-  gap: 2px;
-  color: var(--store-wine);
-}
-
-.product-stars .iconify {
-  width: 12px;
-  height: 12px;
-}
-
-.product-stars .filled {
-  fill: currentColor;
-}
-
-.product-color {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-top: 29px;
-  padding: 19px 0;
-  border-top: 1px solid var(--store-line);
-}
-
-.product-color div {
-  display: flex;
-  gap: 7px;
-  font-size: 12px;
-}
-
-.product-color div span {
-  color: var(--store-muted);
-}
-
-.product-swatch {
-  width: 28px;
-  height: 28px;
-  display: block;
-  border: 3px solid #fff;
-  border-radius: 50%;
-  outline: 1px solid var(--store-ink);
-  background: #4b3039;
-}
-
-.swatch-0 { background: #d6c4aa; }
-.swatch-1 { background: #3b252e; }
-.swatch-2 { background: #783b4a; }
-.swatch-3 { background: #d8cfbf; }
-.swatch-4 { background: #6e8174; }
-.swatch-5 { background: #252328; }
-
-.product-size-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 25px;
-}
-
-.product-size-group {
-  padding-top: 20px;
-  border-top: 1px solid var(--store-line);
-}
-
-.product-single-size {
-  margin-top: 0;
-}
-
-.product-option-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
   font-size: 11px;
 }
 
-.product-option-heading > span {
-  color: var(--store-muted);
+.product-price {
+  margin: 22px 0 0;
+  font-family: 'DM Mono', monospace;
+  font-size: 17px;
 }
 
-.product-option-heading strong {
+.product-price small {
+  color: var(--store-muted);
+  font-size: 9px;
+}
+
+.product-fit {
+  margin: 18px 0 0;
+  color: var(--store-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.product-options {
+  margin-top: 28px;
+}
+
+.product-options fieldset {
+  margin: 0;
+  padding: 20px 0;
+  border: 0;
+  border-top: 1px solid var(--store-line);
+}
+
+.product-options legend {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 0;
+  color: var(--store-muted);
+  font-size: 11px;
+}
+
+.product-options legend strong {
   color: var(--store-ink);
   font-weight: 600;
 }
 
-.product-option-heading button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 0 2px;
-  border: 0;
-  border-bottom: 1px solid currentColor;
-  color: var(--store-ink);
-  background: transparent;
-  font-family: 'DM Mono', monospace;
-  font-size: 8px;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.product-option-heading button .iconify {
-  width: 12px;
-  height: 12px;
-}
-
-.product-size-options {
+.option-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
 }
 
-.product-size-options button {
+.option-grid button {
+  min-height: 42px;
   min-width: 0;
-  min-height: 43px;
-  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px;
   border: 1px solid var(--store-line);
   color: var(--store-ink);
   background: #fff;
   font-family: 'DM Mono', monospace;
   font-size: 9px;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
 
-.product-size-options button:hover,
-.product-size-options button.active {
+.option-grid button.active {
   color: #fff;
   border-color: var(--store-ink);
   background: var(--store-ink);
 }
 
-.product-size-group small {
-  display: block;
-  margin-top: 9px;
-  color: var(--store-muted);
-  font-size: 10px;
+.option-grid button:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.option-swatch {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: #ddd;
 }
 
 .product-cart-row {
   display: grid;
   grid-template-columns: 108px 1fr;
   gap: 8px;
-  margin-top: 27px;
+  margin-top: 8px;
 }
 
 .product-quantity {
@@ -779,14 +604,9 @@ useHead(() => ({
   cursor: pointer;
 }
 
-.product-quantity button .iconify {
-  width: 13px;
-  height: 13px;
-}
-
 .product-quantity button:disabled {
+  opacity: .3;
   cursor: not-allowed;
-  opacity: .32;
 }
 
 .product-quantity span {
@@ -799,312 +619,169 @@ useHead(() => ({
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
-  padding: 0 15px;
+  gap: 8px;
+  padding: 0 14px;
   border: 1px solid var(--store-ink);
   color: #fff;
   background: var(--store-ink);
   font-family: 'DM Mono', monospace;
   font-size: 9px;
-  font-weight: 500;
-  letter-spacing: .065em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: .2s ease;
-}
-
-.product-add-button:hover {
-  color: var(--store-ink);
-  background: transparent;
 }
 
 .product-add-button:disabled {
+  opacity: .45;
   cursor: not-allowed;
-  opacity: .48;
 }
 
-.product-add-button:disabled:hover {
-  color: #fff;
-  background: var(--store-ink);
-}
-
-.is-spinning {
-  animation: product-spin .8s linear infinite;
-}
-
-@keyframes product-spin {
-  to { transform: rotate(360deg); }
-}
-
-.product-low-stock {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 11px 0 0;
-  color: var(--store-wine);
-  font-size: 10px;
-}
-
-.product-low-stock span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.product-cart-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  margin: 11px 0 0;
-  color: #963f4f;
-  font-size: 10px;
-  line-height: 1.5;
-}
-
-.product-cart-error .iconify {
-  width: 13px;
-  height: 13px;
-  flex: 0 0 auto;
-}
-
-.product-service-notes {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 27px;
-  padding-top: 20px;
-  border-top: 1px solid var(--store-line);
-}
-
-.product-service-notes > div {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.product-service-notes .iconify {
-  width: 17px;
-  height: 17px;
-  flex: 0 0 auto;
-  color: var(--store-plum);
-}
-
-.product-service-notes span {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+.stock-line,
+.product-error {
+  margin: 10px 0 0;
   color: var(--store-muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
-.product-service-notes strong {
-  color: var(--store-ink);
-  font-size: 10px;
+.product-error {
+  display: flex;
+  gap: 6px;
+  color: #963f4f;
 }
 
 .product-story {
-  padding: 105px 0 112px;
+  padding: 96px 0 104px;
   background: var(--store-linen);
 }
 
-.product-story-grid {
+.story-grid {
   display: grid;
-  grid-template-columns: 1.05fr .82fr .95fr;
-  gap: clamp(34px, 5vw, 78px);
+  grid-template-columns: 1.15fr .8fr .8fr;
+  gap: clamp(36px, 6vw, 82px);
 }
 
-.product-story-intro h2 {
+.story-grid h2 {
   margin: 0;
   font-family: 'Playfair Display', Georgia, serif;
-  font-size: clamp(44px, 4.7vw, 68px);
+  font-size: clamp(40px, 4.5vw, 64px);
   font-weight: 500;
   line-height: 1;
 }
 
-.product-story-intro > p:not(.store-eyebrow) {
-  max-width: 490px;
-  margin: 23px 0 0;
+.story-grid p:not(.store-eyebrow),
+.story-grid li {
   color: var(--store-muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.7;
 }
 
-.product-story-intro blockquote {
-  margin: 28px 0 0;
-  padding-left: 18px;
-  border-left: 2px solid var(--store-wine);
-  color: #5d464e;
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 18px;
-  font-style: italic;
-  line-height: 1.45;
-}
-
-.product-attributes {
-  border-top: 1px solid var(--store-line);
-}
-
-.product-attribute-title,
-.product-attribute-row {
-  min-height: 54px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 11px 0;
-  border-bottom: 1px solid var(--store-line);
-  font-size: 11px;
-}
-
-.product-attribute-title span,
-.product-attribute-row span {
-  color: var(--store-muted);
-}
-
-.product-attribute-title strong,
-.product-attribute-row strong {
-  max-width: 58%;
-  text-align: right;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.product-accordions {
-  border-top: 1px solid var(--store-line);
-}
-
-.product-accordion {
-  border-bottom: 1px solid var(--store-line);
-}
-
-.product-accordion > button {
-  width: 100%;
-  min-height: 54px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0;
-  border: 0;
-  color: var(--store-ink);
-  background: transparent;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.product-accordion > button .iconify {
-  width: 15px;
-  height: 15px;
-}
-
-.product-accordion ul {
+.story-grid ul {
   display: grid;
-  gap: 8px;
+  gap: 7px;
+  padding-left: 18px;
+}
+
+.attribute-list {
   margin: 0;
-  padding: 0 0 22px 17px;
-  color: var(--store-muted);
-  font-size: 11px;
-  line-height: 1.5;
+  border-top: 1px solid var(--store-line);
 }
 
-.product-related {
-  padding-top: 105px;
-  padding-bottom: 126px;
-}
-
-.product-related-heading {
+.attribute-list dt,
+.attribute-list dd {
+  min-height: 48px;
   display: flex;
-  align-items: end;
-  justify-content: space-between;
+  align-items: center;
+  margin: 0;
+  border-bottom: 1px solid var(--store-line);
+  font-size: 11px;
+}
+
+.attribute-list dt {
+  float: left;
+  width: 52%;
+  clear: left;
+  color: var(--store-muted);
+}
+
+.attribute-list dd {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.care-list {
+  display: grid;
   gap: 24px;
 }
 
-.product-related-heading h2 {
+.care-list h3 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.product-related {
+  padding-top: 96px;
+  padding-bottom: 116px;
+}
+
+.related-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.related-heading h2 {
   margin: 0;
   font-family: 'Playfair Display', Georgia, serif;
-  font-size: clamp(42px, 4.4vw, 62px);
+  font-size: clamp(38px, 4vw, 56px);
   font-weight: 500;
 }
 
-.product-related-heading > a {
+.related-heading a {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding-bottom: 3px;
-  border-bottom: 1px solid currentColor;
+  gap: 6px;
   color: inherit;
-  font-family: 'DM Mono', monospace;
-  font-size: 9px;
-  letter-spacing: .06em;
+  font-size: 10px;
   text-decoration: none;
-  text-transform: uppercase;
 }
 
-.product-related-grid {
+.related-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
-  margin-top: 40px;
+  margin-top: 36px;
 }
 
-.product-not-found {
-  min-height: 650px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
+.is-spinning {
+  animation: spin .8s linear infinite;
 }
 
-.product-not-found > .iconify {
-  width: 50px;
-  height: 50px;
-  margin-bottom: 22px;
-  color: var(--store-wine);
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-.product-not-found h1 {
-  margin: 0;
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: clamp(44px, 5vw, 70px);
-  font-weight: 500;
-}
-
-.product-not-found > p:not(.store-eyebrow) {
-  margin: 15px 0 24px;
-  color: var(--store-muted);
-  font-size: 13px;
-}
-
-@media (max-width: 1080px) {
+@media (max-width: 900px) {
   .product-detail {
-    grid-template-columns: minmax(0, 1.15fr) minmax(350px, .85fr);
-    gap: 34px;
+    grid-template-columns: 1fr;
   }
 
-  .product-gallery {
-    grid-template-columns: 76px minmax(0, 1fr);
+  .product-main-image {
+    min-height: 0;
+    aspect-ratio: .8;
   }
 
-  .product-story-grid {
+  .story-grid {
     grid-template-columns: 1fr 1fr;
   }
 
-  .product-accordions {
+  .care-list {
     grid-column: 1 / -1;
   }
 }
 
-@media (max-width: 820px) {
-  .product-breadcrumb {
-    min-height: 50px;
-  }
-
+@media (max-width: 620px) {
   .product-detail {
-    grid-template-columns: 1fr;
-    gap: 42px;
-    padding-bottom: 82px;
+    padding-bottom: 72px;
   }
 
   .product-gallery {
@@ -1112,75 +789,33 @@ useHead(() => ({
   }
 
   .product-main-image {
-    min-height: auto;
-    aspect-ratio: .84;
     grid-row: 1;
   }
 
   .product-thumbnails {
     grid-row: 2;
-    display: grid;
-    grid-template-columns: repeat(3, 82px);
+    flex-direction: row;
     overflow-x: auto;
   }
 
-  .product-purchase {
-    padding-top: 0;
+  .product-thumbnails button {
+    width: 72px;
+    flex: 0 0 72px;
   }
 
-  .product-story {
-    padding: 78px 0 84px;
+  .option-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .product-story-grid {
-    grid-template-columns: 1fr;
-    gap: 42px;
+  .story-grid,
+  .related-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .product-accordions {
-    grid-column: auto;
-  }
-
-  .product-related {
-    padding-top: 78px;
-    padding-bottom: 90px;
-  }
-
-  .product-related-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 35px 12px;
-    margin-top: 30px;
-  }
-}
-
-@media (max-width: 490px) {
-  .product-breadcrumb span {
-    max-width: 150px;
-  }
-
-  .product-title-row h1 {
-    font-size: 40px;
-  }
-
-  .product-size-options {
-    grid-template-columns: repeat(5, 1fr);
-  }
-
-  .product-cart-row {
-    grid-template-columns: 94px 1fr;
-  }
-
-  .product-service-notes {
-    grid-template-columns: 1fr;
-  }
-
-  .product-related-heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .product-related-grid {
-    gap: 30px 9px;
+  .story-grid > div:first-child,
+  .attribute-list,
+  .care-list {
+    grid-column: 1 / -1;
   }
 }
 </style>

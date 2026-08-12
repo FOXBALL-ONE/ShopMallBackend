@@ -76,11 +76,9 @@ class SecurityConfig(
                 it.requestMatchers(
                     HttpMethod.GET,
                     "/api/products/**",
+                    "/api/product-types/**",
+                    "/api/product-categories/**",
                     "/api/product-images/**",
-                    "/api/bikini-suits/**",
-                    "/api/one-piece-suits/**",
-                    "/api/dresses/**",
-                    "/api/cover-ups/**",
                     "/api/tags/**",
                     "/api/customer-reviews/**",
                     "/api/announcements/**",

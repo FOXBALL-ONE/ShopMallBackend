@@ -309,8 +309,10 @@ async function queryStripeRefundStatus() {
 
 function productSnapshotLabel(snapshot: string): string {
   try {
-    const value = JSON.parse(snapshot) as { name?: string; color?: string; size?: string; topSize?: string; bottomSize?: string }
-    return [value.name, value.color, value.size || [value.topSize, value.bottomSize].filter(Boolean).join('/')]
+    const value = JSON.parse(snapshot) as { name?: string; color?: string; size?: string; sku?: string; variantAttributes?: Record<string, string> }
+    const topSize = value.variantAttributes?.top_size
+    const bottomSize = value.variantAttributes?.bottom_size
+    return [value.name, value.color, value.size || [topSize, bottomSize].filter(Boolean).join('/'), value.sku]
       .filter(Boolean)
       .join(' · ') || snapshot
   } catch {
@@ -873,7 +875,7 @@ onMounted(() => {
                     <div class="order-item-row">
                       <div>
                         <div class="order-item-name">{{ productSnapshotLabel(item.product_snapshot) }}</div>
-                        <NText depth="3">商品行 #{{ item.id }} · 商品 #{{ item.product_id }}</NText>
+                        <NText depth="3">{{ item.sku }} · SKU #{{ item.variant_id }} · 商品 #{{ item.product_id }}</NText>
                       </div>
                       <div class="order-item-values">
                         <div>{{ item.quantity }} 件</div>

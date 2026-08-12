@@ -128,6 +128,9 @@ class AdminOrderController(
             val id: Long,
             @param:JsonProperty("product_id")
             val productId: Long,
+            @param:JsonProperty("variant_id")
+            val variantId: Long,
+            val sku: String,
             @param:JsonProperty("product_snapshot")
             val productSnapshot: String,
             @param:JsonProperty("unit_price")
@@ -141,7 +144,7 @@ class AdminOrderController(
             val remainingQuantity: Int,
             val allocated: Boolean,
             @param:JsonProperty("created_at")
-            val createdAt: Instant?,
+            val createdAt: java.time.LocalDateTime?,
         )
 
         data class AddressData(
@@ -226,6 +229,8 @@ class AdminOrderController(
             ItemData(
                 id = itemId,
                 productId = item.productId,
+                variantId = item.variantId,
+                sku = item.sku,
                 productSnapshot = item.productSnapshot,
                 unitPrice = item.unitPrice,
                 quantity = item.quantity,

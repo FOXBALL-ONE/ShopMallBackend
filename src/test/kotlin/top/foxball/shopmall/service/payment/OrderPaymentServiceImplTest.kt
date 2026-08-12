@@ -17,7 +17,7 @@ import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
-import top.foxball.shopmall.repository.ProductRepository
+import top.foxball.shopmall.repository.ProductVariantRepository
 import top.foxball.shopmall.repository.StripeWebhookEventRepository
 import top.foxball.shopmall.service.AdminAccessService
 import top.foxball.shopmall.service.AdminOrderPaymentQuerySource
@@ -45,7 +45,7 @@ import kotlin.test.assertFailsWith
 class OrderPaymentServiceImplTest {
     private val orderRepository = mock(OrderRepository::class.java)
     private val orderItemRepository = mock(OrderItemRepository::class.java)
-    private val productRepository = mock(ProductRepository::class.java)
+    private val productVariantRepository = mock(ProductVariantRepository::class.java)
     private val webhookRepository = mock(StripeWebhookEventRepository::class.java)
     private val eventPublisher = mock(DomainEventPublisher::class.java)
     private val coordinator = mock(PaymentIntentCoordinator::class.java)
@@ -55,7 +55,7 @@ class OrderPaymentServiceImplTest {
     private val service = OrderPaymentServiceImpl(
         orderRepository = orderRepository,
         orderItemRepository = orderItemRepository,
-        productRepository = productRepository,
+        productVariantRepository = productVariantRepository,
         webhookEventRepository = webhookRepository,
         eventPublisher = eventPublisher,
         paymentIntentCoordinator = coordinator,
@@ -77,7 +77,7 @@ class OrderPaymentServiceImplTest {
 
         service.handleWebhookEvent(event)
 
-        verifyNoInteractions(orderRepository, orderItemRepository, productRepository, eventPublisher)
+        verifyNoInteractions(orderRepository, orderItemRepository, productVariantRepository, eventPublisher)
     }
 
     @Test
@@ -91,7 +91,7 @@ class OrderPaymentServiceImplTest {
 
         assertFailsWith<IllegalStateException> { service.handleWebhookEvent(event) }
 
-        verifyNoInteractions(orderRepository, orderItemRepository, productRepository, eventPublisher)
+        verifyNoInteractions(orderRepository, orderItemRepository, productVariantRepository, eventPublisher)
     }
 
     @Test
@@ -134,7 +134,7 @@ class OrderPaymentServiceImplTest {
                 "CHECKOUT_SESSION_EXPIRED",
             ),
         ).thenReturn(1)
-        `when`(orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(10)).thenReturn(emptyList())
+        `when`(orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(10)).thenReturn(emptyList())
         `when`(orderRepository.markPaid(10, OrderStatus.PENDING_PAYMENT, OrderStatus.PAID, clock.instant()))
             .thenReturn(0)
         `when`(orderRepository.findStatusById(10)).thenReturn(OrderStatus.CANCELLED)
@@ -154,7 +154,7 @@ class OrderPaymentServiceImplTest {
         verify(eventPublisher).publishInTx("ORDER", 10, "TIMEOUT", "{\"orderId\":10}")
         verify(eventPublisher).publishInTx("ORDER", 10, "CANCELLED", "{\"orderId\":10}")
         verify(eventPublisher).publishInTx("ORDER", 10, "PAYMENT_CONFLICT_REFUND", "{\"orderId\":10}")
-        verify(productRepository, never()).incrementSales(10, 1)
+        verify(productVariantRepository, never()).incrementSales(10, 1)
     }
 
     @Test
@@ -212,7 +212,7 @@ class OrderPaymentServiceImplTest {
             OrderStatus.PAID,
             OrderPaymentStatus.PAID,
         )
-        verifyNoInteractions(orderItemRepository, productRepository)
+        verifyNoInteractions(orderItemRepository, productVariantRepository)
     }
 
     @Test
@@ -248,7 +248,7 @@ class OrderPaymentServiceImplTest {
             "re_partial",
             java.time.LocalDateTime.now(clock),
         )
-        verifyNoInteractions(orderItemRepository, productRepository, eventPublisher)
+        verifyNoInteractions(orderItemRepository, productVariantRepository, eventPublisher)
     }
 
     @Test
@@ -293,7 +293,14 @@ class OrderPaymentServiceImplTest {
             `when`(it.currency).thenReturn("usd")
         }
         val event = checkoutEvent("evt_refund", "refund.updated", refund)
-        val item = top.foxball.shopmall.entity.jdbc.OrderItem(id = 1, order = order, productId = 18, quantity = 2)
+        val item = top.foxball.shopmall.entity.jdbc.OrderItem(
+            id = 1,
+            order = order,
+            productId = 180,
+            variantId = 18,
+            sku = "REFUND-18",
+            quantity = 2,
+        )
         `when`(webhookRepository.claim("evt_refund", "refund.updated")).thenReturn(1)
         `when`(orderRepository.findByPaymentIntentId("pi_refund")).thenReturn(order)
         `when`(
@@ -315,9 +322,9 @@ class OrderPaymentServiceImplTest {
                 "re_refund",
             ),
         ).thenReturn(1)
-        `when`(orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(10)).thenReturn(listOf(item))
-        `when`(productRepository.restock(18, 2)).thenReturn(1)
-        `when`(productRepository.decrementSales(18, 2)).thenReturn(1)
+        `when`(orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(10)).thenReturn(listOf(item))
+        `when`(productVariantRepository.restock(18, 2)).thenReturn(1)
+        `when`(productVariantRepository.decrementSales(18, 2)).thenReturn(1)
 
         service.handleWebhookEvent(event)
 
@@ -327,8 +334,8 @@ class OrderPaymentServiceImplTest {
             OrderPaymentStatus.REFUNDING,
             "re_refund",
         )
-        verify(productRepository).restock(18, 2)
-        verify(productRepository).decrementSales(18, 2)
+        verify(productVariantRepository).restock(18, 2)
+        verify(productVariantRepository).decrementSales(18, 2)
         verify(eventPublisher).publishInTx("ORDER", 10, "REFUNDED", "{\"orderId\":10}")
     }
 

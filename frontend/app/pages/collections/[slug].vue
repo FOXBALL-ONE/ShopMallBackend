@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { CollectionSlug, ProductType } from '~/data/catalog'
+import type { CollectionSlug } from '~/data/catalog'
 import {
   collectionMeta,
   collectionNavigation,
@@ -17,9 +17,8 @@ const activeSlug = computed<CollectionSlug>(() => {
 })
 
 const activeCollection = computed(() => getCollection(activeSlug.value))
-const productType = ref<'ALL' | ProductType>('ALL')
+const productType = ref<string>('ALL')
 const sortBy = ref('featured')
-const availableTypes: ProductType[] = ['BIKINI', 'ONE_PIECE', 'DRESS', 'COVER_UP']
 
 const {
   data: products,
@@ -49,12 +48,14 @@ const visibleProducts = computed(() => {
   return sorted
 })
 
+const availableTypes = computed(() => [...new Set(products.value.map(product => product.product_type))].sort())
+
 watch(activeSlug, () => {
   productType.value = 'ALL'
   sortBy.value = 'featured'
 })
 
-function selectProductType(type: 'ALL' | ProductType) {
+function selectProductType(type: string) {
   productType.value = type
 }
 

@@ -4,14 +4,15 @@ import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
-import top.foxball.shopmall.entity.jdbc.BikiniSuit
 import top.foxball.shopmall.entity.jdbc.CartItem
-import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.entity.jdbc.ShoppingCart
 import top.foxball.shopmall.entity.jdbc.User
+import top.foxball.shopmall.entity.jdbc.Product
+import top.foxball.shopmall.entity.jdbc.ProductType
+import top.foxball.shopmall.entity.jdbc.ProductVariant
 import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.InsufficientStockException
-import top.foxball.shopmall.repository.ProductRepository
+import top.foxball.shopmall.repository.ProductVariantRepository
 import top.foxball.shopmall.repository.ShoppingCartRepository
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.impl.ShoppingCartServiceImpl
@@ -24,14 +25,14 @@ import kotlin.test.assertTrue
 
 class ShoppingCartServiceImplTest {
     private val cartRepository = mock(ShoppingCartRepository::class.java)
-    private val productRepository = mock(ProductRepository::class.java)
+    private val productVariantRepository = mock(ProductVariantRepository::class.java)
     private val userRepository = mock(UserRepository::class.java)
-    private val service = ShoppingCartServiceImpl(cartRepository, productRepository, userRepository)
+    private val service = ShoppingCartServiceImpl(cartRepository, productVariantRepository, userRepository)
 
     @Test
     fun `adding a new product creates a cart item with live price totals`() {
-        val product = product(id = 11, price = "19.95", stock = 8)
-        `when`(productRepository.findByIdAndStatus(11, Product.Status.ACTIVE)).thenReturn(product)
+        val variant = variant(id = 11, price = "19.95", stock = 8)
+        `when`(productVariantRepository.findDetailedById(11)).thenReturn(variant)
         `when`(cartRepository.findByCustomerIdForUpdate(5)).thenReturn(null)
         `when`(userRepository.findByIdForUpdate(5)).thenReturn(User(id = 5))
         `when`(cartRepository.saveAndFlush(any(ShoppingCart::class.java))).thenAnswer { invocation ->
@@ -41,7 +42,7 @@ class ShoppingCartServiceImplTest {
             }
         }
 
-        val view = service.addItem(customerId = 5, productId = 11, quantity = 2)
+        val view = service.addItem(customerId = 5, variantId = 11, quantity = 2)
 
         assertEquals(2, view.totalQuantity)
         assertEquals(BigDecimal("39.90"), view.subtotal)
@@ -52,15 +53,15 @@ class ShoppingCartServiceImplTest {
 
     @Test
     fun `adding an existing product increments its quantity`() {
-        val product = product(id = 11, price = "10.00", stock = 8)
+        val variant = variant(id = 11, price = "10.00", stock = 8)
         val cart = ShoppingCart(id = 1, customer = User(id = 5)).apply {
-            add(CartItem(id = 101, product = product, quantity = 2))
+            add(CartItem(id = 101, variant = variant, quantity = 2))
         }
-        `when`(productRepository.findByIdAndStatus(11, Product.Status.ACTIVE)).thenReturn(product)
+        `when`(productVariantRepository.findDetailedById(11)).thenReturn(variant)
         `when`(cartRepository.findByCustomerIdForUpdate(5)).thenReturn(cart)
         `when`(cartRepository.saveAndFlush(cart)).thenReturn(cart)
 
-        val view = service.addItem(customerId = 5, productId = 11, quantity = 3)
+        val view = service.addItem(customerId = 5, variantId = 11, quantity = 3)
 
         assertEquals(5, view.items.single().quantity)
         assertEquals(BigDecimal("50.00"), view.subtotal)
@@ -68,12 +69,12 @@ class ShoppingCartServiceImplTest {
 
     @Test
     fun `rejects a quantity larger than current stock`() {
-        val product = product(id = 11, price = "10.00", stock = 2)
-        `when`(productRepository.findByIdAndStatus(11, Product.Status.ACTIVE)).thenReturn(product)
+        val variant = variant(id = 11, price = "10.00", stock = 2)
+        `when`(productVariantRepository.findDetailedById(11)).thenReturn(variant)
         `when`(cartRepository.findByCustomerIdForUpdate(5)).thenReturn(ShoppingCart(id = 1, customer = User(id = 5)))
 
         assertFailsWith<InsufficientStockException> {
-            service.addItem(customerId = 5, productId = 11, quantity = 3)
+            service.addItem(customerId = 5, variantId = 11, quantity = 3)
         }
     }
 
@@ -108,12 +109,21 @@ class ShoppingCartServiceImplTest {
         verify(cartRepository).findByCustomerIdForUpdate(5)
     }
 
-    private fun product(id: Long, price: String, stock: Int) = BikiniSuit().apply {
-        this.id = id
-        name = "Ocean Bikini"
-        color = "Blue"
-        this.price = BigDecimal(price)
-        warehouseVolume = stock
-        status = Product.Status.ACTIVE
+    private fun variant(id: Long, price: String, stock: Int): ProductVariant {
+        val product = Product(
+            id = 110,
+            productType = ProductType(id = 1, code = "BIKINI", name = "Bikini"),
+            name = "Ocean Bikini",
+            status = Product.Status.ACTIVE,
+        )
+        return ProductVariant(
+            id = id,
+            sku = "BIKINI-BLUE-M",
+            color = "Blue",
+            price = BigDecimal(price),
+            warehouseVolume = stock,
+            status = ProductVariant.Status.ACTIVE,
+            optionSignature = "blue-m",
+        ).also(product::addVariant)
     }
 }

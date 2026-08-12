@@ -14,7 +14,7 @@ import top.foxball.shopmall.handler.OrderNotFoundException
 import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
-import top.foxball.shopmall.repository.ProductRepository
+import top.foxball.shopmall.repository.ProductVariantRepository
 import top.foxball.shopmall.repository.StripeWebhookEventRepository
 import top.foxball.shopmall.service.AdminAccessService
 import top.foxball.shopmall.service.AdminOrderPaymentQuerySource
@@ -37,7 +37,7 @@ import java.time.LocalDateTime
 class OrderPaymentServiceImpl(
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
-    private val productRepository: ProductRepository,
+    private val productVariantRepository: ProductVariantRepository,
     private val webhookEventRepository: StripeWebhookEventRepository,
     private val eventPublisher: DomainEventPublisher,
     private val paymentIntentCoordinator: PaymentIntentCoordinator,
@@ -333,12 +333,12 @@ class OrderPaymentServiceImpl(
                 LocalDateTime.now(clock),
             ) == 0
         ) return
-        orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(orderId).forEach {
-            check(productRepository.restock(it.productId, it.quantity) == 1) {
-                "Unable to restock refunded order product: ${it.productId}"
+        orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(orderId).forEach {
+            check(productVariantRepository.restock(it.variantId, it.quantity) == 1) {
+                "Unable to restock refunded order SKU: ${it.variantId}"
             }
-            check(productRepository.decrementSales(it.productId, it.quantity) == 1) {
-                "Unable to decrement refunded order product sales: ${it.productId}"
+            check(productVariantRepository.decrementSales(it.variantId, it.quantity) == 1) {
+                "Unable to decrement refunded order SKU sales: ${it.variantId}"
             }
         }
         eventPublisher.publishInTx("ORDER", orderId, "REFUNDED", "{\"orderId\":$orderId}")
@@ -378,9 +378,9 @@ class OrderPaymentServiceImpl(
                 clock.instant(),
             ) == 1
         ) {
-            orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(orderId).forEach {
-                check(productRepository.incrementSales(it.productId, it.quantity) == 1) {
-                    "Unable to increment product sales: ${it.productId}"
+            orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(orderId).forEach {
+                check(productVariantRepository.incrementSales(it.variantId, it.quantity) == 1) {
+                    "Unable to increment SKU sales: ${it.variantId}"
                 }
             }
             eventPublisher.publishInTx("ORDER", orderId, "PAID", "{\"orderId\":$orderId}")
@@ -429,9 +429,9 @@ class OrderPaymentServiceImpl(
         ) {
             return
         }
-        orderItemRepository.findAllByOrder_IdOrderByProductIdAsc(orderId).forEach {
-            check(productRepository.restock(it.productId, it.quantity) == 1) {
-                "Unable to restock expired order product: ${it.productId}"
+        orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(orderId).forEach {
+            check(productVariantRepository.restock(it.variantId, it.quantity) == 1) {
+                "Unable to restock expired order SKU: ${it.variantId}"
             }
         }
         eventPublisher.publishInTx("ORDER", orderId, "TIMEOUT", "{\"orderId\":$orderId}")

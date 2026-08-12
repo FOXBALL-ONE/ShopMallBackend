@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { CollectionSlug } from '~/data/catalog'
-import { catalogProducts, collectionMeta, collectionNavigation } from '~/data/catalog'
+import { collectionMeta, collectionNavigation } from '~/data/catalog'
 
 const route = useRoute()
 const router = useRouter()
+const catalogApi = useCatalogApi()
+const { data: products } = await useAsyncData('search-catalog-products', () => catalogApi.listProducts(), { default: () => [] })
 
 const queryInput = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const collectionFilter = ref<'all' | CollectionSlug>('all')
@@ -14,7 +16,7 @@ const submittedQuery = computed(() => typeof route.query.q === 'string' ? route.
 
 const searchResults = computed(() => {
   const needle = submittedQuery.value.toLocaleLowerCase()
-  let result = catalogProducts.filter(product => product.status === 'ACTIVE')
+  let result = products.value.filter(product => product.status === 'ACTIVE')
 
   if (needle) {
     result = result.filter(product => {

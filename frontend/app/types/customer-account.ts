@@ -130,6 +130,8 @@ export interface CustomerAddressDeleteResponse {
 export interface CustomerCartItem {
   id: number
   product_id: number
+  variant_id: number
+  sku: string
   product_type: string
   name: string
   color: string
@@ -158,6 +160,8 @@ export interface CustomerCart {
 export interface CustomerOrderItem {
   id: number
   product_id: number
+  variant_id: number
+  sku: string
   product_snapshot: string
   unit_price: NullableNumber
   quantity: number
@@ -234,7 +238,7 @@ export interface CustomerOrderIdempotencyKey {
 }
 
 export interface CustomerPlaceOrderInput {
-  product_ids: number[]
+  variant_ids: number[]
   quantities: number[]
   address_id: string
   client_message?: string
