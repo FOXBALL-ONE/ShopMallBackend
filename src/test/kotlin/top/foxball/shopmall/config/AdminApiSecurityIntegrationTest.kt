@@ -22,6 +22,10 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 import top.foxball.shopmall.authentication.JwtService
 import top.foxball.shopmall.authentication.TokenType
+import top.foxball.shopmall.repository.ProductTypeRepository
+import top.foxball.shopmall.repository.UserRepository
+import top.foxball.shopmall.entity.jdbc.Role
+import top.foxball.shopmall.entity.jdbc.User
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -30,6 +34,8 @@ import top.foxball.shopmall.authentication.TokenType
 class AdminApiSecurityIntegrationTest @Autowired constructor(
     private val mockMvc: MockMvc,
     private val jwtService: JwtService,
+    private val productTypeRepository: ProductTypeRepository,
+    private val userRepository: UserRepository,
 ) {
 
     @AfterEach
@@ -70,6 +76,29 @@ class AdminApiSecurityIntegrationTest @Autowired constructor(
         mockMvc.perform(get("/api/product-categories"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.data.list").isArray)
+    }
+
+    @Test
+    fun `admin can read attribute definitions with allowed values`() {
+        val typeId = requireNotNull(productTypeRepository.findDetailedByCode("BIKINI")?.id)
+        val adminId = requireNotNull(
+            userRepository.findByUsername("metadata_admin")?.id ?: userRepository.saveAndFlush(
+                User(
+                    username = "metadata_admin",
+                    email = "metadata.admin@shopmall.test",
+                    password = "test-password",
+                    role = Role.ADMIN,
+                ),
+            ).id,
+        )
+
+        mockMvc.perform(
+            get("/admin/api/product-types/$typeId/attributes")
+                .header("Authorization", bearerToken(userId = adminId, role = "ADMIN")),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.list[0].allowed_values").isArray)
+            .andExpect(jsonPath("$.data.list[0].allowed_values[0]").value("S"))
     }
 
     @Test
