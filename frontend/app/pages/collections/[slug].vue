@@ -53,7 +53,8 @@ const activeCategoryIds = computed(() => {
 
 const collectionProducts = computed(() => products.value.filter(product => {
   if (product.status !== 'ACTIVE') return false
-  return isShopCollection.value || (product.category_id !== null && activeCategoryIds.value.has(product.category_id))
+  const categoryId = product.category_id
+  return isShopCollection.value || (categoryId != null && activeCategoryIds.value.has(categoryId))
 }))
 
 const activeCollection = computed(() => {

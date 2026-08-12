@@ -16,6 +16,8 @@ export default defineNuxtConfig({
       loginAuthEnabled: true,
       // 公告的业务时区，须与后端 ANNOUNCEMENT_TIME_ZONE 保持一致。
       announcementTimeZone: 'Asia/Shanghai',
+      // 首页推荐方案的业务时区，须与后端 HOME_RECOMMENDATION_TIME_ZONE 保持一致。
+      homeRecommendationTimeZone: 'Asia/Shanghai',
     },
   },
   vite: {

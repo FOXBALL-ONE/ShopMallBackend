@@ -32,6 +32,88 @@ interface ProductRepository : JpaRepository<Product, Long>, JpaSpecificationExec
     @EntityGraph(attributePaths = ["productType", "category", "images", "variants"])
     fun findAllByStatusOrderByCreatedAtDesc(status: Product.Status): List<Product>
 
+    @Query(
+        "select distinct p from Product p join p.variants v where p.status = :productStatus and p.deletedAt is null " +
+            "and p.images is not empty and v.status = :variantStatus and v.warehouseVolume >= :minimumStock " +
+            "and v.price > 0 and (:categoryId is null or p.category.id = :categoryId) " +
+            "and (:productType is null or p.productType.code = :productType) " +
+            "and (:tagId is null or exists (select t.id from p.tags t where t.id = :tagId)) " +
+            "order by p.createdAt desc, p.updatedAt desc, p.id desc",
+    )
+    fun findLatestRecommendationCandidates(
+        @Param("productStatus") productStatus: Product.Status,
+        @Param("variantStatus") variantStatus: top.foxball.shopmall.entity.jdbc.ProductVariant.Status,
+        @Param("minimumStock") minimumStock: Int,
+        @Param("categoryId") categoryId: Long?,
+        @Param("productType") productType: String?,
+        @Param("tagId") tagId: Long?,
+        pageable: org.springframework.data.domain.Pageable,
+    ): List<Product>
+
+    @Query(
+        "select distinct p from Product p join p.variants v where p.status = :productStatus and p.deletedAt is null " +
+            "and p.images is not empty and p.createdAt >= :createdAfter and v.status = :variantStatus " +
+            "and v.warehouseVolume >= :minimumStock and v.price > 0 " +
+            "and (:categoryId is null or p.category.id = :categoryId) " +
+            "and (:productType is null or p.productType.code = :productType) " +
+            "and (:tagId is null or exists (select t.id from p.tags t where t.id = :tagId)) " +
+            "order by p.createdAt desc, p.updatedAt desc, p.id desc",
+    )
+    fun findNewArrivalRecommendationCandidates(
+        @Param("productStatus") productStatus: Product.Status,
+        @Param("variantStatus") variantStatus: top.foxball.shopmall.entity.jdbc.ProductVariant.Status,
+        @Param("minimumStock") minimumStock: Int,
+        @Param("categoryId") categoryId: Long?,
+        @Param("productType") productType: String?,
+        @Param("tagId") tagId: Long?,
+        @Param("createdAfter") createdAfter: java.time.LocalDateTime,
+        pageable: org.springframework.data.domain.Pageable,
+    ): List<Product>
+
+    @Query(
+        "select p from Product p join p.variants v where p.status = :productStatus and p.deletedAt is null " +
+            "and p.images is not empty and v.status = :variantStatus " +
+            "and exists (select sv.id from ProductVariant sv where sv.product = p and sv.status = :variantStatus " +
+            "and sv.warehouseVolume >= :minimumStock and sv.price > 0) " +
+            "and (:categoryId is null or p.category.id = :categoryId) " +
+            "and (:productType is null or p.productType.code = :productType) " +
+            "and (:tagId is null or exists (select t.id from p.tags t where t.id = :tagId)) " +
+            "group by p order by sum(v.salesVolume) desc, coalesce(p.score, -1.0) desc, p.createdAt desc, p.id desc",
+    )
+    fun findBestSellerRecommendationCandidates(
+        @Param("productStatus") productStatus: Product.Status,
+        @Param("variantStatus") variantStatus: top.foxball.shopmall.entity.jdbc.ProductVariant.Status,
+        @Param("minimumStock") minimumStock: Int,
+        @Param("categoryId") categoryId: Long?,
+        @Param("productType") productType: String?,
+        @Param("tagId") tagId: Long?,
+        pageable: org.springframework.data.domain.Pageable,
+    ): List<Product>
+
+    @Query(
+        "select p from Product p join p.variants v where p.status = :productStatus and p.deletedAt is null " +
+            "and p.images is not empty and v.status = :variantStatus " +
+            "and exists (select sv.id from ProductVariant sv where sv.product = p and sv.status = :variantStatus " +
+            "and sv.warehouseVolume >= :minimumStock and sv.price > 0) " +
+            "and (:categoryId is null or p.category.id = :categoryId) " +
+            "and (:productType is null or p.productType.code = :productType) " +
+            "and (:tagId is null or exists (select t.id from p.tags t where t.id = :tagId)) " +
+            "group by p order by coalesce(p.score, -1.0) desc, sum(v.salesVolume) desc, " +
+            "p.createdAt desc, p.id desc",
+    )
+    fun findHighRatedRecommendationCandidates(
+        @Param("productStatus") productStatus: Product.Status,
+        @Param("variantStatus") variantStatus: top.foxball.shopmall.entity.jdbc.ProductVariant.Status,
+        @Param("minimumStock") minimumStock: Int,
+        @Param("categoryId") categoryId: Long?,
+        @Param("productType") productType: String?,
+        @Param("tagId") tagId: Long?,
+        pageable: org.springframework.data.domain.Pageable,
+    ): List<Product>
+
+    @EntityGraph(attributePaths = ["productType", "category"])
+    fun findRecommendationProductsByIdIn(ids: Collection<Long>): List<Product>
+
     fun existsByTags_Id(tagId: Long): Boolean
 
     fun existsByProductType_Id(productTypeId: Long): Boolean

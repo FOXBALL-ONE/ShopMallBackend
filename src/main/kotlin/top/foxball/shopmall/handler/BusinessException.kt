@@ -42,6 +42,14 @@ class ParamErrorException(
     message: String = "参数错误"
 ) : BusinessException(HttpStatus.BAD_REQUEST, message)
 
+class HomeRecommendationVersionConflictException(
+    val actualVersion: Long,
+    message: String = "首页推荐方案已被其他操作更新，请刷新后重试",
+) : BusinessException(HttpStatus.CONFLICT, message)
+
+class HomeRecommendationScheduleConflictException(
+    message: String = "首页推荐方案生效时间与现有发布或排期方案冲突",
+) : BusinessException(HttpStatus.CONFLICT, message)
 
 class AnnouncementVersionConflictException(
     val actualVersion: Long,
@@ -140,6 +148,7 @@ class WebhookPayloadTooLargeException(
 class SupportTicketStatusException(
     message: String = "工单状态不允许此操作",
 ) : BusinessException(HttpStatus.CONFLICT, message)
+
 class SupportTicketRateLimitException(
     val retryAfterSeconds: Long,
     message: String = "工单操作过于频繁，请稍后再试",

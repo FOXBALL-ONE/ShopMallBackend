@@ -1,13 +1,28 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import HomeRecommendationSection from '~/components/home/HomeRecommendationSection.vue'
 
-const catalogApi = useCatalogApi()
+const recommendationApi = useHomeRecommendationApi()
 const {
-  data: catalog,
-  status: productRequestStatus,
-  error: productRequestError,
-  refresh: refreshCatalog
-} = await useAsyncData('home-catalog-products', () => catalogApi.listProducts(), { default: () => [] })
+  data: recommendations,
+  status: recommendationRequestStatus,
+  error: recommendationRequestError,
+  refresh: refreshRecommendations
+} = await useAsyncData(
+  'home-product-recommendations',
+  () => recommendationApi.current(),
+  {
+    default: () => ({
+      plan_id: null,
+      plan_version: 0,
+      request_id: '',
+      generated_at: '',
+      expires_at: '',
+      fallback: true,
+      sections: []
+    })
+  }
+)
 const {
   data: catalogCategories,
   status: categoryRequestStatus,
@@ -81,28 +96,22 @@ const heroSlides: HeroSlide[] = [
   }
 ]
 
-const products = computed(() => {
-  const active = catalog.value.filter(product => product.status === 'ACTIVE')
-  const newProducts = active.filter(product =>
-    product.is_new || product.tags.some(tag => tag.trim().toLocaleLowerCase() === 'new arrival')
-  )
-  return [...(newProducts.length ? newProducts : active)]
-    .sort((left, right) => right.created_at.localeCompare(left.created_at))
-    .slice(0, 4)
-})
+const categoryImages = [
+  '/lingerie/hero-corset.jpg',
+  '/lingerie/hero-lace.jpg',
+  '/lingerie/hero-soft.jpg',
+  '/lingerie/lace-green.jpg'
+]
 
 const categories = computed(() => catalogCategories.value
   .filter(category => category.parent_id === null)
-  .map(category => {
-    const relatedProduct = catalog.value.find(product => product.category_id === category.id && product.images[0])
-    return {
-      id: category.id,
-      label: category.name,
-      title: category.name,
-      image: relatedProduct?.images[0] ?? '/lingerie/hero-corset.jpg',
-      to: `/collections/${category.code}`
-    }
-  })
+  .map((category, index) => ({
+    id: category.id,
+    label: category.name,
+    title: category.name,
+    image: categoryImages[index % categoryImages.length] ?? '/lingerie/hero-corset.jpg',
+    to: `/collections/${category.code}`
+  }))
 )
 const firstCategoryLink = computed(() => categories.value[0]?.to ?? '/collections/shop')
 
@@ -399,43 +408,50 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section id="new-in" class="product-section">
+    <section v-if="recommendationRequestStatus === 'pending'" id="new-in" class="product-section">
       <div class="page-width">
         <div class="section-heading section-heading-row">
           <div>
-            <p class="eyebrow">NEW &amp; NOTEWORTHY</p>
-            <h2>New intimates, right on time.</h2>
+            <p class="eyebrow">CURATED FOR YOU</p>
+            <h2>Discover your next favorite.</h2>
           </div>
-          <NuxtLink class="text-link" to="/collections/shop">Shop all <UIcon name="i-lucide-arrow-right" /></NuxtLink>
         </div>
-        <div
-          v-if="productRequestStatus === 'pending'"
-          class="product-grid"
-          aria-label="Loading new products"
-          aria-busy="true"
-        >
+        <div class="product-grid" aria-label="Loading recommended products" aria-busy="true">
           <article v-for="index in 4" :key="index" class="product-skeleton" aria-hidden="true">
             <div class="product-skeleton-media" />
             <span />
             <small />
           </article>
         </div>
-        <div v-else-if="productRequestError" class="product-request-state" role="alert">
+      </div>
+    </section>
+    <section v-else-if="recommendationRequestError" id="new-in" class="product-section">
+      <div class="page-width">
+        <div class="product-request-state" role="alert">
           <UIcon name="i-lucide-cloud-alert" />
           <div>
-            <h3>New arrivals are unavailable right now.</h3>
-            <p>Please try loading the catalog again.</p>
+            <h3>Recommendations are unavailable right now.</h3>
+            <p>The rest of the shop is still ready to explore.</p>
           </div>
-          <button class="product-retry-button" type="button" @click="refreshCatalog()">Try again</button>
+          <button class="product-retry-button" type="button" @click="refreshRecommendations()">Try again</button>
         </div>
-        <div v-else-if="products.length" class="product-grid">
-          <ProductCard v-for="(product, index) in products" :key="product.id" :product="product" :eager="index < 4" />
-        </div>
-        <div v-else class="product-request-state">
+      </div>
+    </section>
+    <template v-else-if="recommendations.sections.length">
+      <HomeRecommendationSection
+        v-for="(section, index) in recommendations.sections"
+        :key="section.code"
+        :section="section"
+        :eager="index === 0"
+      />
+    </template>
+    <section v-else id="new-in" class="product-section">
+      <div class="page-width">
+        <div class="product-request-state">
           <UIcon name="i-lucide-package-open" />
           <div>
-            <h3>New arrivals are on their way.</h3>
-            <p>Explore the full collection while the latest pieces are being added.</p>
+            <h3>Fresh recommendations are on their way.</h3>
+            <p>Explore the full collection while we prepare this edit.</p>
           </div>
           <NuxtLink class="product-retry-button" to="/collections/shop">Shop all</NuxtLink>
         </div>

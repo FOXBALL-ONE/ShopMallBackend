@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, Boxes, ClipboardList, Gauge, LayoutDashboard, LifeBuoy, LogOut, Megaphone, Package, RefreshCw, ScrollText, Truck, Users } from '@lucide/vue'
+import { Activity, Boxes, ClipboardList, Gauge, LayoutDashboard, LifeBuoy, LogOut, Megaphone, Package, RefreshCw, ScrollText, Sparkles, Truck, Users } from '@lucide/vue'
 import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Component } from 'vue'
 import type { MenuOption } from 'naive-ui'
@@ -20,6 +20,7 @@ const menuOptions: MenuOption[] = [
   { label: '物流管理', key: 'shipments', icon: renderMenuIcon(Truck) },
   { label: '工单支持', key: 'support-tickets', icon: renderMenuIcon(LifeBuoy) },
   { label: '公告管理', key: 'announcements', icon: renderMenuIcon(Megaphone) },
+  { label: '首页推荐', key: 'home-recommendations', icon: renderMenuIcon(Sparkles) },
   { label: '系统监控', key: 'system-status', icon: renderMenuIcon(Activity) },
   { label: '限速设置', key: 'rate-limits', icon: renderMenuIcon(Gauge) },
   { label: '日志中心', key: 'logs', icon: renderMenuIcon(ScrollText) },
@@ -33,6 +34,7 @@ const activeMenuKey = computed(() => {
   if (route.path.startsWith('/shipments')) return 'shipments'
   if (route.path.startsWith('/support-tickets')) return 'support-tickets'
   if (route.path.startsWith('/announcements')) return 'announcements'
+  if (route.path.startsWith('/home-recommendations')) return 'home-recommendations'
   if (route.path.startsWith('/system-status')) return 'system-status'
   if (route.path.startsWith('/rate-limits')) return 'rate-limits'
   if (route.path.startsWith('/logs')) return 'logs'
@@ -56,6 +58,8 @@ function handleMenuSelect(key: string) {
     navigateTo('/support-tickets')
   } else if (key === 'announcements') {
     navigateTo('/announcements')
+  } else if (key === 'home-recommendations') {
+    navigateTo('/home-recommendations')
   } else if (key === 'system-status') {
     navigateTo('/system-status')
   } else if (key === 'rate-limits') {

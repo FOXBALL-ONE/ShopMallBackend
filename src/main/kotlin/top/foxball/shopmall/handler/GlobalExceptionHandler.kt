@@ -39,6 +39,22 @@ class GlobalExceptionHandler {
     private val log = LoggerFactory.getLogger(this.javaClass)
     private val builder = ResponseBuilder()
 
+    @ExceptionHandler(HomeRecommendationVersionConflictException::class)
+    fun onHomeRecommendationVersionConflictException(
+        ex: HomeRecommendationVersionConflictException,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:com.fasterxml.jackson.annotation.JsonProperty("actual_version")
+            val actualVersion: Long,
+        )
+
+        val rs = Response(actualVersion = ex.actualVersion)
+        return builder.status(ex.status)
+            .message(ex.message)
+            .data(rs)
+            .build()
+    }
+
     @ExceptionHandler(AnnouncementVersionConflictException::class)
     fun onAnnouncementVersionConflictException(
         ex: AnnouncementVersionConflictException,

@@ -116,6 +116,7 @@ Invoke-WebRequest http://localhost:8080/actuator/health
 ## 设计文档
 
 - [公告模块](docs/announcement-module-design.md)
+- [首页商品推荐模块](docs/home-product-recommendation-module-design.md)
 - [API 限流](docs/api-rate-limit-design.md)
 - [日志系统](docs/logging-system-design.md)
 - [订单创建](docs/order-creation-design.md)

@@ -82,6 +82,7 @@ class SecurityConfig(
                     "/api/tags/**",
                     "/api/customer-reviews/**",
                     "/api/announcements/**",
+                    "/api/home/recommendations",
                 ).permitAll()
                 // 公开投稿（POST）：新项目 / 想法 / 评论 / 加入申请，匿名提交（后端固定 PENDING 待审）
                 it.requestMatchers(

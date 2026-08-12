@@ -61,6 +61,10 @@ redis:
 shopmall:
   announcement:
     time-zone: "${ANNOUNCEMENT_TIME_ZONE:Asia/Shanghai}"
+  home-recommendation:
+    time-zone: "${HOME_RECOMMENDATION_TIME_ZONE:Asia/Shanghai}"
+    cache-ttl-seconds: "${HOME_RECOMMENDATION_CACHE_TTL_SECONDS:60}"
+    lifecycle-delay-ms: "${HOME_RECOMMENDATION_LIFECYCLE_DELAY_MS:60000}"
   product-metadata:
     # 系统类型、属性和基础分类初始化必须由部署环境显式开启
     enabled: "${PRODUCT_METADATA_INITIALIZATION_ENABLED:false}"

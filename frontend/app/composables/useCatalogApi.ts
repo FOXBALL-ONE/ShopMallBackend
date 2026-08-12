@@ -22,7 +22,7 @@ export type CatalogAttributeDefinition = {
   active: boolean
 }
 
-type RawProduct = {
+export type RawProduct = {
   id: number
   product_type: string
   category_id?: number | null
@@ -78,7 +78,7 @@ function collectionSlugs(tags: string[]): CollectionSlug[] {
   return [...collections]
 }
 
-function normalizeProduct(value: RawProduct): CatalogProduct {
+export function normalizeCatalogProduct(value: RawProduct): CatalogProduct {
   const variants: CatalogVariant[] = (value.variants ?? []).map(variant => ({
     id: Number(variant.id),
     sku: String(variant.sku),
@@ -137,11 +137,11 @@ export function useCatalogApi() {
     const remaining = totalPages > 1
       ? await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => http.get<ProductListResponse>('/products', { page: index + 2, size: 100 })) )
       : []
-    return [first, ...remaining].flatMap(response => response.list ?? []).map(normalizeProduct)
+    return [first, ...remaining].flatMap(response => response.list ?? []).map(normalizeCatalogProduct)
   }
 
   async function getProduct(id: number): Promise<CatalogProduct> {
-    return normalizeProduct(await http.get<RawProduct>(`/products/${id}`))
+    return normalizeCatalogProduct(await http.get<RawProduct>(`/products/${id}`))
   }
 
   async function listCategories(): Promise<CatalogCategory[]> {
