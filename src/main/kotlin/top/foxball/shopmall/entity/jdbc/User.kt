@@ -197,7 +197,6 @@ class User(
      * 地址作为随用户生命周期维护的值对象，存储在 user_delivery_addresses 集合表中，
      * 而不是序列化到 users 表的 varchar 字段。
      */
-    @field:Valid
     @field:Size(max = 20)
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(
@@ -212,7 +211,7 @@ class User(
         ],
     )
     @OrderColumn(name = "sort_order")
-    var deliveryAddress: MutableList<DeliveryAddressItem> = mutableListOf(),
+    var deliveryAddress: MutableList<@Valid DeliveryAddressItem> = mutableListOf(),
 
     /**
      * 用户的账单地址，用于支付账单、税费计算与发票抬头；为空表示尚未保存。

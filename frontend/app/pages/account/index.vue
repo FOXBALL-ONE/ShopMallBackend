@@ -17,7 +17,7 @@ definePageMeta({ middleware: ['customer-auth'] })
 
 useHead({
   title: 'Your account | Pelissa',
-  meta: [{ name: 'description', content: 'Manage your Pelissa profile, orders, bag, and delivery updates.' }]
+  meta: [{ name: 'description', content: 'Manage your Pelissa profile, orders, cart, and delivery updates.' }]
 })
 
 const api = useCustomerAccountApi()
@@ -133,7 +133,7 @@ onMounted(() => {
         </NuxtLink>
         <NuxtLink class="dashboard-stat" to="/cart">
           <span class="dashboard-stat-number">{{ bagQuantity }}</span>
-          <span class="dashboard-stat-label">Pieces in your bag</span>
+          <span class="dashboard-stat-label">Pieces in your cart</span>
           <UIcon name="i-lucide-arrow-up-right" />
         </NuxtLink>
       </section>
@@ -166,15 +166,15 @@ onMounted(() => {
           </div>
         </article>
 
-        <article class="dashboard-panel dashboard-bag-panel">
+        <article class="dashboard-panel dashboard-cart-panel">
           <div class="panel-heading">
             <div>
               <p class="panel-kicker">THE FITTING ROOM</p>
-              <h2>Your bag</h2>
+              <h2>Your cart</h2>
             </div>
-            <UIcon name="i-lucide-shopping-bag" class="panel-heading-icon" />
+            <UIcon name="i-lucide-shopping-cart" class="panel-heading-icon" />
           </div>
-          <div class="bag-summary-art">
+          <div class="cart-summary-art">
             <img src="/lingerie/lace-texture.jpg" alt="Lace texture" loading="lazy">
             <div>
               <strong>{{ bagQuantity ? `${bagQuantity} ${bagQuantity === 1 ? 'piece' : 'pieces'}` : 'A little space' }}</strong>
@@ -182,7 +182,7 @@ onMounted(() => {
             </div>
           </div>
           <NuxtLink class="panel-button" to="/cart">
-            {{ bagQuantity ? 'Review your bag' : 'Shop the collection' }} <UIcon name="i-lucide-arrow-up-right" />
+            {{ bagQuantity ? 'Review your cart' : 'Shop the collection' }} <UIcon name="i-lucide-arrow-up-right" />
           </NuxtLink>
         </article>
 
@@ -598,7 +598,7 @@ onMounted(() => {
   line-height: 1.55;
 }
 
-.bag-summary-art {
+.cart-summary-art {
   min-height: 126px;
   display: grid;
   grid-template-columns: 100px minmax(0, 1fr);
@@ -608,14 +608,14 @@ onMounted(() => {
   background: var(--store-linen);
 }
 
-.bag-summary-art img {
+.cart-summary-art img {
   width: 100%;
   height: 126px;
   display: block;
   object-fit: cover;
 }
 
-.bag-summary-art > div {
+.cart-summary-art > div {
   display: flex;
   justify-content: center;
   flex-direction: column;
@@ -623,14 +623,14 @@ onMounted(() => {
   padding: 12px 12px 12px 0;
 }
 
-.bag-summary-art strong {
+.cart-summary-art strong {
   font-family: 'Playfair Display', Georgia, serif;
   font-size: 22px;
   font-weight: 500;
   line-height: 1;
 }
 
-.bag-summary-art span {
+.cart-summary-art span {
   color: var(--store-muted);
   font-size: 11px;
   line-height: 1.45;

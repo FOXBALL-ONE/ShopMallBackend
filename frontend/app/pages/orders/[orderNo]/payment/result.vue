@@ -151,7 +151,7 @@ onBeforeUnmount(() => {
 
     <div class="result-progress-wrap">
       <nav class="store-container result-progress" aria-label="Checkout progress">
-        <span><b>01</b> Bag</span><UIcon name="i-lucide-chevron-right" />
+        <span><b>01</b> Cart</span><UIcon name="i-lucide-chevron-right" />
         <span><b>02</b> Delivery</span><UIcon name="i-lucide-chevron-right" />
         <strong><b>03</b> {{ state === 'success' ? 'Complete' : 'Payment' }}</strong>
       </nav>

@@ -52,7 +52,6 @@ class ShoppingCart(
 
     /** 购物车商品明细，删除购物车或移除明细时同步清理子记录。 */
     @get:JsonIgnore
-    @field:Valid
     @field:Size(max = 50)
     @OneToMany(
         mappedBy = "cart",
@@ -62,7 +61,7 @@ class ShoppingCart(
     )
     @OnDelete(action = OnDeleteAction.CASCADE)
     @OrderBy("createdAt ASC, id ASC")
-    var items: MutableList<CartItem> = mutableListOf(),
+    var items: MutableList<@Valid CartItem> = mutableListOf(),
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

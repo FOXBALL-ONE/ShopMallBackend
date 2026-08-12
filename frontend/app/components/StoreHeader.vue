@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { formatCustomerMoney } from '~/utils/customer-display'
 
 const route = useRoute()
 const router = useRouter()
 const session = useCustomerSession()
 const customerCart = useCustomerCart()
+const announcementCenter = useAnnouncementCenter()
 const { data: catalogCategories } = await useCatalogCategories()
 const navItems = computed(() => [
   ...catalogCategories.value.map(category => ({ label: category.name, to: `/collections/${category.code}` })),
@@ -14,15 +14,9 @@ const navItems = computed(() => [
 
 const isMenuOpen = ref(false)
 const isSearchOpen = ref(false)
-const isBagOpen = ref(false)
+const isCartOpen = ref(false)
 const searchInput = ref(typeof route.query.q === 'string' ? route.query.q : '')
-const bagError = ref('')
-
-const bagItems = computed(() => customerCart.items.value)
-const bagCount = computed(() => customerCart.totalQuantity.value)
-const visibleBagItems = computed(() => bagItems.value.slice(0, 3))
-const hasUnavailableBagItems = computed(() => bagItems.value.some(item => !item.purchasable || item.quantity > item.stock))
-const bagTitle = computed(() => `${bagCount.value} ${bagCount.value === 1 ? 'piece' : 'pieces'} in your bag`)
+const cartCount = computed(() => customerCart.totalQuantity.value)
 
 watch(
   () => route.query.q,
@@ -34,29 +28,27 @@ watch(
 function toggleMenu() {
   isMenuOpen.value = !isMenuOpen.value
   isSearchOpen.value = false
-  isBagOpen.value = false
+  isCartOpen.value = false
 }
 
 function toggleSearch() {
   isSearchOpen.value = !isSearchOpen.value
   isMenuOpen.value = false
-  isBagOpen.value = false
+  isCartOpen.value = false
 }
 
-async function refreshBag(force = false) {
-  bagError.value = ''
+async function refreshCart(force = false) {
   try {
     await customerCart.refresh(force)
   } catch {
-    bagError.value = 'Your bag could not be refreshed.'
+    // The shared cart popover exposes request failures when the customer opens it.
   }
 }
 
-function toggleBag() {
-  isBagOpen.value = !isBagOpen.value
+function toggleCart() {
+  isCartOpen.value = !isCartOpen.value
   isMenuOpen.value = false
   isSearchOpen.value = false
-  if (isBagOpen.value && session.isAuthenticated.value) void refreshBag(true)
 }
 
 async function submitSearch() {
@@ -66,11 +58,11 @@ async function submitSearch() {
 }
 
 onMounted(() => {
-  if (session.isAuthenticated.value) void refreshBag()
+  if (session.isAuthenticated.value) void refreshCart()
 })
 
 watch(() => session.userId.value, userId => {
-  if (userId) void refreshBag(true)
+  if (userId) void refreshCart(true)
   else customerCart.reset()
 })
 </script>
@@ -81,6 +73,12 @@ watch(() => session.userId.value, userId => {
       <div class="store-utility store-container">
         <span><UIcon name="i-lucide-map-pin" /> United States</span>
         <span>USD <UIcon name="i-lucide-chevron-down" /></span>
+        <NuxtLink class="store-notices" to="/announcements">
+          <UIcon name="i-lucide-megaphone" /> Notices
+          <b v-if="announcementCenter.currentCount.value">
+            {{ announcementCenter.currentCount.value >= 50 ? '50+' : announcementCenter.currentCount.value }}
+          </b>
+        </NuxtLink>
         <NuxtLink class="store-help" to="/search">Help</NuxtLink>
       </div>
 
@@ -100,9 +98,9 @@ watch(() => session.userId.value, userId => {
           <NuxtLink class="store-icon-button store-account-link" to="/account" aria-label="My account">
             <UIcon name="i-lucide-user-round" />
           </NuxtLink>
-          <button class="store-icon-button store-bag-button" type="button" aria-label="Shopping bag" @click="toggleBag">
-            <UIcon name="i-lucide-shopping-bag" />
-            <span v-if="bagCount">{{ bagCount > 99 ? '99+' : bagCount }}</span>
+          <button class="store-icon-button store-cart-button" type="button" aria-label="Shopping cart" @click="toggleCart">
+            <UIcon name="i-lucide-shopping-cart" />
+            <span v-if="cartCount">{{ cartCount > 99 ? '99+' : cartCount }}</span>
           </button>
         </div>
       </div>
@@ -131,65 +129,7 @@ watch(() => session.userId.value, userId => {
         <button type="button" aria-label="Close search" @click="isSearchOpen = false"><UIcon name="i-lucide-x" /></button>
       </form>
 
-      <aside v-if="isBagOpen" class="store-bag-popover" aria-label="Shopping bag">
-        <div class="store-bag-content">
-          <span class="store-popover-eyebrow">YOUR BAG</span>
-
-          <template v-if="!session.isAuthenticated.value">
-            <strong>Sign in to see your bag</strong>
-            <p>Your saved pieces are waiting in your account.</p>
-            <div class="store-bag-popover-actions">
-              <NuxtLink :to="{ path: '/login', query: { redirect: '/cart' } }" @click="isBagOpen = false">Sign in</NuxtLink>
-              <NuxtLink to="/collections/shop" @click="isBagOpen = false">Keep browsing</NuxtLink>
-            </div>
-          </template>
-
-          <template v-else-if="customerCart.isLoading.value && !customerCart.cart.value">
-            <strong>Opening your bag…</strong>
-            <p>Checking your latest pieces.</p>
-          </template>
-
-          <template v-else-if="bagItems.length">
-            <strong>{{ bagTitle }}</strong>
-            <div class="store-bag-items">
-              <NuxtLink
-                v-for="item in visibleBagItems"
-                :key="item.id"
-                class="store-bag-item"
-                :to="`/product/${item.product_id}`"
-                @click="isBagOpen = false"
-              >
-                <span class="store-bag-item-image">
-                  <img v-if="item.primary_image" :src="item.primary_image" :alt="item.name">
-                  <b v-else>P°</b>
-                </span>
-                <span class="store-bag-item-copy">
-                  <b>{{ item.name }}</b>
-                  <small>Qty {{ item.quantity }} · {{ formatCustomerMoney(item.line_total, 'USD') }}</small>
-                </span>
-              </NuxtLink>
-            </div>
-            <p v-if="bagItems.length > visibleBagItems.length" class="store-bag-more">+ {{ bagItems.length - visibleBagItems.length }} more {{ bagItems.length - visibleBagItems.length === 1 ? 'item' : 'items' }}</p>
-            <div class="store-bag-subtotal"><span>Subtotal</span><strong>{{ formatCustomerMoney(customerCart.cart.value?.subtotal, 'USD') }}</strong></div>
-            <p v-if="hasUnavailableBagItems" class="store-bag-warning">Review unavailable pieces before checkout.</p>
-            <p v-else-if="bagError" class="store-bag-warning">{{ bagError }}</p>
-            <div class="store-bag-popover-actions">
-              <NuxtLink to="/cart" @click="isBagOpen = false">View your bag</NuxtLink>
-              <NuxtLink v-if="!hasUnavailableBagItems" to="/checkout" @click="isBagOpen = false">Checkout</NuxtLink>
-            </div>
-          </template>
-
-          <template v-else>
-            <strong>Your bag is empty</strong>
-            <p>{{ bagError || 'Your Pelissa picks will appear here.' }}</p>
-            <div class="store-bag-popover-actions">
-              <NuxtLink to="/cart" @click="isBagOpen = false">View your bag</NuxtLink>
-              <NuxtLink to="/collections/shop" @click="isBagOpen = false">Start shopping</NuxtLink>
-            </div>
-          </template>
-        </div>
-        <button type="button" aria-label="Close shopping bag" @click="isBagOpen = false"><UIcon name="i-lucide-x" /></button>
-      </aside>
+      <StoreCartPopover v-if="isCartOpen" @close="isCartOpen = false" />
     </header>
   </div>
 </template>
@@ -231,8 +171,20 @@ watch(() => session.userId.value, userId => {
   height: 12px;
 }
 
-.store-help {
+.store-notices {
   margin-left: auto;
+}
+
+.store-notices b {
+  min-width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--store-wine);
+  font-size: 8px;
 }
 
 .store-brand-row {
@@ -300,7 +252,7 @@ watch(() => session.userId.value, userId => {
   display: none;
 }
 
-.store-bag-button span {
+.store-cart-button span {
   position: absolute;
   top: 5px;
   right: 1px;
@@ -363,8 +315,7 @@ watch(() => session.userId.value, userId => {
   transform: scaleX(1);
 }
 
-.store-search-panel,
-.store-bag-popover {
+.store-search-panel {
   position: absolute;
   z-index: 5;
   top: 46px;
@@ -372,9 +323,6 @@ watch(() => session.userId.value, userId => {
   border: 1px solid var(--store-ink);
   background: #fff;
   box-shadow: var(--store-shadow);
-}
-
-.store-search-panel {
   width: min(100% - 64px, 470px);
   min-height: 56px;
   display: flex;
@@ -398,8 +346,7 @@ watch(() => session.userId.value, userId => {
   font-size: 13px;
 }
 
-.store-search-panel button,
-.store-bag-popover > button {
+.store-search-panel button {
   width: 28px;
   height: 32px;
   display: grid;
@@ -409,160 +356,6 @@ watch(() => session.userId.value, userId => {
   color: inherit;
   background: transparent;
   cursor: pointer;
-}
-
-.store-bag-popover {
-  width: min(100% - 64px, 345px);
-  display: flex;
-  justify-content: space-between;
-  gap: 22px;
-  padding: 26px;
-}
-
-.store-bag-popover > div {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.store-popover-eyebrow {
-  margin-bottom: 10px;
-  color: var(--store-wine);
-  font-family: 'DM Mono', monospace;
-  font-size: 9px;
-  letter-spacing: .1em;
-}
-
-.store-bag-popover strong {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 22px;
-  font-weight: 500;
-}
-
-.store-bag-popover p {
-  margin: 8px 0 18px;
-  color: var(--store-muted);
-  font-size: 12px;
-}
-
-.store-bag-items {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  margin-top: 13px;
-  border-top: 1px solid var(--store-line);
-}
-
-.store-bag-item {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--store-line);
-  color: var(--store-ink);
-  text-decoration: none;
-}
-
-.store-bag-item-image {
-  width: 44px;
-  height: 54px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  color: var(--store-wine);
-  background: var(--store-linen);
-  font-family: 'Playfair Display', Georgia, serif;
-}
-
-.store-bag-item-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.store-bag-item-image b {
-  font-size: 18px;
-  font-weight: 500;
-}
-
-.store-bag-item-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.store-bag-item-copy b {
-  overflow: hidden;
-  font-size: 10px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.store-bag-item-copy small,
-.store-bag-more {
-  color: var(--store-muted);
-  font-family: 'DM Mono', monospace;
-  font-size: 8px;
-}
-
-.store-bag-more {
-  margin: 8px 0 0 !important;
-}
-
-.store-bag-subtotal {
-  width: 100%;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 15px;
-  margin-top: 13px;
-  font-size: 10px;
-}
-
-.store-bag-subtotal strong {
-  color: var(--store-wine);
-  font-family: 'DM Mono', monospace;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.store-bag-warning {
-  margin: 9px 0 0 !important;
-  color: #963f4f !important;
-  font-size: 9px !important;
-}
-
-.store-bag-popover a {
-  padding-bottom: 3px;
-  border-bottom: 1px solid currentColor;
-  color: inherit;
-  font-family: 'DM Mono', monospace;
-  font-size: 9px;
-  letter-spacing: .06em;
-  text-decoration: none;
-  text-transform: uppercase;
-}
-
-.store-bag-popover .store-bag-popover-actions {
-  flex-flow: row wrap;
-  align-items: center;
-  gap: 10px 14px;
-}
-
-.store-bag-popover-actions a:first-child {
-  padding: 8px 11px;
-  border: 1px solid var(--store-ink);
-  color: #fff;
-  background: var(--store-ink);
-}
-
-.store-bag-popover-actions a:first-child:hover {
-  border-color: var(--store-wine);
-  background: var(--store-wine);
 }
 
 @media (max-width: 820px) {
@@ -577,6 +370,10 @@ watch(() => session.userId.value, userId => {
 
   .store-help {
     margin-left: 0;
+  }
+
+  .store-notices {
+    margin-left: auto;
   }
 
   .store-brand-row {
@@ -637,8 +434,7 @@ watch(() => session.userId.value, userId => {
     border-bottom: 0;
   }
 
-  .store-search-panel,
-  .store-bag-popover {
+  .store-search-panel {
     top: 65px;
     right: 16px;
     width: calc(100% - 32px);

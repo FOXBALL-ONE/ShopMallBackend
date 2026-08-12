@@ -1,5 +1,9 @@
 function containsUnsafeCharacters(value: string) {
-  return /[\\\u0000-\u001F\u007F]/.test(value)
+  for (const character of value) {
+    const codePoint = character.charCodeAt(0)
+    if (character === '\\' || codePoint <= 0x1F || codePoint === 0x7F) return true
+  }
+  return false
 }
 
 function hasUnsafeDecodedPath(path: string) {

@@ -78,7 +78,6 @@ class ProductType(
     @Column(nullable = false)
     var version: Long = 0,
 ) {
-    @field:Valid
     @OneToMany(
         mappedBy = "productType",
         fetch = FetchType.LAZY,
@@ -86,7 +85,7 @@ class ProductType(
         orphanRemoval = true,
     )
     @BatchSize(size = 100)
-    var attributeDefinitions: MutableList<ProductAttributeDefinition> = mutableListOf()
+    var attributeDefinitions: MutableList<@Valid ProductAttributeDefinition> = mutableListOf()
 }
 
 /** 某一商品类型可使用的属性定义。 */

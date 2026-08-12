@@ -7,8 +7,8 @@ import { formatCustomerMoney } from '~/utils/customer-display'
 definePageMeta({ middleware: ['customer-auth'] })
 
 useHead({
-  title: 'Shopping bag | Pelissa',
-  meta: [{ name: 'description', content: 'Review the pieces in your Pelissa shopping bag.' }]
+  title: 'Shopping cart | Pelissa',
+  meta: [{ name: 'description', content: 'Review the pieces in your Pelissa shopping cart.' }]
 })
 
 const api = useCustomerAccountApi()
@@ -27,7 +27,7 @@ const requestError = ref('')
 const currency = 'USD'
 const cartItems = computed(() => cart.value?.items || [])
 const unavailableItems = computed(() => cartItems.value.filter(item => !isPurchasable(item)))
-const bagLabel = computed(() => `${cart.value?.total_quantity || 0} ${cart.value?.total_quantity === 1 ? 'piece' : 'pieces'}`)
+const cartLabel = computed(() => `${cart.value?.total_quantity || 0} ${cart.value?.total_quantity === 1 ? 'piece' : 'pieces'}`)
 const subtotalLabel = computed(() => formatCustomerMoney(cart.value?.subtotal, currency))
 
 function isPurchasable(item: CustomerCartItem) {
@@ -52,8 +52,8 @@ async function updateQuantity(item: CustomerCartItem, quantity: number) {
   try {
     await customerCart.updateItem(item.id, nextQuantity)
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not update this piece in your bag.')
-    toast.add({ title: 'Bag not updated', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, 'We could not update this item in your cart.')
+    toast.add({ title: 'Cart not updated', description: requestError.value, color: 'error' })
   } finally {
     busyItemId.value = null
   }
@@ -65,7 +65,7 @@ async function removeItem(item: CustomerCartItem) {
   requestError.value = ''
   try {
     await customerCart.removeItem(item.id)
-    toast.add({ title: 'Removed from bag', description: `${item.name} is no longer in your shopping bag.`, color: 'success' })
+    toast.add({ title: 'Removed from cart', description: `${item.name} is no longer in your shopping cart.`, color: 'success' })
   } catch (error: unknown) {
     requestError.value = customerRequestMessage(error, 'We could not remove this piece.')
     toast.add({ title: 'Piece not removed', description: requestError.value, color: 'error' })
@@ -76,16 +76,16 @@ async function removeItem(item: CustomerCartItem) {
 
 async function clearCart() {
   if (isClearing.value || !cartItems.value.length) return
-  if (import.meta.client && !window.confirm('Clear every piece from your shopping bag?')) return
+  if (import.meta.client && !window.confirm('Clear every item from your shopping cart?')) return
 
   isClearing.value = true
   requestError.value = ''
   try {
     await customerCart.clear()
-    toast.add({ title: 'Bag cleared', description: 'Your shopping bag is ready for a new edit.', color: 'success' })
+    toast.add({ title: 'Cart cleared', description: 'Your shopping cart is now empty.', color: 'success' })
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not clear your bag.')
-    toast.add({ title: 'Bag not cleared', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, 'We could not clear your cart.')
+    toast.add({ title: 'Cart not cleared', description: requestError.value, color: 'error' })
   } finally {
     isClearing.value = false
   }
@@ -108,7 +108,7 @@ async function loadCart(showLoading = true) {
     ])
     profile.value = profileResult
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not load your shopping bag.')
+    requestError.value = customerRequestMessage(error, 'We could not load your shopping cart.')
   } finally {
     isLoading.value = false
     isRefreshing.value = false
@@ -121,7 +121,7 @@ onMounted(() => {
 </script>
 <template>
   <CustomerAccountShell
-    eyebrow="THE SHOPPING BAG · 04"
+    eyebrow="THE CART · 04"
     title="The pieces you kept."
     intro="A softer pause before checkout. Revisit your edit, adjust the details, and make room for what feels right."
     :profile="profile"
@@ -141,7 +141,7 @@ onMounted(() => {
       <section v-if="cartItems.length" class="cart-toolbar">
         <div>
           <p class="store-eyebrow">YOUR CURRENT EDIT</p>
-          <h2>{{ bagLabel }}</h2>
+          <h2>{{ cartLabel }}</h2>
         </div>
         <div class="cart-toolbar-actions">
           <button class="refresh-button" type="button" :disabled="isRefreshing" @click="loadCart(false)">
@@ -150,7 +150,7 @@ onMounted(() => {
           </button>
           <button class="text-button text-button-danger" type="button" :disabled="isClearing" @click="clearCart">
             <UIcon :name="isClearing ? 'i-lucide-loader-circle' : 'i-lucide-trash-2'" :class="{ 'is-spinning': isClearing }" />
-            {{ isClearing ? 'Clearing…' : 'Clear bag' }}
+            {{ isClearing ? 'Clearing…' : 'Clear cart' }}
           </button>
         </div>
       </section>
@@ -234,7 +234,7 @@ onMounted(() => {
         <div class="cart-empty-art" aria-hidden="true"><span>P°</span></div>
         <div>
           <p class="panel-kicker">A LITTLE SPACE FOR SOMETHING NEW</p>
-          <h2>Your bag is beautifully empty.</h2>
+          <h2>Your cart is beautifully empty.</h2>
           <p>When a piece catches your eye, save it here. Your edit will be waiting when you are ready.</p>
           <div class="cart-empty-actions">
             <NuxtLink class="store-button" to="/collections/shop"><UIcon name="i-lucide-arrow-up-right" /> Start shopping</NuxtLink>

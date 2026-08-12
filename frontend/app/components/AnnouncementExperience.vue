@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {
-  CustomerAnnouncementSummary,
+  CustomerAnnouncementType,
   CustomerAnnouncementUserState,
   CustomerAutoShowAnnouncement,
 } from '~/types/announcement'
@@ -10,15 +10,18 @@ import {
 } from '~/utils/announcementActionUrl'
 
 const announcementApi = useAnnouncementApi()
+const announcementCenter = useAnnouncementCenter()
 const announcementClientState = useAnnouncementClientState()
 const customerSession = useCustomerSession()
-const bannerAnnouncement = ref<CustomerAnnouncementSummary | null>(null)
+const route = useRoute()
+const bannerAnnouncement = announcementCenter.leadingAnnouncement
+const currentAnnouncementCount = announcementCenter.currentCount
 const modalAnnouncement = ref<CustomerAutoShowAnnouncement | null>(null)
 const isModalOpen = ref(false)
 const modalElement = ref<HTMLElement | null>(null)
 let previouslyFocusedElement: HTMLElement | null = null
 
-function typeLabel(type: CustomerAnnouncementSummary['type']) {
+function typeLabel(type: CustomerAnnouncementType) {
   return {
     GENERAL: 'General notice',
     IMPORTANT: 'Important notice',
@@ -189,7 +192,12 @@ watch(() => customerSession.userId.value, userId => {
   isModalOpen.value = false
   modalAnnouncement.value = null
   void synchronizeLocalStates(ownerId)
+  void announcementCenter.refreshCurrentAnnouncements(true).catch(() => undefined)
   void loadAutoShowAnnouncement(ownerId).catch(() => undefined)
+})
+
+watch(() => route.fullPath, () => {
+  void announcementCenter.refreshCurrentAnnouncements().catch(() => undefined)
 })
 
 onMounted(() => {
@@ -197,11 +205,7 @@ onMounted(() => {
   if (userId !== null) announcementClientState.claimAnonymousStates(userId)
   announcementClientState.load(userId)
   void synchronizeLocalStates(userId)
-  void announcementApi.getCurrent(true, 1)
-    .then(response => {
-      bannerAnnouncement.value = response.items[0] ?? null
-    })
-    .catch(() => undefined)
+  void announcementCenter.refreshCurrentAnnouncements().catch(() => undefined)
   void loadAutoShowAnnouncement(userId).catch(() => undefined)
 })
 </script>
@@ -217,7 +221,8 @@ onMounted(() => {
         {{ bannerAnnouncement.summary }}
       </span>
       <NuxtLink class="customer-announcement-banner__more" to="/announcements">
-        All notices <UIcon name="i-lucide-arrow-up-right" />
+        All notices ({{ currentAnnouncementCount >= 50 ? '50+' : currentAnnouncementCount }})
+        <UIcon name="i-lucide-arrow-up-right" />
       </NuxtLink>
     </div>
   </aside>
@@ -454,16 +459,23 @@ onMounted(() => {
 
 .announcement-modal__primary .iconify { width: 13px; height: 13px; }
 
-@media (max-width: 650px) {
+@media (max-width: 820px) {
   .customer-announcement-banner__content {
-    justify-content: flex-start;
-    gap: 9px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    justify-content: stretch;
+    gap: 12px;
   }
 
   .customer-announcement-banner__type,
   .customer-announcement-banner__summary { display: none; }
 
-  .customer-announcement-banner__title { flex: 1; max-width: none; }
+  .customer-announcement-banner__title {
+    min-width: 0;
+    max-width: none;
+  }
+
+  .customer-announcement-banner__more { white-space: nowrap; }
 
   .announcement-modal-backdrop { padding: 13px; }
   .announcement-modal { max-height: calc(100vh - 26px); padding: 35px 25px 27px; }

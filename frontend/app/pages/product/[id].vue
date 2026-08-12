@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { CatalogProduct, CatalogVariant } from '~/data/catalog'
 import { displayProductType, formatPrice, getCollection } from '~/data/catalog'
 import type { CatalogAttributeDefinition } from '~/composables/useCatalogApi'
@@ -29,6 +29,7 @@ const product = computed(() => pageData.value?.product ?? null)
 const definitions = computed(() => pageData.value?.definitions ?? [])
 const variants = computed(() => product.value?.variants ?? [])
 const selectedImage = ref(0)
+const isImagePreviewOpen = ref(false)
 const selection = ref<Record<string, string>>({})
 const quantity = ref(1)
 const isFavorite = ref(false)
@@ -50,13 +51,14 @@ const dimensions = computed<OptionDimension[]>(() => {
   const sizeValues = [...new Set(variants.value.map(variant => variant.size).filter((value): value is string => Boolean(value)))]
   const colorValues = [...new Set(variants.value.map(variant => variant.color).filter(Boolean))]
   if (sizeValues.length) result.push({ code: 'size', label: 'Size', values: sizeValues })
-  if (colorValues.length) result.push({ code: 'color', label: 'Color', values: colorValues })
-  definitions.value
+  const variantDefinitions = [...definitions.value]
     .filter(definition => definition.active && definition.scope === 'VARIANT')
-    .forEach(definition => {
-      const values = [...new Set(variants.value.map(variant => optionValue(variant, definition.code)).filter(Boolean))]
-      if (values.length) result.push({ code: definition.code, label: definition.name, values })
-    })
+    .sort((left, right) => left.display_order - right.display_order)
+  variantDefinitions.forEach(definition => {
+    const values = [...new Set(variants.value.map(variant => optionValue(variant, definition.code)).filter(Boolean))]
+    if (values.length) result.push({ code: definition.code, label: definition.name, values })
+  })
+  if (colorValues.length) result.push({ code: 'color', label: 'Color', values: colorValues })
   return result
 })
 
@@ -75,7 +77,7 @@ const displayedPrice = computed(() => {
 })
 const availableStock = computed(() => selectedVariant.value?.warehouse_volume ?? 0)
 const maximumQuantity = computed(() => Math.min(availableStock.value, 99))
-const canAddToBag = computed(() => Boolean(selectedVariant.value && availableStock.value > 0 && !isAdding.value))
+const canAddToCart = computed(() => Boolean(selectedVariant.value && availableStock.value > 0 && !isAdding.value))
 const productCollection = computed(() => getCollection(product.value?.collections[0] || 'shop'))
 const images = computed(() => product.value?.image_details?.length
   ? product.value.image_details
@@ -101,6 +103,7 @@ watch(dimensions, () => {
   selection.value = {}
   quantity.value = 1
   selectedImage.value = 0
+  isImagePreviewOpen.value = false
 }, { immediate: true })
 
 watch(selectedVariant, () => { quantity.value = 1 })
@@ -109,33 +112,38 @@ function matchingVariants(candidateSelection: Record<string, string>): CatalogVa
   return variants.value.filter(variant => Object.entries(candidateSelection).every(([code, value]) => !value || optionValue(variant, code) === value))
 }
 
+function selectionThrough(code: string, value?: string): Record<string, string> {
+  const next = { ...selection.value }
+  const dependentCodes = code === 'size'
+    ? dimensions.value.filter(dimension => dimension.code !== 'size').map(dimension => dimension.code)
+    : code === 'top_size' ? ['bottom_size'] : []
+  dependentCodes.forEach(dependentCode => delete next[dependentCode])
+  if (value) next[code] = value
+  else delete next[code]
+  return next
+}
+
 function isOptionAvailable(code: string, value: string): boolean {
-  return matchingVariants({ ...selection.value, [code]: value }).some(variant => variant.warehouse_volume > 0)
+  return matchingVariants(selectionThrough(code, value)).some(variant => variant.warehouse_volume > 0)
 }
 
 function selectOption(code: string, value: string) {
   if (!isOptionAvailable(code, value)) return
-
-  const next = { ...selection.value }
-  if (next[code] === value) delete next[code]
-  else next[code] = value
-  selection.value = next
+  selection.value = selectionThrough(code, selection.value[code] === value ? undefined : value)
 }
 
 function clearOption(code: string) {
   if (!selection.value[code]) return
-  const next = { ...selection.value }
-  delete next[code]
-  selection.value = next
+  selection.value = selectionThrough(code)
 }
 
 function changeQuantity(delta: number) {
   quantity.value = Math.min(Math.max(maximumQuantity.value, 1), Math.max(1, quantity.value + delta))
 }
 
-async function addToBag() {
+async function addToCart() {
   const variant = selectedVariant.value
-  if (!product.value || !variant || !canAddToBag.value) return
+  if (!product.value || !variant || !canAddToCart.value) return
   const userId = await session.requireSignIn(route.fullPath)
   if (!userId) return
   isAdding.value = true
@@ -144,15 +152,15 @@ async function addToBag() {
     await customerCart.addItem(variant.id, quantity.value)
     isAdded.value = true
     toast.add({
-      title: 'Added to bag',
+      title: 'Added to cart',
       description: `${quantity.value} ${quantity.value === 1 ? 'piece' : 'pieces'} of ${product.value.name} added.`,
       color: 'success',
     })
     if (feedbackTimer) clearTimeout(feedbackTimer)
     feedbackTimer = setTimeout(() => { isAdded.value = false }, 2400)
   } catch (requestError: unknown) {
-    addError.value = customerRequestMessage(requestError, 'We could not add this piece to your bag.')
-    toast.add({ title: 'Bag not updated', description: addError.value, color: 'error' })
+    addError.value = customerRequestMessage(requestError, 'We could not add this piece to your cart.')
+    toast.add({ title: 'Cart not updated', description: addError.value, color: 'error' })
   } finally {
     isAdding.value = false
   }
@@ -168,8 +176,15 @@ function formatAttribute(value: string): string {
   return displayCode(value)
 }
 
+function handlePreviewKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') isImagePreviewOpen.value = false
+}
+
+onMounted(() => document.addEventListener('keydown', handlePreviewKeydown))
+
 onBeforeUnmount(() => {
   if (feedbackTimer) clearTimeout(feedbackTimer)
+  document.removeEventListener('keydown', handlePreviewKeydown)
 })
 
 useHead(() => ({
@@ -217,8 +232,17 @@ useHead(() => ({
             </button>
           </div>
           <div class="product-main-image">
-            <img :src="mainImage?.url" :alt="mainImage?.alt_text || product.name">
-            <span v-if="product.badge" :class="{ sale: product.is_sale }">{{ product.badge }}</span>
+            <button
+              type="button"
+              class="product-image-preview-trigger"
+              aria-label="Open larger product image"
+              title="View larger image"
+              @click="isImagePreviewOpen = true"
+            >
+              <img :src="mainImage?.url" :alt="mainImage?.alt_text || product.name">
+              <span class="product-image-zoom" aria-hidden="true"><UIcon name="i-lucide-zoom-in" /></span>
+            </button>
+            <span v-if="product.badge" class="product-detail-badge" :class="{ sale: product.is_sale }">{{ product.badge }}</span>
             <button
               type="button"
               class="favorite-button"
@@ -281,11 +305,11 @@ useHead(() => ({
               <span>{{ quantity }}</span>
               <button type="button" aria-label="Increase quantity" :disabled="!selectedVariant || quantity >= maximumQuantity" @click="changeQuantity(1)"><UIcon name="i-lucide-plus" /></button>
             </div>
-            <button class="product-add-button" type="button" :disabled="!canAddToBag" @click="addToBag">
+            <button class="product-add-button" type="button" :disabled="!canAddToCart" @click="addToCart">
               <UIcon v-if="isAdding" name="i-lucide-loader-circle" class="is-spinning" />
               <UIcon v-else-if="isAdded" name="i-lucide-check" />
-              <UIcon v-else name="i-lucide-shopping-bag" />
-              {{ isAdded ? 'Added' : selectedVariant ? (availableStock > 0 ? 'Add to bag' : 'Sold out') : 'Select options' }}
+              <UIcon v-else name="i-lucide-shopping-cart" />
+              {{ isAdded ? 'Added' : selectedVariant ? (availableStock > 0 ? 'Add to cart' : 'Sold out') : 'Select options' }}
             </button>
           </div>
           <p v-if="selectedVariant && availableStock > 0" class="stock-line">{{ availableStock }} in stock · {{ selectedVariant.sku }}</p>
@@ -337,6 +361,30 @@ useHead(() => ({
           <ProductCard v-for="item in relatedProducts" :key="item.id" :product="item" />
         </div>
       </section>
+
+      <Teleport to="body">
+        <div
+          v-if="isImagePreviewOpen"
+          class="product-image-preview"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Product image preview"
+          @click.self="isImagePreviewOpen = false"
+        >
+          <div class="product-image-preview-panel">
+            <button
+              type="button"
+              class="product-image-preview-close"
+              aria-label="Close image preview"
+              title="Close image preview"
+              @click="isImagePreviewOpen = false"
+            >
+              <UIcon name="i-lucide-x" />
+            </button>
+            <img :src="mainImage?.url" :alt="mainImage?.alt_text || product.name">
+          </div>
+        </div>
+      </Teleport>
     </template>
 
     <StoreFooter />
@@ -394,6 +442,7 @@ useHead(() => ({
 .product-detail {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(360px, .8fr);
+  align-items: start;
   gap: clamp(36px, 6vw, 90px);
   padding-top: 16px;
   padding-bottom: 102px;
@@ -403,13 +452,17 @@ useHead(() => ({
   min-width: 0;
   display: grid;
   grid-template-columns: 82px minmax(0, 1fr);
+  align-items: start;
+  align-self: start;
   gap: 12px;
 }
 
 .product-thumbnails {
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 9px;
+  overflow-y: auto;
 }
 
 .product-thumbnails button {
@@ -426,7 +479,7 @@ useHead(() => ({
 }
 
 .product-thumbnails img,
-.product-main-image > img {
+.product-image-preview-trigger img {
   width: 100%;
   height: 100%;
   display: block;
@@ -435,13 +488,45 @@ useHead(() => ({
 
 .product-main-image {
   position: relative;
-  min-height: 680px;
+  min-height: 0;
+  aspect-ratio: .8;
   overflow: hidden;
   background: #ded6d5;
 }
 
-.product-main-image > span {
+.product-image-preview-trigger {
   position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.product-image-zoom {
+  position: absolute;
+  right: 15px;
+  bottom: 15px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--store-ink);
+  background: rgba(255, 255, 255, .9);
+}
+
+.product-image-zoom .iconify {
+  width: 17px;
+  height: 17px;
+}
+
+.product-detail-badge {
+  position: absolute;
+  z-index: 2;
   top: 18px;
   left: 18px;
   padding: 7px 10px;
@@ -451,12 +536,13 @@ useHead(() => ({
   font-size: 9px;
 }
 
-.product-main-image > span.sale {
+.product-detail-badge.sale {
   background: var(--store-wine);
 }
 
 .favorite-button {
   position: absolute;
+  z-index: 2;
   top: 14px;
   right: 14px;
   width: 40px;
@@ -478,6 +564,57 @@ useHead(() => ({
 
 .favorite-button.active .iconify {
   fill: currentColor;
+}
+
+.product-image-preview {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(28, 21, 25, .72);
+}
+
+.product-image-preview-panel {
+  position: relative;
+  width: min(900px, calc(100vw - 64px));
+  max-height: calc(100vh - 64px);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(16, 10, 13, .3);
+}
+
+.product-image-preview-panel img {
+  width: 100%;
+  max-height: calc(100vh - 96px);
+  display: block;
+  object-fit: contain;
+}
+
+.product-image-preview-close {
+  position: absolute;
+  z-index: 1;
+  top: 24px;
+  right: 24px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--store-ink);
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 4px 16px rgba(16, 10, 13, .16);
+  cursor: pointer;
+}
+
+.product-image-preview-close .iconify {
+  width: 19px;
+  height: 19px;
 }
 
 .product-purchase {
@@ -838,6 +975,7 @@ useHead(() => ({
     grid-row: 2;
     flex-direction: row;
     overflow-x: auto;
+    overflow-y: hidden;
   }
 
   .product-thumbnails button {
@@ -858,6 +996,20 @@ useHead(() => ({
   .attribute-list,
   .care-list {
     grid-column: 1 / -1;
+  }
+
+  .product-image-preview {
+    padding: 16px;
+  }
+
+  .product-image-preview-panel {
+    width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px);
+    padding: 10px;
+  }
+
+  .product-image-preview-panel img {
+    max-height: calc(100vh - 52px);
   }
 }
 </style>

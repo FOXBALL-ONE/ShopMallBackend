@@ -98,7 +98,6 @@ class Product(
     var highlights: MutableList<String> = mutableListOf(),
 
     /** 面料组成及百分比；填写时总和必须为 100%。 */
-    @field:Valid
     @field:ValidationSize(max = 10)
     @ElementCollection(fetch = FetchType.LAZY)
     @BatchSize(size = 100)
@@ -114,10 +113,9 @@ class Product(
         ],
     )
     @OrderColumn(name = "sort_order")
-    var materials: MutableList<MaterialComponent> = mutableListOf(),
+    var materials: MutableList<@Valid MaterialComponent> = mutableListOf(),
 
     /** 商品类型私有属性；显示名和值域由 ProductAttributeDefinition 提供。 */
-    @field:Valid
     @field:ValidationSize(max = 30)
     @ElementCollection(fetch = FetchType.LAZY)
     @BatchSize(size = 100)
@@ -133,10 +131,9 @@ class Product(
         ],
     )
     @OrderColumn(name = "sort_order")
-    var attributes: MutableList<ProductAttribute> = mutableListOf(),
+    var attributes: MutableList<@Valid ProductAttribute> = mutableListOf(),
 
     /** 商品图片及无障碍说明；有图时必须且只能有一张主图。 */
-    @field:Valid
     @field:ValidationSize(max = 12)
     @ElementCollection(fetch = FetchType.LAZY)
     @BatchSize(size = 100)
@@ -152,7 +149,7 @@ class Product(
         ],
     )
     @OrderColumn(name = "sort_order")
-    var images: MutableList<ProductImage> = mutableListOf(),
+    var images: MutableList<@Valid ProductImage> = mutableListOf(),
 
     @field:ValidationSize(max = 255)
     @Column(name = "fit_sense", length = 255)
@@ -175,7 +172,6 @@ class Product(
     @Column(name = "detail", nullable = false, length = 255)
     var designAndExtras: MutableList<String> = mutableListOf(),
 
-    @field:Valid
     @field:ValidationSize(max = 12)
     @ElementCollection(fetch = FetchType.LAZY)
     @BatchSize(size = 100)
@@ -185,7 +181,7 @@ class Product(
         indexes = [Index(name = "idx_products_care_instructions_product_id", columnList = "product_id")],
     )
     @OrderColumn(name = "sort_order")
-    var careInstructions: MutableList<CareInstruction> = mutableListOf(),
+    var careInstructions: MutableList<@Valid CareInstruction> = mutableListOf(),
 
     @ManyToMany(fetch = FetchType.LAZY)
     @BatchSize(size = 100)
@@ -224,7 +220,6 @@ class Product(
     var version: Long = 0,
 ) {
     @get:JsonIgnore
-    @field:Valid
     @OneToMany(
         mappedBy = "product",
         fetch = FetchType.LAZY,
@@ -232,8 +227,8 @@ class Product(
         orphanRemoval = true,
     )
     @BatchSize(size = 100)
-    final var variants: MutableList<ProductVariant> = mutableListOf()
-        private set
+    var variants: MutableList<@Valid ProductVariant> = mutableListOf()
+        protected set
 
     @get:JsonIgnore
     @OneToMany(mappedBy = "product", fetch = FetchType.LAZY)
@@ -339,7 +334,6 @@ class ProductVariant(
     var status: Status = Status.INACTIVE,
 
     /** SKU 私有规格，例如比基尼 top_size 与 bottom_size。 */
-    @field:Valid
     @field:ValidationSize(max = 20)
     @ElementCollection(fetch = FetchType.LAZY)
     @BatchSize(size = 100)
@@ -355,7 +349,7 @@ class ProductVariant(
         ],
     )
     @OrderColumn(name = "sort_order")
-    var attributes: MutableList<ProductVariantAttribute> = mutableListOf(),
+    var attributes: MutableList<@Valid ProductVariantAttribute> = mutableListOf(),
 
     /** 由规范化 size、color 和 Variant 属性生成的稳定规格签名。 */
     @field:NotBlank

@@ -1,7 +1,5 @@
 package top.foxball.shopmall.entity.redis
 
-import lombok.AllArgsConstructor
-import lombok.Data
 import org.springframework.data.annotation.Id
 import org.springframework.data.annotation.Transient
 import org.springframework.data.redis.core.RedisHash

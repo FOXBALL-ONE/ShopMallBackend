@@ -327,7 +327,7 @@ onBeforeUnmount(() => {
 
     <div class="checkout-progress-wrap">
       <nav class="store-container checkout-progress" aria-label="Checkout progress">
-        <NuxtLink to="/cart"><span>01</span> Bag</NuxtLink>
+        <NuxtLink to="/cart"><span>01</span> Cart</NuxtLink>
         <UIcon name="i-lucide-chevron-right" />
         <strong><span>02</span> Delivery</strong>
         <UIcon name="i-lucide-chevron-right" />
@@ -439,7 +439,7 @@ onBeforeUnmount(() => {
       <aside class="order-summary">
         <div class="summary-heading">
           <div><p>03 / YOUR ORDER</p><h2>Order summary</h2></div>
-          <NuxtLink v-if="!pendingOrder" to="/cart">Edit bag</NuxtLink>
+          <NuxtLink v-if="!pendingOrder" to="/cart">Edit cart</NuxtLink>
         </div>
 
         <div v-if="lines.length" class="checkout-lines">
@@ -454,8 +454,8 @@ onBeforeUnmount(() => {
           </article>
         </div>
         <div v-else class="summary-empty">
-          <UIcon name="i-lucide-shopping-bag" />
-          <strong>Your bag is empty</strong>
+          <UIcon name="i-lucide-shopping-cart" />
+          <strong>Your cart is empty</strong>
           <NuxtLink to="/collections/shop">Return to the shop</NuxtLink>
         </div>
 

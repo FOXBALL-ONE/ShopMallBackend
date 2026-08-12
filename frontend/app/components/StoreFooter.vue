@@ -27,6 +27,7 @@ const { data: catalogCategories } = await useCatalogCategories()
         <strong>Explore</strong>
         <NuxtLink to="/collections/shop">The full collection</NuxtLink>
         <NuxtLink to="/search">Search</NuxtLink>
+        <NuxtLink to="/announcements">Notices</NuxtLink>
         <NuxtLink to="/product/1">Fit &amp; details</NuxtLink>
         <NuxtLink to="/account">My account</NuxtLink>
       </div>

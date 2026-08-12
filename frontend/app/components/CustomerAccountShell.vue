@@ -32,7 +32,7 @@ const navItems: AccountNavItem[] = [
   { label: 'Profile', note: 'Details & preferences', to: '/account/profile', icon: 'i-lucide-circle-user-round' },
   { label: 'Orders', note: 'History & status', to: '/account/orders', icon: 'i-lucide-receipt-text' },
   { label: 'Delivery', note: 'Track your parcels', to: '/account/logistics', icon: 'i-lucide-truck' },
-  { label: 'Shopping bag', note: 'Pieces waiting for you', to: '/cart', icon: 'i-lucide-shopping-bag' }
+  { label: 'Shopping cart', note: 'Pieces waiting for you', to: '/cart', icon: 'i-lucide-shopping-cart' }
 ]
 
 const displayName = computed(() => {

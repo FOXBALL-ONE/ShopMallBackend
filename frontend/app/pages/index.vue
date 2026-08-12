@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const catalogApi = useCatalogApi()
 const {
@@ -16,6 +16,9 @@ const {
 } = await useCatalogCategories()
 
 const router = useRouter()
+const session = useCustomerSession()
+const customerCart = useCustomerCart()
+const announcementCenter = useAnnouncementCenter()
 
 useHead({
   title: 'Pelissa | Modern lingerie',
@@ -121,7 +124,7 @@ const currencyOptions: StoreCurrency[] = [
 
 const isMenuOpen = ref(false)
 const isSearchOpen = ref(false)
-const isBagOpen = ref(false)
+const isCartOpen = ref(false)
 const isLocationMenuOpen = ref(false)
 const isCurrencyMenuOpen = ref(false)
 const activeSlide = ref(0)
@@ -136,6 +139,7 @@ const activeHero = computed<HeroSlide>(() => heroSlides[activeSlide.value] ?? he
 const activeHeroLink = computed(() => firstCategoryLink.value)
 const locationLabel = computed(() => locationOptions.find(option => option.value === selectedLocation.value)?.label ?? locationOptions[0]!.label)
 const currencyLabel = computed(() => selectedCurrency.value)
+const cartCount = computed(() => customerCart.totalQuantity.value)
 
 function setActiveSlide(index: number) {
   activeSlide.value = index
@@ -152,11 +156,29 @@ function nextSlide() {
 function toggleMenu() {
   isMenuOpen.value = !isMenuOpen.value
   isSearchOpen.value = false
+  isCartOpen.value = false
 }
 
 function toggleSearch() {
   isSearchOpen.value = !isSearchOpen.value
   isMenuOpen.value = false
+  isCartOpen.value = false
+}
+
+function toggleCart() {
+  isCartOpen.value = !isCartOpen.value
+  isMenuOpen.value = false
+  isSearchOpen.value = false
+  isLocationMenuOpen.value = false
+  isCurrencyMenuOpen.value = false
+}
+
+async function refreshCart(force = false) {
+  try {
+    await customerCart.refresh(force)
+  } catch {
+    // The shared cart popover displays refresh failures when opened.
+  }
 }
 
 function selectLocation(value: string) {
@@ -188,7 +210,13 @@ onMounted(() => {
   const savedCurrency = localStorage.getItem('pelissa-currency')
   if (locationOptions.some(option => option.value === savedLocation)) selectedLocation.value = savedLocation!
   if (currencyOptions.some(option => option.value === savedCurrency)) selectedCurrency.value = savedCurrency!
+  if (session.isAuthenticated.value) void refreshCart()
   carouselTimer = setInterval(nextSlide, 8000)
+})
+
+watch(() => session.userId.value, userId => {
+  if (userId) void refreshCart(true)
+  else customerCart.reset()
 })
 
 onBeforeUnmount(() => {
@@ -253,6 +281,12 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
+        <NuxtLink class="utility-link utility-notices" to="/announcements">
+          <UIcon name="i-lucide-megaphone" /> Notices
+          <b v-if="announcementCenter.currentCount.value">
+            {{ announcementCenter.currentCount.value >= 50 ? '50+' : announcementCenter.currentCount.value }}
+          </b>
+        </NuxtLink>
         <button class="utility-link utility-help" type="button">Help</button>
       </div>
 
@@ -272,9 +306,9 @@ onBeforeUnmount(() => {
           <NuxtLink class="icon-button desktop-only" to="/account" aria-label="My account">
             <UIcon name="i-lucide-user-round" />
           </NuxtLink>
-          <button class="icon-button bag-button" type="button" aria-label="Shopping bag" @click="isBagOpen = !isBagOpen">
-            <UIcon name="i-lucide-shopping-bag" />
-            <span class="bag-count">0</span>
+          <button class="icon-button cart-button" type="button" aria-label="Shopping cart" @click="toggleCart">
+            <UIcon name="i-lucide-shopping-cart" />
+            <span v-if="cartCount" class="cart-count">{{ cartCount > 99 ? '99+' : cartCount }}</span>
           </button>
         </div>
       </div>
@@ -295,14 +329,7 @@ onBeforeUnmount(() => {
         <button type="button" aria-label="Close search" @click="isSearchOpen = false"><UIcon name="i-lucide-x" /></button>
       </form>
 
-      <aside v-if="isBagOpen" class="bag-popover" aria-label="Shopping bag">
-        <div>
-          <strong>Your bag is empty</strong>
-          <p>Your lingerie picks will appear here.</p>
-          <NuxtLink class="bag-view-link" to="/cart" @click="isBagOpen = false">View your bag</NuxtLink>
-        </div>
-        <button type="button" aria-label="Close shopping bag" @click="isBagOpen = false"><UIcon name="i-lucide-x" /></button>
-      </aside>
+      <StoreCartPopover v-if="isCartOpen" @close="isCartOpen = false" />
     </header>
 
     <section id="top" class="hero" :style="{ '--hero-image': `url(${activeHero.image})`, '--hero-position': activeHero.position }">
@@ -477,6 +504,7 @@ onBeforeUnmount(() => {
           <strong>About</strong>
           <NuxtLink to="/search?q=story">Our story</NuxtLink>
           <NuxtLink to="/search?q=journal">Journal</NuxtLink>
+          <NuxtLink to="/announcements">Notices</NuxtLink>
           <NuxtLink to="/search?q=size">Size guide</NuxtLink>
           <NuxtLink to="/search?q=care">Careers</NuxtLink>
         </div>
@@ -533,7 +561,8 @@ a { color: inherit; text-decoration: none; }
 .utility-menu button { width: 100%; min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 0 9px; border: 0; color: var(--ink); background: transparent; font-family: 'DM Sans', Arial, sans-serif; font-size: 13px; text-align: left; cursor: pointer; }
 .utility-menu button:hover, .utility-menu button.active { background: var(--linen); }
 .utility-menu .iconify { width: 14px; height: 14px; color: var(--coral); }
-.utility-help { margin-left: auto; }
+.utility-notices { margin-left: auto; text-decoration: none; }
+.utility-notices b { min-width: 17px; height: 17px; display: inline-grid; place-items: center; padding: 0 4px; border-radius: 9px; color: #fff; background: var(--coral); font-size: 9px; }
 .brand-row { height: 75px; width: min(100% - 64px, 1440px); margin: auto; position: relative; display: flex; justify-content: center; align-items: center; }
 .brand { display: inline-flex; align-items: flex-start; color: var(--ink); font-size: 28px; font-weight: 700; letter-spacing: .09em; line-height: 1; }
 .brand i { margin: -3px 0 0 3px; color: var(--coral); font-family: Georgia, serif; font-size: 21px; font-style: normal; }
@@ -541,7 +570,7 @@ a { color: inherit; text-decoration: none; }
 .icon-button { position: relative; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .icon-button .iconify { width: 19px; height: 19px; stroke-width: 1.6; }
 .icon-button:hover { background: var(--linen); }
-.bag-count { position: absolute; top: 6px; right: 2px; min-width: 14px; height: 14px; display: grid; place-items: center; padding: 0 3px; border-radius: 50%; color: #fff; background: var(--coral); font-size: 8px; line-height: 1; }
+.cart-count { position: absolute; top: 6px; right: 2px; min-width: 14px; height: 14px; display: grid; place-items: center; padding: 0 3px; border-radius: 50%; color: #fff; background: var(--coral); font-size: 8px; line-height: 1; }
 .main-nav { height: 46px; display: flex; align-items: center; justify-content: center; gap: clamp(20px, 3vw, 48px); border-top: 1px solid var(--line); }
 .main-nav a { position: relative; padding: 5px 0; font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; }
 .main-nav a:last-child { color: var(--coral); }
@@ -552,12 +581,6 @@ a { color: inherit; text-decoration: none; }
 .search-panel .iconify { width: 19px; height: 19px; }
 .search-panel input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 13px; }
 .search-panel button { display: grid; place-items: center; padding: 0; border: 0; background: transparent; cursor: pointer; }
-.bag-popover { position: absolute; right: max(32px, calc((100vw - 1440px) / 2)); top: 46px; display: flex; justify-content: space-between; gap: 32px; width: min(100% - 64px, 330px); padding: 24px; background: #fff; border: 1px solid var(--ink); box-shadow: 0 10px 22px rgba(28, 37, 32, .12); }
-.bag-popover strong { font-size: 14px; }
-.bag-popover p { margin: 7px 0 0; color: #666d67; font-size: 12px; line-height: 1.5; }
-.bag-view-link { display: inline-flex; margin-top: 14px; padding-bottom: 3px; border-bottom: 1px solid currentColor; color: var(--coral); font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase; }
-.bag-view-link:hover { color: var(--ink); }
-.bag-popover button { height: 22px; padding: 0; border: 0; background: none; cursor: pointer; }
 
 .hero { --hero-image: none; --hero-position: center; position: relative; min-height: min(690px, calc(100vh - 190px)); display: flex; align-items: end; background-image: var(--hero-image); background-position: var(--hero-position); background-size: cover; color: #fff; transition: background-image .45s ease; }
 .hero-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(30, 16, 22, .52) 0%, rgba(30, 16, 22, .17) 53%, rgba(30, 16, 22, .05) 100%); }
@@ -700,7 +723,7 @@ a { color: inherit; text-decoration: none; }
 
 /* Keep the darker utility surfaces within the Pelissa palette. */
 .utility-row { color: #706469; }
-.search-panel, .bag-popover { box-shadow: 0 10px 22px rgba(36, 29, 33, .12); }
+.search-panel { box-shadow: 0 10px 22px rgba(36, 29, 33, .12); }
 .hero-shade { background: linear-gradient(90deg, rgba(30, 16, 22, .52) 0%, rgba(30, 16, 22, .17) 53%, rgba(30, 16, 22, .05) 100%); }
 .section-heading > p:not(.eyebrow) { color: #746a6e; }
 .product-image { background-color: #d7c9cc; }
@@ -716,7 +739,7 @@ a { color: inherit; text-decoration: none; }
   .desktop-only { display: none; }
   .mobile-only { display: grid !important; position: absolute; left: 0; }
   .utility-row { justify-content: space-between; height: 38px; font-size: 11px; }
-  .utility-help { margin-left: 0; }
+  .utility-notices { margin-left: 0; }
   .location-link { display: none; }
   .brand-row { height: 65px; }
   .brand { font-size: 22px; letter-spacing: .07em; }
@@ -727,7 +750,7 @@ a { color: inherit; text-decoration: none; }
   .main-nav .mobile-account-nav { display: flex; align-items: center; gap: 9px; color: var(--coral); }
   .mobile-account-nav .iconify { width: 16px; height: 16px; }
   .main-nav a:last-child { border: 0; }
-  .search-panel, .bag-popover { right: 16px; top: 99px; width: calc(100% - 32px); }
+  .search-panel { right: 16px; top: 99px; width: calc(100% - 32px); }
   .hero { min-height: 620px; }
   .hero-content { width: min(100% - 32px, 1440px); padding-bottom: 73px; }
   .hero-controls { right: 16px; left: 16px; bottom: 22px; }

@@ -60,10 +60,9 @@ class SupportTicketMessage(
     var content: String? = null,
 
     /** 消息附件，文件元数据由现有文件服务管理。 */
-    @field:Valid
     @OneToMany(mappedBy = "message", cascade = [CascadeType.ALL], orphanRemoval = true)
     @OrderBy("createdAt ASC, id ASC")
-    var attachments: MutableList<SupportTicketMessageAttachment> = mutableListOf(),
+    var attachments: MutableList<@Valid SupportTicketMessageAttachment> = mutableListOf(),
 
     /** 消息创建时间。 */
     @CreationTimestamp
