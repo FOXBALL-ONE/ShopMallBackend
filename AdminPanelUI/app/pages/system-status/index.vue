@@ -69,6 +69,30 @@ const databasePoolUsage = computed(() => {
   return Math.min(100, (database.active_connections / database.max_connections) * 100)
 })
 
+const databasePoolSize = computed(() => {
+  const database = snapshot.value?.database
+  if (database?.active_connections === null || database?.active_connections === undefined) return null
+  if (database.idle_connections === null || database.idle_connections === undefined) return null
+  return database.active_connections + database.idle_connections
+})
+
+const databaseAvailableConnections = computed(() => {
+  const database = snapshot.value?.database
+  if (database?.active_connections === null || database?.active_connections === undefined) return null
+  if (database.max_connections === null || database.max_connections === undefined) return null
+  return Math.max(0, database.max_connections - database.active_connections)
+})
+
+const databaseHealthDetails = computed(() => snapshot.value?.health_components
+  .filter(component => component.id === 'db' || component.id.startsWith('db.'))
+  .flatMap(component => Object.entries(component.details ?? {})
+    .filter(([key]) => !['database', 'validationQuery'].includes(key))
+    .map(([key, value]) => ({
+      id: component.id,
+      key,
+      value,
+    }))) ?? [])
+
 const serverErrorRate = computed(() => {
   const http = snapshot.value?.http
   if (!http?.request_count) return 0
@@ -156,12 +180,26 @@ function componentDetailLabel(key: string): string {
     validChains: '有效证书链',
     invalidChains: '无效证书链',
     error: '异常',
+    message: '诊断信息',
+    description: '说明',
+    name: '名称',
+    host: '主机',
+    port: '端口',
+    url: '服务地址',
+    active: '活跃连接',
+    idle: '空闲连接',
+    min: '最小连接',
+    max: '最大连接',
+    pending: '等待连接',
+    pool: '连接池',
     cluster_size: '集群分片',
     known_nodes: '集群节点',
     slots_up: '正常槽位',
     slots_fail: '故障槽位',
   }
   return labels[key] ?? key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replaceAll('_', ' ')
 }
 
 function healthDetail(componentId: string, key: string): string | undefined {
@@ -245,6 +283,20 @@ function formatComponentDetail(key: string, value: string): string {
   if (value === 'false') return '否'
   if (/^-?\d+$/.test(value)) return formatNumber(Number(value))
   return value
+}
+
+function healthComponentSummary(component: SystemStatusSnapshot['health_components'][number]): string {
+  const detailCount = Object.keys(component.details ?? {}).length
+  if (component.status === 'UP') {
+    return detailCount > 0 ? `检查通过，返回 ${detailCount} 项诊断信息` : '检查通过，未返回额外诊断信息'
+  }
+  if (component.status === 'DOWN' || component.status === 'OUT_OF_SERVICE') {
+    return detailCount > 0 ? `检查未通过，返回 ${detailCount} 项诊断信息` : '检查未通过，未返回额外诊断信息'
+  }
+  if (component.status === 'DEGRADED') {
+    return detailCount > 0 ? `服务降级，返回 ${detailCount} 项诊断信息` : '服务降级，未返回额外诊断信息'
+  }
+  return detailCount > 0 ? `状态未知，返回 ${detailCount} 项诊断信息` : '状态未知，未返回额外诊断信息'
 }
 
 function formatPercent(value: number | null | undefined): string {
@@ -521,9 +573,22 @@ onBeforeUnmount(() => {
               <span>上限 {{ formatNumber(snapshot?.database.max_connections) }}</span>
             </div>
             <div class="detail-list dependency-detail-list">
+              <div>
+                <span>当前池规模</span>
+                <strong>{{ formatNumber(databasePoolSize) }} / {{ formatNumber(snapshot?.database.max_connections) }}</strong>
+              </div>
+              <div>
+                <span>连接利用率</span>
+                <strong :class="{ 'danger-text': databasePoolUsage >= 85 }">{{ databasePoolUsage.toFixed(1) }}%</strong>
+              </div>
+              <div><span>剩余可用连接</span><strong>{{ formatNumber(databaseAvailableConnections) }}</strong></div>
               <div><span>最小连接</span><strong>{{ formatNumber(snapshot?.database.min_connections) }}</strong></div>
               <div><span>数据库类型</span><strong>{{ healthDetail('db', 'database') ?? '--' }}</strong></div>
               <div><span>连接验证</span><strong>{{ healthDetail('db', 'validationQuery') ?? '--' }}</strong></div>
+              <div v-for="detail in databaseHealthDetails" :key="`${detail.id}-${detail.key}`">
+                <span>{{ componentDetailLabel(detail.key) }}</span>
+                <strong>{{ formatComponentDetail(detail.key, detail.value) }}</strong>
+              </div>
             </div>
           </NCard>
 
@@ -586,6 +651,7 @@ onBeforeUnmount(() => {
                 <div>
                   <strong>{{ componentLabel(component.id) }}</strong>
                   <span>{{ component.id }}</span>
+                  <small>{{ healthComponentSummary(component) }}</small>
                 </div>
                 <NTag size="small" :type="statusType(component.status)" :bordered="false">
                   {{ statusLabel(component.status) }}
@@ -596,6 +662,9 @@ onBeforeUnmount(() => {
                   <span>{{ componentDetailLabel(key) }}</span>
                   <strong>{{ formatComponentDetail(key, value) }}</strong>
                 </div>
+              </div>
+              <div v-else class="component-details component-details-empty">
+                <span>该健康检查未返回额外诊断信息</span>
               </div>
             </div>
             <NEmpty v-if="!otherHealthComponents.length" size="small" description="暂无其他健康组件" />
@@ -915,6 +984,14 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
+.health-row small {
+  margin-top: 4px;
+  color: #71717a;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .component-details {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -922,6 +999,12 @@ onBeforeUnmount(() => {
   margin-top: 10px;
   padding-top: 7px;
   border-top: 1px dashed #e4e4e7;
+}
+
+.component-details-empty {
+  display: block;
+  color: #71717a;
+  font-size: 12px;
 }
 
 .component-detail {
