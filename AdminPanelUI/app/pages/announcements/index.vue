@@ -187,6 +187,7 @@ async function openEdit(row: AdminAnnouncementListItem) {
 async function save() {
   try { await formRef.value?.validate() } catch { return }
   const input = formInput()
+  if (!input.title) { message.error('请输入公告标题'); return }
   if (input.effectiveUntil && input.effectiveUntil <= input.effectiveFrom) { message.error('失效时间必须晚于生效时间'); return }
   if (input.autoShowEnabled && !input.publicHistory) { message.error('开启主动展示时必须允许公开保留历史公告'); return }
   if (input.autoShowMode === 'COOLDOWN' && (!input.autoShowCooldownHours || input.autoShowCooldownHours < 1 || input.autoShowCooldownHours > 720)) {
@@ -269,20 +270,38 @@ onMounted(() => { void loadAnnouncements() })
       <NCard size="small" :bordered="false" content-style="padding: 0"><NDataTable :columns="columns" :data="announcements" :loading="loading" :scroll-x="1300" :single-line="false" /><div class="table-footer"><NText depth="3">共 {{ pagination.total }} 条公告</NText><NPagination v-model:page="pagination.page" :page-count="pagination.pageCount" :page-size="pagination.pageSize" show-size-picker :page-sizes="[10, 25, 50, 100]" @update:page="changePage" @update:page-size="changePageSize" /></div></NCard>
     </NSpace>
 
-    <NModal v-model:show="editorOpen" preset="card" :title="editorTitle" class="editor-modal" :mask-closable="!saving" :closable="!saving">
-      <NAlert v-if="editing?.status === 'PUBLISHED' || editing?.status === 'SCHEDULED'" type="warning" :show-icon="true" style="margin-bottom: 16px">修改已发布或已排期公告会立即影响客户可见内容、优先级和主动展示策略。</NAlert>
-      <NForm ref="formRef" :model="form" :rules="formRules" label-placement="top">
-        <NGrid cols="1 m:2" :x-gap="14" responsive="screen"><NFormItem label="公告标题" path="title"><NInput v-model:value="form.title" maxlength="120" show-count placeholder="例如：配送服务调整通知" /></NFormItem><NFormItem label="公告类型" path="type"><NSelect v-model:value="form.type" :options="ANNOUNCEMENT_TYPE_OPTIONS" /></NFormItem></NGrid>
-        <NFormItem label="公告摘要" path="summary"><NInput v-model:value="form.summary" type="textarea" :autosize="{ minRows: 2, maxRows: 3 }" maxlength="255" show-count /></NFormItem>
-        <NFormItem label="公告正文（纯文本安全渲染）" path="content"><NInput v-model:value="form.content" type="textarea" :autosize="{ minRows: 7, maxRows: 14 }" maxlength="20000" show-count /></NFormItem>
-        <NGrid cols="1 s:2 m:4" :x-gap="14" responsive="screen"><NFormItem label="优先级" path="priority"><NInputNumber v-model:value="form.priority" :min="0" :max="100" style="width: 100%" /></NFormItem><NFormItem :label="`生效时间（${announcementTimeZone}）`" path="effectiveFrom"><input v-model="form.effectiveFrom" class="datetime-input" type="datetime-local"></NFormItem><NFormItem :label="`失效时间（${announcementTimeZone}）`"><input v-model="form.effectiveUntil" class="datetime-input" type="datetime-local"></NFormItem><NFormItem label="跳转链接"><NInput v-model:value="form.actionUrl" placeholder="/collections/new 或 https://…" maxlength="512" /></NFormItem></NGrid>
-        <NDivider>历史与主动展示</NDivider>
-        <NGrid cols="1 m:2" :x-gap="18" responsive="screen"><NFormItem label="公开历史公告"><NSwitch v-model:value="form.publicHistory"><template #checked>公开</template><template #unchecked>不公开</template></NSwitch></NFormItem><NFormItem label="网站加载完成后主动展示"><NSwitch v-model:value="form.autoShowEnabled"><template #checked>开启</template><template #unchecked>关闭</template></NSwitch></NFormItem></NGrid>
-        <NGrid v-if="form.autoShowEnabled" cols="1 m:2" :x-gap="14" responsive="screen"><NFormItem label="主动展示模式"><NSelect v-model:value="form.autoShowMode" :options="ANNOUNCEMENT_AUTO_SHOW_MODE_OPTIONS" /></NFormItem><NFormItem v-if="cooldownRequired" label="冷却时间（小时）"><NInputNumber v-model:value="form.autoShowCooldownHours" :min="1" :max="720" style="width: 100%" /></NFormItem></NGrid>
-        <NAlert v-if="form.autoShowEnabled && form.autoShowMode === 'EVERY_LOAD'" type="warning" :show-icon="true">每次加载都会由客户端请求候选，适合紧急公告；请谨慎使用。</NAlert>
-      </NForm>
-      <template #footer><NSpace justify="end"><NButton :disabled="saving" @click="editorOpen = false">取消</NButton><NButton type="primary" :loading="saving" @click="save">保存</NButton></NSpace></template>
-    </NModal>
+    <NDrawer
+      v-model:show="editorOpen"
+      width="min(920px, 100vw)"
+      placement="right"
+      :mask-closable="!saving"
+      :close-on-esc="!saving"
+    >
+      <NDrawerContent :title="editorTitle" :closable="!saving" :native-scrollbar="false">
+        <NAlert v-if="editing?.status === 'PUBLISHED' || editing?.status === 'SCHEDULED'" type="warning" :show-icon="true" style="margin-bottom: 16px">修改已发布或已排期公告会立即影响客户可见内容、优先级和主动展示策略。</NAlert>
+        <NForm ref="formRef" :model="form" :rules="formRules" label-placement="top">
+          <NFormItem label="公告标题" path="title" required>
+            <NInput
+              v-model:value="form.title"
+              maxlength="120"
+              show-count
+              clearable
+              autofocus
+              placeholder="例如：配送服务调整通知"
+            />
+          </NFormItem>
+          <NFormItem label="公告类型" path="type"><NSelect v-model:value="form.type" :options="ANNOUNCEMENT_TYPE_OPTIONS" /></NFormItem>
+          <NFormItem label="公告摘要" path="summary"><NInput v-model:value="form.summary" type="textarea" :autosize="{ minRows: 2, maxRows: 3 }" maxlength="255" show-count /></NFormItem>
+          <NFormItem label="公告正文（纯文本安全渲染）" path="content"><NInput v-model:value="form.content" type="textarea" :autosize="{ minRows: 7, maxRows: 14 }" maxlength="20000" show-count /></NFormItem>
+          <NGrid cols="1 s:2 m:4" :x-gap="14" responsive="screen"><NFormItem label="优先级" path="priority"><NInputNumber v-model:value="form.priority" :min="0" :max="100" style="width: 100%" /></NFormItem><NFormItem :label="`生效时间（${announcementTimeZone}）`" path="effectiveFrom"><input v-model="form.effectiveFrom" class="datetime-input" type="datetime-local"></NFormItem><NFormItem :label="`失效时间（${announcementTimeZone}）`"><input v-model="form.effectiveUntil" class="datetime-input" type="datetime-local"></NFormItem><NFormItem label="跳转链接"><NInput v-model:value="form.actionUrl" placeholder="/collections/new 或 https://…" maxlength="512" /></NFormItem></NGrid>
+          <NDivider>历史与主动展示</NDivider>
+          <NGrid cols="1 m:2" :x-gap="18" responsive="screen"><NFormItem label="公开历史公告"><NSwitch v-model:value="form.publicHistory"><template #checked>公开</template><template #unchecked>不公开</template></NSwitch></NFormItem><NFormItem label="网站加载完成后主动展示"><NSwitch v-model:value="form.autoShowEnabled"><template #checked>开启</template><template #unchecked>关闭</template></NSwitch></NFormItem></NGrid>
+          <NGrid v-if="form.autoShowEnabled" cols="1 m:2" :x-gap="14" responsive="screen"><NFormItem label="主动展示模式"><NSelect v-model:value="form.autoShowMode" :options="ANNOUNCEMENT_AUTO_SHOW_MODE_OPTIONS" /></NFormItem><NFormItem v-if="cooldownRequired" label="冷却时间（小时）"><NInputNumber v-model:value="form.autoShowCooldownHours" :min="1" :max="720" style="width: 100%" /></NFormItem></NGrid>
+          <NAlert v-if="form.autoShowEnabled && form.autoShowMode === 'EVERY_LOAD'" type="warning" :show-icon="true">每次加载都会由客户端请求候选，适合紧急公告；请谨慎使用。</NAlert>
+        </NForm>
+        <template #footer><NSpace justify="end"><NButton :disabled="saving" @click="editorOpen = false">取消</NButton><NButton type="primary" :loading="saving" @click="save">保存</NButton></NSpace></template>
+      </NDrawerContent>
+    </NDrawer>
     <NModal v-model:show="offlineOpen" preset="dialog" title="下线公告" positive-text="确认下线" negative-text="取消" :positive-button-props="{ loading: saving }" @positive-click="offline"><NText>下线后公告会立即从当前公告和主动展示候选中移除。</NText><NInput v-model:value="offlineReason" type="textarea" maxlength="255" show-count placeholder="请填写下线原因" style="margin-top: 14px" /></NModal>
     <NModal v-model:show="auditOpen" preset="card" :title="auditTarget ? `公告 #${auditTarget.id} 的审计记录` : '审计记录'" class="audit-modal"><NSpin :show="auditLoading"><NEmpty v-if="!auditLoading && auditItems.length === 0" description="暂无审计记录" /><NList v-else bordered><NListItem v-for="item in auditItems" :key="item.id"><NThing><template #header>{{ item.action }} · {{ operatorLabel(item.operator_id) }}</template><template #description>{{ formatDate(item.created_at) }}{{ item.reason ? ` · ${item.reason}` : '' }}</template><NCode :code="item.after_snapshot" language="json" word-wrap /></NThing></NListItem></NList></NSpin></NModal>
   </div>
@@ -300,7 +319,6 @@ onMounted(() => { void loadAnnouncements() })
 .table-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid rgba(0, 0, 0, .07); }
 .datetime-input { width: 100%; min-height: 34px; box-sizing: border-box; padding: 6px 10px; border: 1px solid rgb(224, 224, 230); border-radius: 3px; color: rgb(51, 54, 57); }
-.editor-modal { width: min(920px, calc(100vw - 30px)); }
 .audit-modal { width: min(820px, calc(100vw - 30px)); max-height: calc(100vh - 44px); overflow: auto; }
 @media (max-width: 700px) { .page-heading, .table-footer { align-items: stretch; flex-direction: column; } }
 </style>
