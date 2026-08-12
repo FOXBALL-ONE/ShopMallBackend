@@ -97,12 +97,8 @@ const relatedProducts = computed(() => {
     .slice(0, 4)
 })
 
-watch(dimensions, value => {
-  const next: Record<string, string> = {}
-  value.forEach(dimension => {
-    if (dimension.values.length === 1) next[dimension.code] = dimension.values[0]!
-  })
-  selection.value = next
+watch(dimensions, () => {
+  selection.value = {}
   quantity.value = 1
   selectedImage.value = 0
 }, { immediate: true })
@@ -118,11 +114,18 @@ function isOptionAvailable(code: string, value: string): boolean {
 }
 
 function selectOption(code: string, value: string) {
-  const next = { ...selection.value, [code]: value }
-  dimensions.value.forEach(dimension => {
-    if (dimension.code === code || !next[dimension.code]) return
-    if (!matchingVariants(next).length) delete next[dimension.code]
-  })
+  if (!isOptionAvailable(code, value)) return
+
+  const next = { ...selection.value }
+  if (next[code] === value) delete next[code]
+  else next[code] = value
+  selection.value = next
+}
+
+function clearOption(code: string) {
+  if (!selection.value[code]) return
+  const next = { ...selection.value }
+  delete next[code]
   selection.value = next
 }
 
@@ -241,7 +244,19 @@ useHead(() => ({
             <fieldset v-for="dimension in dimensions" :key="dimension.code">
               <legend>
                 <span>{{ dimension.label }}</span>
-                <strong>{{ selection[dimension.code] ? formatAttribute(selection[dimension.code] ?? '') : '—' }}</strong>
+                <strong>
+                  <span>{{ selection[dimension.code] ? formatAttribute(selection[dimension.code] ?? '') : '—' }}</span>
+                  <button
+                    v-if="selection[dimension.code]"
+                    type="button"
+                    class="option-group-clear"
+                    :aria-label="`Clear ${dimension.label} selection`"
+                    :title="`Clear ${dimension.label} selection`"
+                    @click="clearOption(dimension.code)"
+                  >
+                    <UIcon name="i-lucide-x" />
+                  </button>
+                </strong>
               </legend>
               <div class="option-grid">
                 <button
@@ -249,6 +264,7 @@ useHead(() => ({
                   :key="value"
                   type="button"
                   :class="{ active: selection[dimension.code] === value, color: dimension.code === 'color' }"
+                  :aria-pressed="selection[dimension.code] === value"
                   :disabled="!isOptionAvailable(dimension.code, value)"
                   @click="selectOption(dimension.code, value)"
                 >
@@ -531,8 +547,34 @@ useHead(() => ({
 }
 
 .product-options legend strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--store-ink);
   font-weight: 600;
+}
+
+.option-group-clear {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--store-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.option-group-clear:hover {
+  color: #fff;
+  background: var(--store-ink);
+}
+
+.option-group-clear .iconify {
+  width: 13px;
+  height: 13px;
 }
 
 .option-grid {

@@ -1,3 +1,7 @@
+<script setup lang="ts">
+const { data: catalogCategories } = await useCatalogCategories()
+</script>
+
 <template>
   <footer class="store-footer">
     <div class="store-container store-footer-grid">
@@ -13,11 +17,10 @@
 
       <div class="store-footer-column">
         <strong>Shop</strong>
-        <NuxtLink to="/collections/new">New in</NuxtLink>
-        <NuxtLink to="/collections/lounge">Lounge lingerie</NuxtLink>
-        <NuxtLink to="/collections/swim">Swim lingerie</NuxtLink>
-        <NuxtLink to="/collections/intimate">Intimates</NuxtLink>
-        <NuxtLink to="/collections/sale">Sale</NuxtLink>
+        <NuxtLink v-for="category in catalogCategories" :key="category.id" :to="`/collections/${category.code}`">
+          {{ category.name }}
+        </NuxtLink>
+        <NuxtLink to="/collections/shop">All products</NuxtLink>
       </div>
 
       <div class="store-footer-column">

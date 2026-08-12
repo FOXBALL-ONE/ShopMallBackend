@@ -6,15 +6,11 @@ const route = useRoute()
 const router = useRouter()
 const session = useCustomerSession()
 const customerCart = useCustomerCart()
-
-const navItems = [
-  { label: 'New in', to: '/collections/new' },
-  { label: 'Lounge', to: '/collections/lounge' },
-  { label: 'Swim', to: '/collections/swim' },
-  { label: 'Intimates', to: '/collections/intimate' },
-  { label: 'Shop all', to: '/collections/shop' },
-  { label: 'Sale', to: '/collections/sale' }
-]
+const { data: catalogCategories } = await useCatalogCategories()
+const navItems = computed(() => [
+  ...catalogCategories.value.map(category => ({ label: category.name, to: `/collections/${category.code}` })),
+  { label: 'Shop all', to: '/collections/shop' }
+])
 
 const isMenuOpen = ref(false)
 const isSearchOpen = ref(false)

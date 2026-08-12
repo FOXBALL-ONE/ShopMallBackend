@@ -1,43 +1,94 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { CollectionSlug } from '~/data/catalog'
-import {
-  collectionMeta,
-  collectionNavigation,
-  displayProductType,
-  getCollection
-} from '~/data/catalog'
+import { displayProductType } from '~/data/catalog'
 
 const route = useRoute()
 const catalogApi = useCatalogApi()
 
-const activeSlug = computed<CollectionSlug>(() => {
-  const candidate = String(route.params.slug || 'shop')
-  return Object.prototype.hasOwnProperty.call(collectionMeta, candidate) ? candidate as CollectionSlug : 'shop'
-})
-
-const activeCollection = computed(() => getCollection(activeSlug.value))
+const activeSlug = computed(() => String(route.params.slug || 'shop'))
+const isShopCollection = computed(() => activeSlug.value === 'shop')
 const productType = ref<string>('ALL')
 const sortBy = ref('featured')
 
 const {
-  data: products,
-  status: productRequestStatus,
-  error: productRequestError,
-  refresh: refreshProducts
+  data: catalog,
+  status: catalogRequestStatus,
+  error: catalogRequestError,
+  refresh: refreshCatalog
 } = await useAsyncData(
-  'catalog-products',
-  () => catalogApi.listProducts(),
-  { default: () => [] }
+  'collection-catalog',
+  async () => {
+    const [categories, products] = await Promise.all([
+      catalogApi.listCategories(),
+      catalogApi.listProducts()
+    ])
+    return { categories, products }
+  },
+  { default: () => ({ categories: [], products: [] }) }
 )
 
+const categories = computed(() => catalog.value.categories)
+const products = computed(() => catalog.value.products)
+const activeCategory = computed(() => categories.value.find(category => category.code === activeSlug.value) ?? null)
+const collectionNotFound = computed(() =>
+  catalogRequestStatus.value === 'success' && !isShopCollection.value && !activeCategory.value
+)
+
+const activeCategoryIds = computed(() => {
+  if (isShopCollection.value || !activeCategory.value) return new Set<number>()
+
+  const ids = new Set([activeCategory.value.id])
+  let added = true
+  while (added) {
+    added = false
+    categories.value.forEach(category => {
+      if (category.parent_id !== null && ids.has(category.parent_id) && !ids.has(category.id)) {
+        ids.add(category.id)
+        added = true
+      }
+    })
+  }
+  return ids
+})
+
+const collectionProducts = computed(() => products.value.filter(product => {
+  if (product.status !== 'ACTIVE') return false
+  return isShopCollection.value || (product.category_id !== null && activeCategoryIds.value.has(product.category_id))
+}))
+
+const activeCollection = computed(() => {
+  const category = activeCategory.value
+  const image = collectionProducts.value.find(product => product.images[0])?.images[0] ?? '/lingerie/hero-corset.jpg'
+  if (isShopCollection.value) {
+    return {
+      label: 'All products',
+      eyebrow: 'THE PELISSA COLLECTION',
+      title: 'Every layer,\nevery mood.',
+      subtitle: 'Modern lingerie for the way you move through the day.',
+      description: 'Discover every active piece in the collection.',
+      image
+    }
+  }
+  return {
+    label: category?.name ?? 'Collection',
+    eyebrow: 'THE PELISSA COLLECTION',
+    title: category?.name ?? 'Collection not found',
+    subtitle: category ? `Explore the ${category.name} collection.` : '',
+    description: category ? `Browse every active ${category.name} piece, selected directly from our catalog.` : '',
+    image
+  }
+})
+
+const navigationItems = computed(() => [
+  { code: 'shop', name: 'All products', subtitle: 'Shop all' },
+  ...categories.value.map(category => ({ code: category.code, name: category.name, subtitle: category.code }))
+])
+
 const visibleProducts = computed(() => {
-  let result = products.value.filter(product => product.status === 'ACTIVE')
+  let result = collectionProducts.value
 
   if (productType.value !== 'ALL') {
     result = result.filter(product => product.product_type === productType.value)
-  } else if (activeSlug.value !== 'shop') {
-    result = result.filter(product => product.collections.includes(activeSlug.value))
   }
 
   const sorted = [...result]
@@ -48,7 +99,7 @@ const visibleProducts = computed(() => {
   return sorted
 })
 
-const availableTypes = computed(() => [...new Set(products.value.map(product => product.product_type))].sort())
+const availableTypes = computed(() => [...new Set(collectionProducts.value.map(product => product.product_type))].sort())
 
 watch(activeSlug, () => {
   productType.value = 'ALL'
@@ -60,7 +111,7 @@ function selectProductType(type: string) {
 }
 
 useHead(() => ({
-  title: `${activeCollection.value.englishLabel} | Pelissa`,
+  title: `${activeCollection.value.label} | Pelissa`,
   meta: [
     { name: 'description', content: activeCollection.value.description }
   ]
@@ -72,19 +123,27 @@ useHead(() => ({
     <StoreHeader />
 
     <section class="collection-switcher" aria-label="Product collections">
-      <nav class="store-container collection-switcher-inner">
+      <nav class="store-container collection-switcher-inner" :style="{ '--category-count': navigationItems.length }">
         <NuxtLink
-          v-for="item in collectionNavigation"
-          :key="item.slug"
-          :to="`/collections/${item.slug}`"
-          :class="{ active: activeSlug === item.slug }"
+          v-for="item in navigationItems"
+          :key="item.code"
+          :to="`/collections/${item.code}`"
+          :class="{ active: activeSlug === item.code }"
         >
-          <span>{{ item.label }}</span>
-          <small>{{ item.englishLabel }}</small>
+          <span>{{ item.name }}</span>
+          <small>{{ item.subtitle }}</small>
         </NuxtLink>
       </nav>
     </section>
 
+    <section v-if="collectionNotFound" class="collection-empty collection-missing" role="alert">
+      <UIcon name="i-lucide-folder-x" />
+      <h1>Collection not found.</h1>
+      <p>This category is not available in the current catalog.</p>
+      <NuxtLink class="store-button" to="/collections/shop">View all products</NuxtLink>
+    </section>
+
+    <template v-else>
     <section class="collection-hero">
       <div class="collection-hero-copy">
         <div>
@@ -98,7 +157,7 @@ useHead(() => ({
         </div>
       </div>
       <div class="collection-hero-image">
-        <img :src="activeCollection.image" :alt="activeCollection.englishLabel" :style="{ objectPosition: activeCollection.position }">
+        <img :src="activeCollection.image" :alt="activeCollection.label">
         <span>{{ activeCollection.label }}</span>
       </div>
     </section>
@@ -107,8 +166,8 @@ useHead(() => ({
       <div class="collection-heading">
         <div>
           <p class="store-eyebrow">CURATED FOR YOU</p>
-          <h2>{{ activeCollection.englishLabel }}</h2>
-          <span>{{ productRequestStatus === 'pending' ? 'Loading pieces' : `${visibleProducts.length} pieces` }}</span>
+          <h2>{{ activeCollection.label }}</h2>
+          <span>{{ catalogRequestStatus === 'pending' ? 'Loading pieces' : `${visibleProducts.length} pieces` }}</span>
         </div>
         <p>Every piece is designed around soft structure, thoughtful detail, and an easy sense of confidence.</p>
       </div>
@@ -149,7 +208,7 @@ useHead(() => ({
       </div>
 
       <div
-        v-if="productRequestStatus === 'pending'"
+        v-if="catalogRequestStatus === 'pending'"
         class="collection-product-grid"
         aria-label="Loading products"
         aria-busy="true"
@@ -161,11 +220,11 @@ useHead(() => ({
         </article>
       </div>
 
-      <div v-else-if="productRequestError" class="collection-empty" role="alert">
+      <div v-else-if="catalogRequestError" class="collection-empty" role="alert">
         <UIcon name="i-lucide-cloud-alert" />
         <h3>We could not load this edit.</h3>
         <p>The catalog service is unavailable right now. Please try again.</p>
-        <button class="store-button" type="button" @click="refreshProducts()">Try again</button>
+        <button class="store-button" type="button" @click="refreshCatalog()">Try again</button>
       </div>
 
       <div v-else-if="visibleProducts.length" class="collection-product-grid">
@@ -196,6 +255,7 @@ useHead(() => ({
         <NuxtLink to="/product/1">See a product story <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
       </div>
     </section>
+    </template>
 
     <StoreFooter />
   </main>
@@ -210,7 +270,7 @@ useHead(() => ({
 .collection-switcher-inner {
   min-height: 76px;
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(var(--category-count), minmax(0, 1fr));
 }
 
 .collection-switcher a {
@@ -530,6 +590,11 @@ useHead(() => ({
   text-align: center;
 }
 
+.collection-missing {
+  min-height: 500px;
+  background: var(--store-linen);
+}
+
 .collection-empty > .iconify {
   width: 32px;
   height: 32px;
@@ -622,7 +687,7 @@ useHead(() => ({
   .collection-switcher-inner {
     width: max-content;
     min-width: 100%;
-    grid-template-columns: repeat(6, minmax(118px, 1fr));
+    grid-template-columns: repeat(var(--category-count), minmax(118px, 1fr));
   }
 
   .collection-hero {

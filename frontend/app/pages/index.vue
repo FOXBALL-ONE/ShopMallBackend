@@ -2,7 +2,18 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const catalogApi = useCatalogApi()
-const { data: catalog } = await useAsyncData('home-catalog-products', () => catalogApi.listProducts(), { default: () => [] })
+const {
+  data: catalog,
+  status: productRequestStatus,
+  error: productRequestError,
+  refresh: refreshCatalog
+} = await useAsyncData('home-catalog-products', () => catalogApi.listProducts(), { default: () => [] })
+const {
+  data: catalogCategories,
+  status: categoryRequestStatus,
+  error: categoryRequestError,
+  refresh: refreshCategories
+} = await useCatalogCategories()
 
 const router = useRouter()
 
@@ -21,7 +32,6 @@ type HeroSlide = {
   title: string
   copy: string
   action: string
-  to: string
   image: string
   position: string
 }
@@ -36,14 +46,10 @@ type StoreCurrency = {
   value: string
 }
 
-const navItems = [
-  { label: 'New in', to: '/collections/new' },
-  { label: 'Lounge', to: '/collections/lounge' },
-  { label: 'Swim', to: '/collections/swim' },
-  { label: 'Intimates', to: '/collections/intimate' },
-  { label: 'Shop all', to: '/collections/shop' },
-  { label: 'Sale', to: '/collections/sale' }
-]
+const navItems = computed(() => [
+  ...catalogCategories.value.map(category => ({ label: category.name, to: `/collections/${category.code}` })),
+  { label: 'Shop all', to: '/collections/shop' }
+])
 
 const heroSlides: HeroSlide[] = [
   {
@@ -51,7 +57,6 @@ const heroSlides: HeroSlide[] = [
     title: 'Feel good in\nyour own skin.',
     copy: 'Soft support, thoughtful details, and the kind of confidence you can feel all day.',
     action: 'Shop lingerie',
-    to: '/collections/intimate',
     image: '/lingerie/hero-corset.jpg',
     position: 'center 34%'
   },
@@ -60,7 +65,6 @@ const heroSlides: HeroSlide[] = [
     title: 'A little more\nsomething.',
     copy: 'Sheer lace, sculpted lines, and pieces that turn an ordinary night into a mood.',
     action: 'Explore lace',
-    to: '/collections/intimate',
     image: '/lingerie/hero-lace.jpg',
     position: 'center 42%'
   },
@@ -69,48 +73,35 @@ const heroSlides: HeroSlide[] = [
     title: 'Comfort,\nreimagined.',
     copy: 'Second-skin layers and easy silhouettes for slow mornings, late nights, and everything between.',
     action: 'Shop loungewear',
-    to: '/collections/lounge',
     image: '/lingerie/hero-soft.jpg',
     position: 'center 51%'
   }
 ]
 
-const categories = [
-  {
-    label: '居家内衣 · Lounge',
-    title: 'Soft starts here',
-    image: '/lingerie/hero-soft.jpg',
-    position: 'center 50%',
-    to: '/collections/lounge'
-  },
-  {
-    label: '泳装内衣 · Swim',
-    title: 'Made for the water',
-    image: '/lingerie/lace-green.jpg',
-    position: 'center 42%',
-    to: '/collections/swim'
-  },
-  {
-    label: '情趣内衣 · Intimates',
-    title: 'A little more something',
-    image: '/lingerie/hero-lace.jpg',
-    position: 'center 43%',
-    to: '/collections/intimate'
-  },
-  {
-    label: '新品 · New in',
-    title: 'Fresh from the studio',
-    image: '/lingerie/hero-corset.jpg',
-    position: 'center 35%',
-    to: '/collections/new'
-  }
-]
-
 const products = computed(() => {
   const active = catalog.value.filter(product => product.status === 'ACTIVE')
-  const newProducts = active.filter(product => product.is_new)
-  return (newProducts.length ? newProducts : active).slice(0, 4)
+  const newProducts = active.filter(product =>
+    product.is_new || product.tags.some(tag => tag.trim().toLocaleLowerCase() === 'new arrival')
+  )
+  return [...(newProducts.length ? newProducts : active)]
+    .sort((left, right) => right.created_at.localeCompare(left.created_at))
+    .slice(0, 4)
 })
+
+const categories = computed(() => catalogCategories.value
+  .filter(category => category.parent_id === null)
+  .map(category => {
+    const relatedProduct = catalog.value.find(product => product.category_id === category.id && product.images[0])
+    return {
+      id: category.id,
+      label: category.name,
+      title: category.name,
+      image: relatedProduct?.images[0] ?? '/lingerie/hero-corset.jpg',
+      to: `/collections/${category.code}`
+    }
+  })
+)
+const firstCategoryLink = computed(() => categories.value[0]?.to ?? '/collections/shop')
 
 const locationOptions: StoreLocation[] = [
   { label: 'United States', value: 'US' },
@@ -142,6 +133,7 @@ const selectedCurrency = ref('USD')
 let carouselTimer: ReturnType<typeof setInterval> | undefined
 
 const activeHero = computed<HeroSlide>(() => heroSlides[activeSlide.value] ?? heroSlides[0]!)
+const activeHeroLink = computed(() => firstCategoryLink.value)
 const locationLabel = computed(() => locationOptions.find(option => option.value === selectedLocation.value)?.label ?? locationOptions[0]!.label)
 const currencyLabel = computed(() => selectedCurrency.value)
 
@@ -319,7 +311,7 @@ onBeforeUnmount(() => {
         <p class="eyebrow light">{{ activeHero.eyebrow }}</p>
         <h1>{{ activeHero.title }}</h1>
         <p class="hero-copy">{{ activeHero.copy }}</p>
-        <NuxtLink class="button button-light" :to="activeHero.to">{{ activeHero.action }} <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
+        <NuxtLink class="button button-light" :to="activeHeroLink">{{ activeHero.action }} <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
       </div>
 
       <div class="hero-controls">
@@ -354,14 +346,29 @@ onBeforeUnmount(() => {
         <p>Thoughtful intimates with an effortless point of view.</p>
       </div>
       <div class="category-grid">
-        <NuxtLink v-for="category in categories" :key="category.label" class="category-card" :to="category.to">
-          <div class="category-image" :style="{ backgroundImage: `url(${category.image})`, backgroundPosition: category.position }" />
+        <template v-if="categoryRequestStatus === 'pending'">
+          <div v-for="index in 4" :key="index" class="category-card category-skeleton" aria-hidden="true">
+            <div class="category-image" />
+            <div class="category-caption"><span /><strong /></div>
+          </div>
+        </template>
+        <div v-else-if="categoryRequestError" class="category-state" role="alert">
+          <UIcon name="i-lucide-cloud-alert" />
+          <p>Categories are unavailable right now.</p>
+          <button type="button" @click="refreshCategories()">Try again</button>
+        </div>
+        <NuxtLink v-for="category in categories" v-else :key="category.id" class="category-card" :to="category.to">
+          <div class="category-image" :style="{ backgroundImage: `url(${category.image})` }" />
           <div class="category-caption">
             <span>{{ category.label }}</span>
             <strong>{{ category.title }}</strong>
             <UIcon name="i-lucide-arrow-up-right" />
           </div>
         </NuxtLink>
+        <div v-if="categoryRequestStatus === 'success' && !categories.length" class="category-state">
+          <UIcon name="i-lucide-folder-open" />
+          <p>No categories are available yet.</p>
+        </div>
       </div>
     </section>
 
@@ -372,10 +379,38 @@ onBeforeUnmount(() => {
             <p class="eyebrow">NEW &amp; NOTEWORTHY</p>
             <h2>New intimates, right on time.</h2>
           </div>
-          <NuxtLink class="text-link" to="/collections/new">Shop all <UIcon name="i-lucide-arrow-right" /></NuxtLink>
+          <NuxtLink class="text-link" to="/collections/shop">Shop all <UIcon name="i-lucide-arrow-right" /></NuxtLink>
         </div>
-        <div class="product-grid">
+        <div
+          v-if="productRequestStatus === 'pending'"
+          class="product-grid"
+          aria-label="Loading new products"
+          aria-busy="true"
+        >
+          <article v-for="index in 4" :key="index" class="product-skeleton" aria-hidden="true">
+            <div class="product-skeleton-media" />
+            <span />
+            <small />
+          </article>
+        </div>
+        <div v-else-if="productRequestError" class="product-request-state" role="alert">
+          <UIcon name="i-lucide-cloud-alert" />
+          <div>
+            <h3>New arrivals are unavailable right now.</h3>
+            <p>Please try loading the catalog again.</p>
+          </div>
+          <button class="product-retry-button" type="button" @click="refreshCatalog()">Try again</button>
+        </div>
+        <div v-else-if="products.length" class="product-grid">
           <ProductCard v-for="(product, index) in products" :key="product.id" :product="product" :eager="index < 4" />
+        </div>
+        <div v-else class="product-request-state">
+          <UIcon name="i-lucide-package-open" />
+          <div>
+            <h3>New arrivals are on their way.</h3>
+            <p>Explore the full collection while the latest pieces are being added.</p>
+          </div>
+          <NuxtLink class="product-retry-button" to="/collections/shop">Shop all</NuxtLink>
         </div>
       </div>
     </section>
@@ -389,8 +424,8 @@ onBeforeUnmount(() => {
         <h2>From first light to last call.</h2>
         <p>Silky layers and soft sets made for slow mornings, candlelit evenings, and everything between.</p>
         <div class="button-group">
-          <NuxtLink class="button button-dark" to="/collections/lounge">Shop loungewear <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
-          <NuxtLink class="text-link underlined" to="/collections/lounge">View the lookbook</NuxtLink>
+          <NuxtLink class="button button-dark" :to="firstCategoryLink">Shop the collection <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
+          <NuxtLink class="text-link underlined" :to="firstCategoryLink">View the collection</NuxtLink>
         </div>
       </div>
     </section>
@@ -435,12 +470,8 @@ onBeforeUnmount(() => {
         </div>
         <div class="footer-column">
           <strong>Shop</strong>
-          <NuxtLink to="/collections/new">New in</NuxtLink>
-          <NuxtLink to="/collections/lounge">Lounge</NuxtLink>
-          <NuxtLink to="/collections/swim">Swim</NuxtLink>
-          <NuxtLink to="/collections/intimate">Intimates</NuxtLink>
+          <NuxtLink v-for="category in catalogCategories" :key="category.id" :to="`/collections/${category.code}`">{{ category.name }}</NuxtLink>
           <NuxtLink to="/collections/shop">Shop all</NuxtLink>
-          <NuxtLink to="/collections/sale">Sale</NuxtLink>
         </div>
         <div class="footer-column">
           <strong>About</strong>
@@ -566,6 +597,16 @@ a { color: inherit; text-decoration: none; }
 .category-card { overflow: hidden; display: block; background: var(--linen); }
 .category-image { aspect-ratio: .76; background-size: cover; transition: transform .45s ease; }
 .category-card:hover .category-image { transform: scale(1.045); }
+.category-skeleton .category-image,
+.category-skeleton .category-caption span,
+.category-skeleton .category-caption strong { background: rgba(223, 207, 210, .72); animation: category-skeleton-pulse 1.15s ease-in-out infinite alternate; }
+.category-skeleton .category-caption span { width: 55%; height: 9px; display: block; }
+.category-skeleton .category-caption strong { width: 76%; height: 23px; display: block; }
+.category-state { min-height: 250px; grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: #746a6e; text-align: center; }
+.category-state .iconify { width: 25px; height: 25px; color: var(--coral); }
+.category-state p { margin: 0; font-size: 13px; }
+.category-state button { padding: 7px 10px; border: 1px solid var(--ink); color: var(--ink); background: #fff; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .05em; text-transform: uppercase; cursor: pointer; }
+@keyframes category-skeleton-pulse { from { opacity: .5; } to { opacity: 1; } }
 .category-caption { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'label arrow' 'title arrow'; gap: 3px 8px; padding: 15px 15px 17px; background: var(--off-white); }
 .category-caption span { grid-area: label; color: var(--sea); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
 .category-caption strong { grid-area: title; font-family: 'Playfair Display', Georgia, serif; font-size: 21px; font-weight: 500; line-height: 1.1; }
@@ -577,6 +618,17 @@ a { color: inherit; text-decoration: none; }
 .text-link .iconify { width: 15px; height: 15px; }
 .text-link:hover { color: var(--coral); }
 .product-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 44px; }
+.product-skeleton { min-width: 0; }
+.product-skeleton-media { aspect-ratio: .785; background: rgba(255, 255, 255, .48); animation: product-skeleton-pulse 1.15s ease-in-out infinite alternate; }
+.product-skeleton span, .product-skeleton small { width: 70%; height: 12px; display: block; margin-top: 14px; background: rgba(255, 255, 255, .48); }
+.product-skeleton small { width: 38%; height: 9px; margin-top: 9px; }
+.product-request-state { min-height: 264px; display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 44px; padding: 34px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left; }
+.product-request-state > .iconify { width: 30px; height: 30px; flex: 0 0 auto; color: var(--coral); }
+.product-request-state h3 { margin: 0; font-family: 'Playfair Display', Georgia, serif; font-size: 26px; font-weight: 500; line-height: 1.1; }
+.product-request-state p { max-width: 370px; margin: 7px 0 0; color: #746a6e; font-size: 13px; line-height: 1.5; }
+.product-retry-button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; padding: 0 14px; border: 1px solid var(--ink); color: var(--ink); background: transparent; font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500; letter-spacing: .06em; text-decoration: none; text-transform: uppercase; cursor: pointer; }
+.product-retry-button:hover { color: #fff; background: var(--ink); }
+@keyframes product-skeleton-pulse { from { opacity: .55; } to { opacity: 1; } }
 .product-media { position: relative; }
 .product-image { position: relative; display: block; overflow: hidden; aspect-ratio: .785; background-color: #d7c9cc; background-size: cover; }
 .product-badge { position: absolute; top: 12px; left: 12px; padding: 6px 7px; color: #fff; background: var(--sea); font-family: 'DM Mono', monospace; font-size: 8px; letter-spacing: .065em; }
@@ -688,6 +740,8 @@ a { color: inherit; text-decoration: none; }
   .category-caption strong { font-size: 18px; }
   .product-section { padding: 75px 0 83px; }
   .product-grid { grid-template-columns: repeat(2, 1fr); gap: 28px 12px; margin-top: 32px; }
+  .product-request-state { min-height: 220px; align-items: flex-start; flex-wrap: wrap; justify-content: flex-start; margin-top: 32px; padding: 28px 0; }
+  .product-retry-button { margin-left: 48px; }
   .escape-section { grid-template-columns: 1fr; }
   .escape-image { min-height: 460px; }
   .escape-content { max-width: none; padding: 72px 32px 80px; }

@@ -2,6 +2,16 @@
 export type ProductType = string
 export type CollectionSlug = 'shop' | 'lounge' | 'swim' | 'intimate' | 'new' | 'sale'
 
+/** Product category returned by GET /api/product-categories. */
+export type CatalogCategory = {
+  id: number
+  code: string
+  name: string
+  parent_id: number | null
+  display_order: number
+  status: 'ACTIVE' | 'INACTIVE'
+}
+
 export type CatalogProduct = {
   id: number
   name: string

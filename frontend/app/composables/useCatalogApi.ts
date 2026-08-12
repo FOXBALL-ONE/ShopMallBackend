@@ -1,5 +1,6 @@
 import type {
   CatalogAttribute,
+  CatalogCategory,
   CatalogImage,
   CatalogMaterial,
   CatalogProduct,
@@ -59,6 +60,7 @@ type ProductListResponse = {
 }
 type ProductTypeResponse = { list: Array<{ id: number; code: string; name: string }> }
 type DefinitionResponse = { list: CatalogAttributeDefinition[] }
+type ProductCategoryResponse = { list: CatalogCategory[] }
 
 function collectionSlugs(tags: string[]): CollectionSlug[] {
   const normalizedTags = tags.map(tag => tag.trim().toLocaleLowerCase())
@@ -142,6 +144,13 @@ export function useCatalogApi() {
     return normalizeProduct(await http.get<RawProduct>(`/products/${id}`))
   }
 
+  async function listCategories(): Promise<CatalogCategory[]> {
+    const response = await http.get<ProductCategoryResponse>('/product-categories')
+    return [...(response.list ?? [])].sort((left, right) =>
+      left.display_order - right.display_order || left.name.localeCompare(right.name)
+    )
+  }
+
   async function getDefinitions(productTypeCode: string): Promise<CatalogAttributeDefinition[]> {
     const typeResponse = await http.get<ProductTypeResponse>('/product-types')
     const productType = typeResponse.list.find(type => type.code === productTypeCode)
@@ -150,5 +159,5 @@ export function useCatalogApi() {
     return response.list ?? []
   }
 
-  return { listProducts, getProduct, getDefinitions }
+  return { listProducts, getProduct, listCategories, getDefinitions }
 }
