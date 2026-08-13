@@ -2,6 +2,7 @@ package top.foxball.shopmall.service
 
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.doThrow
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.springframework.transaction.PlatformTransactionManager
@@ -9,10 +10,14 @@ import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.TransactionStatus
 import org.springframework.transaction.support.SimpleTransactionStatus
 import top.foxball.shopmall.config.OrderProperties
+import top.foxball.shopmall.entity.jdbc.OrderEntity
+import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.entity.jdbc.OutboxEvent
+import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.OutboxEventRepository
 import top.foxball.shopmall.service.impl.OutboxMessageHandler
 import top.foxball.shopmall.service.impl.ShipmentOutboxProcessor
+import top.foxball.shopmall.service.payMent.stripe.StripeService
 import top.foxball.shopmall.shared.PaymentOperationBusyException
 import java.time.Clock
 import java.time.Instant
@@ -26,9 +31,11 @@ import kotlin.test.assertFailsWith
 
 class OutboxMessageHandlerTest {
     private val repository = mock(OutboxEventRepository::class.java)
+    private val orderRepository = mock(OrderRepository::class.java)
     private val paymentService = mock(OrderPaymentService::class.java)
     private val orderMailService = mock(OrderMailService::class.java)
     private val shipmentOutboxProcessor = mock(ShipmentOutboxProcessor::class.java)
+    private val stripeService = mock(StripeService::class.java)
     private val transactionManager = object : PlatformTransactionManager {
         override fun getTransaction(definition: TransactionDefinition?): TransactionStatus =
             SimpleTransactionStatus()
@@ -40,24 +47,108 @@ class OutboxMessageHandlerTest {
     private val clock = Clock.fixed(Instant.parse("2026-07-25T08:00:00Z"), ZoneOffset.UTC)
     private val handler = OutboxMessageHandler(
         repository,
+        orderRepository,
         paymentService,
         orderMailService,
         shipmentOutboxProcessor,
+        stripeService,
         OrderProperties(outboxMaxAttempts = 2),
         clock,
         transactionManager,
     )
 
     @Test
-    fun `paid order email is delegated before outbox acknowledgement`() {
+    fun `paid order receipt is resolved before email and outbox acknowledgement`() {
         val event = OutboxEvent(id = 4, status = OutboxEvent.Status.SENT)
+        val order = OrderEntity(
+            id = 19,
+            orderNo = "ORDER-19",
+            status = OrderStatus.PAID,
+            paymentIntentId = "pi_order_19",
+        )
         `when`(repository.findById(4)).thenReturn(Optional.of(event))
+        `when`(orderRepository.findById(19)).thenReturn(Optional.of(order))
+        `when`(stripeService.retrievePaymentReceiptUrl("pi_order_19"))
+            .thenReturn("https://pay.stripe.com/receipts/payment-19")
 
         handler.handle(4, "ORDER", 19, "PAID")
 
-        verify(orderMailService).sendPaymentConfirmation(19)
+        verify(stripeService).retrievePaymentReceiptUrl("pi_order_19")
+        verify(orderMailService).sendPaymentConfirmation(
+            19,
+            "https://pay.stripe.com/receipts/payment-19",
+        )
         assertEquals(OutboxEvent.Status.ACKNOWLEDGED, event.status)
         assertEquals(clock.instant(), event.acknowledgedAt)
+    }
+
+    @Test
+    fun `paid order receipt failure leaves outbox unacknowledged`() {
+        val event = OutboxEvent(id = 9, status = OutboxEvent.Status.SENT)
+        val order = OrderEntity(
+            id = 22,
+            orderNo = "ORDER-22",
+            status = OrderStatus.PAID,
+            paymentIntentId = "pi_order_22",
+        )
+        `when`(repository.findById(9)).thenReturn(Optional.of(event))
+        `when`(orderRepository.findById(22)).thenReturn(Optional.of(order))
+        `when`(stripeService.retrievePaymentReceiptUrl("pi_order_22"))
+            .thenThrow(IllegalStateException("receipt unavailable"))
+
+        assertFailsWith<IllegalStateException> {
+            handler.handle(9, "ORDER", 22, "PAID")
+        }
+
+        verify(orderMailService, never()).sendPaymentConfirmation(
+            22,
+            "https://pay.stripe.com/receipts/payment-22",
+        )
+        assertEquals(OutboxEvent.Status.SENT, event.status)
+        assertEquals(null, event.acknowledgedAt)
+    }
+
+    @Test
+    fun `paid order email failure leaves outbox unacknowledged`() {
+        val event = OutboxEvent(id = 11, status = OutboxEvent.Status.SENT)
+        val order = OrderEntity(
+            id = 24,
+            orderNo = "ORDER-24",
+            status = OrderStatus.PAID,
+            paymentIntentId = "pi_order_24",
+        )
+        val receiptUrl = "https://pay.stripe.com/receipts/payment-24"
+        `when`(repository.findById(11)).thenReturn(Optional.of(event))
+        `when`(orderRepository.findById(24)).thenReturn(Optional.of(order))
+        `when`(stripeService.retrievePaymentReceiptUrl("pi_order_24")).thenReturn(receiptUrl)
+        doThrow(IllegalStateException("SMTP unavailable"))
+            .`when`(orderMailService).sendPaymentConfirmation(24, receiptUrl)
+
+        assertFailsWith<IllegalStateException> {
+            handler.handle(11, "ORDER", 24, "PAID")
+        }
+
+        assertEquals(OutboxEvent.Status.SENT, event.status)
+        assertEquals(null, event.acknowledgedAt)
+    }
+
+    @Test
+    fun `paid outbox without a PaymentIntent remains retryable`() {
+        val event = OutboxEvent(id = 10, status = OutboxEvent.Status.SENT)
+        val order = OrderEntity(
+            id = 23,
+            orderNo = "ORDER-23",
+            status = OrderStatus.PAID,
+        )
+        `when`(repository.findById(10)).thenReturn(Optional.of(event))
+        `when`(orderRepository.findById(23)).thenReturn(Optional.of(order))
+
+        assertFailsWith<IllegalArgumentException> {
+            handler.handle(10, "ORDER", 23, "PAID")
+        }
+
+        assertEquals(OutboxEvent.Status.SENT, event.status)
+        assertEquals(null, event.acknowledgedAt)
     }
 
     @Test

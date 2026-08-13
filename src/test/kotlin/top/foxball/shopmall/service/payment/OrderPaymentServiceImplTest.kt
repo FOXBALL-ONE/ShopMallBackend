@@ -110,6 +110,37 @@ class OrderPaymentServiceImplTest {
         verify(orderRepository, times(2)).findByStripeCheckoutSessionId("cs_not_bound")
     }
 
+
+    @Test
+    fun `paid Checkout webhook attaches PaymentIntent and publishes one paid event`() {
+        val order = pendingOrder()
+        val item = top.foxball.shopmall.entity.jdbc.OrderItem(
+            id = 1,
+            order = order,
+            productId = 100,
+            variantId = 10,
+            sku = "SKU-10",
+            quantity = 2,
+        )
+        val event = checkoutEvent(
+            "evt_checkout_paid",
+            "checkout.session.completed",
+            checkoutSession("cs_order", "pi_order", "paid"),
+        )
+        `when`(webhookRepository.claim("evt_checkout_paid", "checkout.session.completed")).thenReturn(1)
+        `when`(orderRepository.findByStripeCheckoutSessionId("cs_order")).thenReturn(order)
+        `when`(orderRepository.markPaid(10, OrderStatus.PENDING_PAYMENT, OrderStatus.PAID, clock.instant()))
+            .thenReturn(1)
+        `when`(orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(10)).thenReturn(listOf(item))
+        `when`(productVariantRepository.incrementSales(10, 2)).thenReturn(1)
+
+        service.handleWebhookEvent(event)
+
+        verify(orderRepository).attachPaymentIntentToStripeCheckoutSession("cs_order", "pi_order")
+        verify(productVariantRepository).incrementSales(10, 2)
+        verify(eventPublisher).publishInTx("ORDER", 10, "PAID", "{\"orderId\":10}")
+    }
+
     @Test
     fun `timeout winning over paid webhook preserves cancellation and schedules refund`() {
         val order = pendingOrder()

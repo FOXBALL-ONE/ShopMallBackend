@@ -8,5 +8,13 @@ data class OrderMailProperties(
     /** 发件人地址，留空时回退到 spring.mail.username。 */
     val from: String = "",
     /** 付款确认邮件主题的品牌前缀。 */
-    val subjectPrefix: String = "PELISSA",
-)
+    var subjectPrefix: String = DEFAULT_SUBJECT_PREFIX,
+) {
+    init {
+        subjectPrefix = subjectPrefix.ifBlank { DEFAULT_SUBJECT_PREFIX }
+    }
+
+    private companion object {
+        const val DEFAULT_SUBJECT_PREFIX = "PELISSA"
+    }
+}

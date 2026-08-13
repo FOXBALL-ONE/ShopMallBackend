@@ -6,18 +6,22 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import top.foxball.shopmall.config.OrderProperties
 import top.foxball.shopmall.entity.jdbc.OutboxEvent
+import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.OutboxEventRepository
 import top.foxball.shopmall.service.OrderMailService
 import top.foxball.shopmall.service.OrderPaymentService
+import top.foxball.shopmall.service.payMent.stripe.StripeService
 import java.time.Clock
 import java.time.Duration
 
 @Service
 class OutboxMessageHandler(
     private val repository: OutboxEventRepository,
+    private val orderRepository: OrderRepository,
     private val paymentService: OrderPaymentService,
     private val orderMailService: OrderMailService,
     private val shipmentOutboxProcessor: ShipmentOutboxProcessor,
+    private val stripeService: StripeService,
     private val properties: OrderProperties,
     private val clock: Clock,
     transactionManager: PlatformTransactionManager,
@@ -33,7 +37,18 @@ class OutboxMessageHandler(
 
         when (aggregateType) {
             "ORDER" -> when (eventType) {
-                "PAID" -> orderMailService.sendPaymentConfirmation(aggregateId)
+                "PAID" -> {
+                    val order = orderRepository.findById(aggregateId).orElseThrow {
+                        IllegalStateException("Cannot send payment confirmation for missing order $aggregateId")
+                    }
+                    val paymentIntentId = requireNotNull(order.paymentIntentId) {
+                        "Paid order ${order.orderNo} has no Stripe PaymentIntent"
+                    }
+                    orderMailService.sendPaymentConfirmation(
+                        aggregateId,
+                        stripeService.retrievePaymentReceiptUrl(paymentIntentId),
+                    )
+                }
                 "PAYMENT_CANCEL_OR_REFUND" -> paymentService.reconcileCancellation(aggregateId)
                 "PAYMENT_CONFLICT_REFUND" -> paymentService.reconcileConflictRefund(aggregateId)
                 "PAYMENT_REFUND_REQUESTED" -> paymentService.reconcileRequestedRefund(aggregateId)

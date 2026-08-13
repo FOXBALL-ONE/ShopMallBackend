@@ -18,6 +18,7 @@ import com.stripe.model.Refund
 import com.stripe.model.checkout.Session
 import com.stripe.net.RequestOptions
 import com.stripe.param.PaymentIntentCancelParams
+import com.stripe.param.PaymentIntentRetrieveParams
 import com.stripe.param.RefundCreateParams
 import com.stripe.param.checkout.SessionCreateParams
 import org.springframework.stereotype.Service
@@ -108,6 +109,22 @@ class StripeService(
     override fun queryPayment(request: PaymentQueryRequest): PaymentTransaction =
         stripeCall { stripeClient.v1().paymentIntents().retrieve(request.providerPaymentId) }
             .toPaymentTransaction()
+
+    /** 查询 Stripe 托管的付款收据地址，供订单付款成功邮件提供给客户。 */
+    fun retrievePaymentReceiptUrl(paymentIntentId: String): String {
+        val paymentIntent = stripeCall {
+            stripeClient.v1().paymentIntents().retrieve(
+                paymentIntentId,
+                PaymentIntentRetrieveParams.builder()
+                    .addExpand("latest_charge")
+                    .build(),
+            )
+        }
+        return paymentIntent.latestChargeObject?.receiptUrl?.takeIf(String::isNotBlank)
+            ?: throw IllegalStateException(
+                "Stripe PaymentIntent $paymentIntentId does not expose a receipt URL",
+            )
+    }
 
     /** 此方法仅用于非 Checkout 的兼容支付；Checkout 会话应先由订单层过期。 */
     override fun cancelPayment(request: PaymentCancelRequest): PaymentTransaction =

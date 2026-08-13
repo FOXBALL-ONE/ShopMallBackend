@@ -13,6 +13,7 @@ import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.OrderMailService
 import java.math.RoundingMode
+import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -37,7 +38,17 @@ class OrderMailServiceImpl(
         .bufferedReader(StandardCharsets.UTF_8)
         .use { it.readText() }
 
-    override fun sendPaymentConfirmation(orderId: Long) {
+    override fun sendPaymentConfirmation(orderId: Long, stripeReceiptUrl: String) {
+        val receiptUri = try {
+            URI(stripeReceiptUrl)
+        } catch (ex: Exception) {
+            throw IllegalArgumentException("Stripe receipt URL is invalid", ex)
+        }
+        require(
+            receiptUri.isAbsolute && receiptUri.host != null && receiptUri.scheme.equals("https", ignoreCase = true),
+        ) {
+            "Stripe receipt URL must be an absolute HTTPS URL"
+        }
         val order = orderRepository.findById(orderId).orElseThrow {
             IllegalStateException("Cannot send payment confirmation for missing order $orderId")
         }
@@ -152,6 +163,7 @@ class OrderMailServiceImpl(
             "{{shipping_address}}" to shippingAddressLines.joinToString("<br>") { HtmlUtils.htmlEscape(it) },
             "{{order_notes}}" to orderNotes,
             "{{orders_url}}" to HtmlUtils.htmlEscape(ordersUrl),
+            "{{stripe_receipt_url}}" to HtmlUtils.htmlEscape(stripeReceiptUrl),
         ).forEach { (token, value) -> html = html.replace(token, value) }
         val text = buildString {
             appendLine("PELISSA payment received")
@@ -178,6 +190,7 @@ class OrderMailServiceImpl(
             }
             appendLine()
             appendLine("View your order: $ordersUrl")
+            appendLine("View Stripe receipt: $stripeReceiptUrl")
         }
 
         try {

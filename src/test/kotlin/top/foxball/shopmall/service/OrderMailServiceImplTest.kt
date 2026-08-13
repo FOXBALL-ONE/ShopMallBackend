@@ -4,6 +4,7 @@ import jakarta.mail.Multipart
 import jakarta.mail.Session
 import jakarta.mail.internet.MimeMessage
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.springframework.mail.javamail.JavaMailSender
@@ -24,6 +25,7 @@ import java.util.Optional
 import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -45,6 +47,11 @@ class OrderMailServiceImplTest {
         mailUsername = "fallback@pelissa.example",
         storefrontBaseUrl = "https://shop.pelissa.example/",
     )
+
+    @Test
+    fun `blank payment confirmation subject prefix falls back to the default brand`() {
+        assertEquals("PELISSA", OrderMailProperties(subjectPrefix = " ").subjectPrefix)
+    }
 
     @Test
     fun `payment confirmation renders the order snapshot as escaped html and plaintext`() {
@@ -96,7 +103,8 @@ class OrderMailServiceImplTest {
         `when`(orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(7)).thenReturn(listOf(item))
         `when`(mailSender.createMimeMessage()).thenReturn(message)
 
-        service.sendPaymentConfirmation(7)
+        val stripeReceiptUrl = "https://pay.stripe.com/receipts/payment?payment_intent=pi_123&charge=ch_123"
+        service.sendPaymentConfirmation(7, stripeReceiptUrl)
         message.saveChanges()
 
         assertEquals("PELISSA | Payment received · PS-20260809-001", message.subject)
@@ -110,6 +118,7 @@ class OrderMailServiceImplTest {
         assertTrue(plaintext.contains("Silk & Lace"))
         assertTrue(plaintext.contains("USD 90.80"))
         assertTrue(plaintext.contains("https://shop.pelissa.example/account/orders"))
+        assertTrue(plaintext.contains("View Stripe receipt: $stripeReceiptUrl"))
         assertTrue(html.contains("Silk &amp; Lace"))
         assertTrue(html.contains("Rose &amp; Ivory"))
         assertTrue(html.contains("Atelier &lt;North&gt;"))
@@ -118,8 +127,20 @@ class OrderMailServiceImplTest {
         assertTrue(html.contains("2026-08-09T08:30:45 UTC"))
         assertTrue(html.contains("USD 90.80"))
         assertTrue(html.contains("https://shop.pelissa.example/account/orders"))
+        assertTrue(html.contains("View Stripe receipt"))
+        assertTrue(html.contains("payment_intent=pi_123&amp;charge=ch_123"))
         assertFalse(html.contains("{{"))
         assertFalse(html.contains("}}"))
+    }
+
+
+    @Test
+    fun `payment confirmation rejects a non HTTPS Stripe receipt URL before loading the order`() {
+        assertFailsWith<IllegalArgumentException> {
+            service.sendPaymentConfirmation(7, "http://pay.stripe.com/receipts/payment-7")
+        }
+
+        verify(orderRepository, never()).findById(7)
     }
 
     private fun textParts(content: Any?): List<String> = when (content) {
