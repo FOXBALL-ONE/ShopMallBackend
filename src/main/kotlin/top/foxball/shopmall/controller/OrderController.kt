@@ -540,6 +540,59 @@ class OrderController(
             .build()
     }
 
+    /**
+     * @api 将订单收货地址设为默认地址
+     * @param orderNo 订单编号
+     */
+    @PostMapping("/api/orders/{order_no}/shipping-address/default")
+    fun saveOrderShippingAddressAsDefault(
+        @AuthenticationPrincipal userId: Long,
+        @PathVariable("order_no") orderNo: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: UUID,
+            val label: String?,
+            val name: String,
+            val phone: String,
+            val company: String?,
+            @param:JsonProperty("country_code")
+            val countryCode: String,
+            @param:JsonProperty("state_or_province")
+            val stateOrProvince: String?,
+            val city: String,
+            val district: String?,
+            @param:JsonProperty("postal_code")
+            val postalCode: String?,
+            @param:JsonProperty("address_line1")
+            val addressLine1: String,
+            @param:JsonProperty("address_line2")
+            val addressLine2: String?,
+            @param:JsonProperty("is_default")
+            val isDefault: Boolean,
+            @param:JsonProperty("delivery_instructions")
+            val deliveryInstructions: String?,
+        )
+
+        val address = orderService.saveShippingAddressAsDefault(userId, orderNo)
+        val rs = Response(
+            id = address.id,
+            label = address.label,
+            name = address.name,
+            phone = address.phone,
+            company = address.company,
+            countryCode = address.country,
+            stateOrProvince = address.stateOrProvince,
+            city = address.city,
+            district = address.district,
+            postalCode = address.postalCode,
+            addressLine1 = address.address1,
+            addressLine2 = address.address2,
+            isDefault = address.isDefault,
+            deliveryInstructions = address.deliveryInstructions,
+        )
+        return builder.ok().data(rs).build()
+    }
+
     /** @api 创建或取得当前用户待支付订单的 Stripe Checkout 支付会话 */
     @PostMapping("/api/orders/{orderNo}/checkout")
     fun openCheckout(

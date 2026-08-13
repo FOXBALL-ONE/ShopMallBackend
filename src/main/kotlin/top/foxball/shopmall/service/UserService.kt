@@ -43,6 +43,9 @@ interface UserService {
     /** 更新用户拥有的配送地址；用户或地址不存在时返回 `null`。 */
     fun updateDeliveryAddress(userId: Long, addressId: UUID, address: DeliveryAddressItem): DeliveryAddressItem?
 
+    /** 将地址设为默认配送地址；相同地址不存在时先保存，用户不存在时返回 `null`。 */
+    fun saveDefaultDeliveryAddress(userId: Long, address: DeliveryAddressItem): DeliveryAddressItem?
+
     /** 删除用户拥有的配送地址；用户不存在时返回 `null`。 */
     fun deleteDeliveryAddress(userId: Long, addressId: UUID): Boolean?
 

@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionSynchronization
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import top.foxball.shopmall.config.OrderProperties
+import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
@@ -310,6 +311,28 @@ class OrderServiceImpl(
     override fun getCustomer(customerId: Long, orderNo: String): OrderView {
         val order = findCustomerOrder(customerId, orderNo)
         return view(order)
+    }
+
+    @Transactional
+    override fun saveShippingAddressAsDefault(customerId: Long, orderNo: String): DeliveryAddressItem {
+        val address = findCustomerOrder(customerId, orderNo).shippingAddress
+        return userService.saveDefaultDeliveryAddress(
+            customerId,
+            DeliveryAddressItem(
+                name = address.name,
+                phone = address.phone,
+                company = address.company,
+                country = address.country,
+                stateOrProvince = address.stateOrProvince,
+                city = address.city,
+                district = address.district,
+                postalCode = address.postalCode,
+                address1 = address.address1,
+                address2 = address.address2,
+                isDefault = true,
+                deliveryInstructions = address.deliveryInstructions,
+            ),
+        ) ?: throw ResourceNotFoundException("用户不存在")
     }
 
     override fun getPayment(customerId: Long, orderNo: String): OrderPaymentView {

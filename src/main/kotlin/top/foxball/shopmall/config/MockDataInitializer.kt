@@ -17,6 +17,10 @@ import top.foxball.shopmall.entity.jdbc.CareInstruction
 import top.foxball.shopmall.entity.jdbc.CartItem
 import top.foxball.shopmall.entity.jdbc.CustomerReview
 import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
+import top.foxball.shopmall.entity.jdbc.HomeRecommendationGroup
+import top.foxball.shopmall.entity.jdbc.HomeRecommendationItem
+import top.foxball.shopmall.entity.jdbc.HomeRecommendationPlan
+import top.foxball.shopmall.entity.jdbc.HomeRecommendationSection
 import top.foxball.shopmall.entity.jdbc.LengthUnit
 import top.foxball.shopmall.entity.jdbc.MaterialComponent
 import top.foxball.shopmall.entity.jdbc.OrderEntity
@@ -49,6 +53,7 @@ import top.foxball.shopmall.entity.jdbc.Tag
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.entity.jdbc.WeightUnit
 import top.foxball.shopmall.repository.CustomerReviewRepository
+import top.foxball.shopmall.repository.HomeRecommendationPlanRepository
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ProductCategoryRepository
@@ -79,6 +84,7 @@ class MockDataInitializer(
     private val productCategoryRepository: ProductCategoryRepository,
     private val tagRepository: TagRepository,
     private val customerReviewRepository: CustomerReviewRepository,
+    private val homeRecommendationPlanRepository: HomeRecommendationPlanRepository,
     private val shoppingCartRepository: ShoppingCartRepository,
     private val orderRepository: OrderRepository,
     private val orderItemRepository: OrderItemRepository,
@@ -159,11 +165,27 @@ class MockDataInitializer(
         val now = LocalDateTime.now(ZoneOffset.UTC).withNano(0)
         val encodedPassword = requireNotNull(passwordEncoder.encode(mockPassword)) { "模拟账号密码编码失败" }
         val admins = ensureMockAdmins(encodedPassword)
+        val priorMockDatasetExists = userRepository.findByUsername(MOCK_CUSTOMER_SENTINEL) != null
         if (productRepository.count() > 0) {
-            log.info("Mock catalog initialization skipped because products already exist")
+            if (priorMockDatasetExists) {
+                val existingProducts = productRepository.findAll()
+                val existingTags = tagRepository.findAll().associateBy(Tag::name)
+                val recommendationPlanCount = seedHomeRecommendations(
+                    existingProducts,
+                    existingTags,
+                    requireNotNull(admins.first().id),
+                    now,
+                )
+                log.info(
+                    "Mock catalog initialization skipped because products already exist; home recommendation plans initialized={}",
+                    recommendationPlanCount,
+                )
+            } else {
+                log.info("Mock catalog initialization skipped because products already exist")
+            }
             return
         }
-        if (userRepository.findByUsername(MOCK_CUSTOMER_SENTINEL) != null) {
+        if (priorMockDatasetExists) {
             log.warn("Mock catalog initialization skipped because a prior mock dataset sentinel exists")
             return
         }
@@ -172,18 +194,25 @@ class MockDataInitializer(
         val tags = seedTags()
         val products = seedProducts(tags, now)
         val reviewCount = seedReviews(products, customers, now)
+        val recommendationPlanCount = seedHomeRecommendations(
+            products,
+            tags,
+            requireNotNull(admins.first().id),
+            now,
+        )
         val cartCount = seedCarts(products, customers)
         val orders = seedOrders(products, customers, now)
         val shipmentCount = seedShipments(orders, requireNotNull(admins.first().id), now)
         val ticketCounts = seedSupportTickets(orders, customers, requireNotNull(admins.first().id), now)
 
         log.info(
-            "Mock data initialized: users={}, tags={}, products={}, variants={}, reviews={}, carts={}, orders={}, shipments={}, tickets={}, messages={}",
+            "Mock data initialized: users={}, tags={}, products={}, variants={}, reviews={}, recommendationPlans={}, carts={}, orders={}, shipments={}, tickets={}, messages={}",
             admins.size + customers.size,
             tags.size,
             products.size,
             products.sumOf { it.variants.size },
             reviewCount,
+            recommendationPlanCount,
             cartCount,
             orders.size,
             shipmentCount,
@@ -438,6 +467,245 @@ class MockDataInitializer(
         }
         productRepository.saveAll(products)
         return reviews.size
+    }
+
+    /** 为客户首页和管理端生成已发布、待发布及草稿三种运营方案。 */
+    private fun seedHomeRecommendations(
+        products: List<Product>,
+        tags: Map<String, Tag>,
+        adminId: Long,
+        now: LocalDateTime,
+    ): Int {
+        if (homeRecommendationPlanRepository.count() > 0) return 0
+
+        val sellableProducts = products.filter { product ->
+            product.id != null && product.status == Product.Status.ACTIVE && product.deletedAt == null &&
+                product.images.isNotEmpty() && product.variants.any { variant ->
+                    variant.id != null && variant.status == ProductVariant.Status.ACTIVE &&
+                        variant.warehouseVolume > 0 && variant.price.signum() > 0
+                }
+        }
+        if (sellableProducts.isEmpty()) {
+            log.warn("Mock home recommendation initialization skipped because no sellable products exist")
+            return 0
+        }
+
+        val swimwearProducts = sellableProducts.filter { it.productType?.code in setOf("BIKINI", "ONE_PIECE") }
+            .ifEmpty { sellableProducts }
+        val editorProducts = (swimwearProducts + sellableProducts).distinctBy(Product::id).take(8)
+        val bestSellerTagId = tags["Best Seller"]?.id
+        val newArrivalTagId = tags["New Arrival"]?.id
+
+        val publishedPlan = HomeRecommendationPlan(
+            name = "Mock 夏日首页精选",
+            status = HomeRecommendationPlan.Status.PUBLISHED,
+            effectiveFrom = now.minusDays(1),
+            effectiveUntil = now.plusDays(14),
+            fallbackEnabled = true,
+            deduplicateAcrossSections = true,
+            createdBy = adminId,
+            updatedBy = adminId,
+            publishedAt = now.minusHours(2),
+        ).apply {
+            replaceSections(
+                listOf(
+                    HomeRecommendationSection(
+                        code = "editor_picks",
+                        eyebrow = "CURATED FOR YOU",
+                        title = "Summer Editor Picks",
+                        subtitle = "Swim and resort styles selected for the season.",
+                        displayStyle = HomeRecommendationSection.DisplayStyle.GRID,
+                        desktopColumns = 4,
+                        mobileColumns = 2,
+                        linkLabel = "Shop swimwear",
+                        linkUrl = "/collections/swimwear",
+                        itemLimit = 8,
+                        sortOrder = 0,
+                    ).also { section ->
+                        section.replaceGroups(
+                            listOf(
+                                HomeRecommendationGroup(
+                                    code = "featured_swim",
+                                    title = "Featured Swim",
+                                    selectionMode = HomeRecommendationGroup.SelectionMode.HYBRID,
+                                    strategy = HomeRecommendationGroup.Strategy.EDITOR_PICKS,
+                                    itemLimit = 8,
+                                    categoryId = swimwearProducts.firstNotNullOfOrNull { it.category?.id },
+                                    minimumStock = 1,
+                                    fallbackStrategy = HomeRecommendationGroup.FallbackStrategy.BEST_SELLERS,
+                                    sortOrder = 0,
+                                ).also { group ->
+                                    group.replaceItems(
+                                        editorProducts.mapIndexed { index, product ->
+                                            HomeRecommendationItem(
+                                                productId = requireNotNull(product.id),
+                                                pinned = index < 2,
+                                                customBadge = when (index) {
+                                                    0 -> "EDITOR'S PICK"
+                                                    1 -> "TRENDING"
+                                                    else -> null
+                                                },
+                                                sortOrder = index,
+                                            )
+                                        },
+                                    )
+                                },
+                            ),
+                        )
+                    },
+                    HomeRecommendationSection(
+                        code = "shop_the_latest",
+                        eyebrow = "DISCOVER WHAT'S NEW",
+                        title = "Shop the Latest",
+                        subtitle = "Fresh arrivals, customer favorites, and top-rated styles.",
+                        displayStyle = HomeRecommendationSection.DisplayStyle.TABS,
+                        desktopColumns = 4,
+                        mobileColumns = 2,
+                        linkLabel = "View all products",
+                        linkUrl = "/collections/shop",
+                        itemLimit = 8,
+                        sortOrder = 1,
+                    ).also { section ->
+                        section.replaceGroups(
+                            listOf(
+                                HomeRecommendationGroup(
+                                    code = "new_arrivals",
+                                    title = "New Arrivals",
+                                    selectionMode = HomeRecommendationGroup.SelectionMode.AUTO,
+                                    strategy = HomeRecommendationGroup.Strategy.NEW_ARRIVALS,
+                                    itemLimit = 8,
+                                    tagId = newArrivalTagId,
+                                    lookbackDays = 180,
+                                    minimumStock = 1,
+                                    fallbackStrategy = HomeRecommendationGroup.FallbackStrategy.LATEST,
+                                    sortOrder = 0,
+                                ),
+                                HomeRecommendationGroup(
+                                    code = "best_sellers",
+                                    title = "Best Sellers",
+                                    selectionMode = HomeRecommendationGroup.SelectionMode.AUTO,
+                                    strategy = HomeRecommendationGroup.Strategy.BEST_SELLERS,
+                                    itemLimit = 8,
+                                    tagId = bestSellerTagId,
+                                    lookbackDays = null,
+                                    minimumStock = 1,
+                                    fallbackStrategy = HomeRecommendationGroup.FallbackStrategy.LATEST,
+                                    sortOrder = 1,
+                                ),
+                                HomeRecommendationGroup(
+                                    code = "top_rated",
+                                    title = "Top Rated",
+                                    selectionMode = HomeRecommendationGroup.SelectionMode.AUTO,
+                                    strategy = HomeRecommendationGroup.Strategy.HIGH_RATED,
+                                    itemLimit = 8,
+                                    lookbackDays = null,
+                                    minimumStock = 1,
+                                    fallbackStrategy = HomeRecommendationGroup.FallbackStrategy.BEST_SELLERS,
+                                    sortOrder = 2,
+                                ),
+                            ),
+                        )
+                    },
+                ),
+            )
+        }
+
+        val scheduledPlan = HomeRecommendationPlan(
+            name = "Mock 假日度假专题",
+            status = HomeRecommendationPlan.Status.SCHEDULED,
+            effectiveFrom = now.plusDays(14),
+            effectiveUntil = now.plusDays(30),
+            fallbackEnabled = true,
+            deduplicateAcrossSections = true,
+            createdBy = adminId,
+            updatedBy = adminId,
+        ).apply {
+            replaceSections(
+                listOf(
+                    HomeRecommendationSection(
+                        code = "resort_collection",
+                        eyebrow = "COMING NEXT",
+                        title = "The Resort Edit",
+                        subtitle = "Vacation-ready swimwear, dresses, and effortless layers.",
+                        displayStyle = HomeRecommendationSection.DisplayStyle.CAROUSEL,
+                        desktopColumns = 4,
+                        mobileColumns = 2,
+                        linkLabel = "Explore resort styles",
+                        linkUrl = "/collections/shop",
+                        itemLimit = 10,
+                    ).also { section ->
+                        section.replaceGroups(
+                            listOf(
+                                HomeRecommendationGroup(
+                                    code = "resort_favorites",
+                                    title = "Resort Favorites",
+                                    selectionMode = HomeRecommendationGroup.SelectionMode.AUTO,
+                                    strategy = HomeRecommendationGroup.Strategy.BEST_SELLERS,
+                                    itemLimit = 10,
+                                    tagId = tags["Resort Ready"]?.id,
+                                    lookbackDays = null,
+                                    minimumStock = 1,
+                                    fallbackStrategy = HomeRecommendationGroup.FallbackStrategy.LATEST,
+                                ),
+                            ),
+                        )
+                    },
+                ),
+            )
+        }
+
+        val draftPlan = HomeRecommendationPlan(
+            name = "Mock 首页推荐实验草稿",
+            status = HomeRecommendationPlan.Status.DRAFT,
+            effectiveFrom = now.plusDays(31),
+            fallbackEnabled = true,
+            deduplicateAcrossSections = false,
+            createdBy = adminId,
+            updatedBy = adminId,
+        ).apply {
+            replaceSections(
+                listOf(
+                    HomeRecommendationSection(
+                        code = "staff_favorites",
+                        eyebrow = "DRAFT PREVIEW",
+                        title = "Staff Favorites",
+                        subtitle = "A draft manual collection for testing preview and editing.",
+                        displayStyle = HomeRecommendationSection.DisplayStyle.GRID,
+                        desktopColumns = 3,
+                        mobileColumns = 1,
+                        itemLimit = 6,
+                    ).also { section ->
+                        section.replaceGroups(
+                            listOf(
+                                HomeRecommendationGroup(
+                                    code = "manual_selection",
+                                    title = "Manual Selection",
+                                    selectionMode = HomeRecommendationGroup.SelectionMode.MANUAL,
+                                    strategy = HomeRecommendationGroup.Strategy.EDITOR_PICKS,
+                                    itemLimit = 6,
+                                    lookbackDays = null,
+                                    minimumStock = 1,
+                                    fallbackStrategy = HomeRecommendationGroup.FallbackStrategy.NONE,
+                                ).also { group ->
+                                    group.replaceItems(
+                                        sellableProducts.takeLast(6).mapIndexed { index, product ->
+                                            HomeRecommendationItem(
+                                                productId = requireNotNull(product.id),
+                                                pinned = index == 0,
+                                                customBadge = "STAFF PICK".takeIf { index == 0 },
+                                                sortOrder = index,
+                                            )
+                                        },
+                                    )
+                                },
+                            ),
+                        )
+                    },
+                ),
+            )
+        }
+
+        return homeRecommendationPlanRepository.saveAllAndFlush(listOf(publishedPlan, scheduledPlan, draftPlan)).size
     }
 
     private fun seedCarts(products: List<Product>, customers: List<User>): Int {

@@ -1,6 +1,7 @@
 package top.foxball.shopmall.service
 
 import org.springframework.data.domain.Page
+import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
 import top.foxball.shopmall.entity.jdbc.OrderItem
@@ -83,6 +84,9 @@ interface OrderService {
 
     /** 查询当前客户名下的订单及其订单明细；订单不存在为 404，归属其他客户为 403。 */
     fun getCustomer(customerId: Long, orderNo: String): OrderView
+
+    /** 将当前客户订单中的收货地址保存到地址簿并设为默认地址。 */
+    fun saveShippingAddressAsDefault(customerId: Long, orderNo: String): DeliveryAddressItem
 
     /** 返回当前客户订单的支付会话标识和失效时间，不创建新的支付会话。 */
     fun getPayment(customerId: Long, orderNo: String): OrderPaymentView

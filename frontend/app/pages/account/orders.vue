@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { CustomerOrder, CustomerProfile } from '~/types/customer-account'
+import type { CustomerAddress, CustomerOrder, CustomerProfile, CustomerShippingAddress } from '~/types/customer-account'
 import { customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
 import {
   customerStatusLabel,
@@ -35,6 +35,7 @@ const toast = useToast()
 
 const profile = ref<CustomerProfile | null>(null)
 const orders = ref<CustomerOrder[]>([])
+const addresses = ref<CustomerAddress[]>([])
 const activeFilter = ref<OrderFilter>('ALL')
 const page = ref(1)
 const pageSize = 8
@@ -45,6 +46,7 @@ const cancelReason = ref('')
 const isLoading = ref(true)
 const isRefreshing = ref(false)
 const isCancelling = ref(false)
+const settingDefaultOrderNo = ref<string | null>(null)
 const requestError = ref('')
 
 const visibleOrders = computed(() => orders.value.filter(order => {
@@ -61,6 +63,24 @@ const resultLabel = computed(() => `${visibleOrders.value.length} ${visibleOrder
 function orderAddress(order: CustomerOrder) {
   const address = order.shipping_address
   return [address.city, address.state_or_province, address.country].filter(Boolean).join(', ') || 'Address on file'
+}
+
+function addressMatches(left: CustomerAddress, right: CustomerShippingAddress) {
+  return left.name === right.name
+    && left.phone === right.phone
+    && left.company === right.company
+    && left.country_code === right.country
+    && left.state_or_province === right.state_or_province
+    && left.city === right.city
+    && left.district === right.district
+    && left.postal_code === right.postal_code
+    && left.address_line1 === right.address1
+    && left.address_line2 === right.address2
+    && left.delivery_instructions === right.delivery_instructions
+}
+
+function orderUsesDefaultAddress(order: CustomerOrder) {
+  return addresses.value.some(address => address.is_default && addressMatches(address, order.shipping_address))
 }
 
 function itemPreview(order: CustomerOrder) {
@@ -94,12 +114,14 @@ async function loadOrders(showLoading = true) {
   else isRefreshing.value = true
   requestError.value = ''
   try {
-    const [profileResult, ordersResult] = await Promise.all([
+    const [profileResult, ordersResult, addressResult] = await Promise.all([
       profile.value ? Promise.resolve(profile.value) : api.getProfile(userId),
-      api.getOrders(page.value, pageSize)
+      api.getOrders(page.value, pageSize),
+      api.getAddresses()
     ])
     profile.value = profileResult
     orders.value = ordersResult.list || []
+    addresses.value = addressResult.list || []
     totalPages.value = Math.max(Number(ordersResult.pagination?.count || 1), 1)
     if (page.value > totalPages.value) {
       page.value = totalPages.value
@@ -150,6 +172,29 @@ async function cancelOrder(order: CustomerOrder) {
     toast.add({ title: 'Unable to cancel order', description: requestError.value, color: 'error' })
   } finally {
     isCancelling.value = false
+  }
+}
+
+async function setOrderAddressAsDefault(order: CustomerOrder) {
+  if (settingDefaultOrderNo.value || orderUsesDefaultAddress(order)) return
+  settingDefaultOrderNo.value = order.order_no
+  requestError.value = ''
+  try {
+    const defaultAddress = await api.setOrderShippingAddressAsDefault(order.order_no)
+    addresses.value = addresses.value
+      .filter(address => address.id !== defaultAddress.id)
+      .map(address => ({ ...address, is_default: false }))
+    addresses.value.push(defaultAddress)
+    toast.add({
+      title: 'Default address updated',
+      description: 'This delivery address will be selected first at checkout.',
+      color: 'success'
+    })
+  } catch (error: unknown) {
+    requestError.value = customerRequestMessage(error, 'We could not set this delivery address as your default.')
+    toast.add({ title: 'Default address not updated', description: requestError.value, color: 'error' })
+  } finally {
+    settingDefaultOrderNo.value = null
   }
 }
 
@@ -275,6 +320,17 @@ onMounted(() => {
                 <span>{{ order.shipping_address.phone }}</span>
                 <p>{{ [order.shipping_address.address1, order.shipping_address.address2, order.shipping_address.city, order.shipping_address.state_or_province, order.shipping_address.postal_code, order.shipping_address.country].filter(Boolean).join(', ') }}</p>
                 <span v-if="order.client_message" class="order-message"><UIcon name="i-lucide-message-circle" /> {{ order.client_message }}</span>
+                <span v-if="orderUsesDefaultAddress(order)" class="default-address-status"><UIcon name="i-lucide-star" /> Default address</span>
+                <button
+                  v-else
+                  class="set-default-address-button"
+                  type="button"
+                  :disabled="settingDefaultOrderNo !== null"
+                  @click="setOrderAddressAsDefault(order)"
+                >
+                  <UIcon :name="settingDefaultOrderNo === order.order_no ? 'i-lucide-loader-circle' : 'i-lucide-star'" :class="{ 'is-spinning': settingDefaultOrderNo === order.order_no }" />
+                  {{ settingDefaultOrderNo === order.order_no ? 'Updating…' : 'Set as default address' }}
+                </button>
               </div>
 
               <div class="order-detail-section order-total-detail">
@@ -405,6 +461,14 @@ onMounted(() => {
 .order-address-detail p { margin: 4px 0 0; }
 .order-message { display: flex; gap: 5px; margin-top: 5px; font-style: italic; }
 .order-message .iconify { width: 13px; height: 13px; flex: 0 0 auto; color: var(--store-wine); }
+.default-address-status,
+.set-default-address-button { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-family: 'DM Mono', monospace; font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
+.default-address-status { color: var(--store-wine); }
+.set-default-address-button { padding: 0; border: 0; color: var(--store-ink); background: none; cursor: pointer; }
+.set-default-address-button:hover:not(:disabled) { color: var(--store-wine); }
+.set-default-address-button:disabled { cursor: wait; opacity: .55; }
+.default-address-status .iconify,
+.set-default-address-button .iconify { width: 13px; height: 13px; }
 .order-total-detail { padding-left: 20px; border-left: 1px solid var(--store-line); }
 .order-total-detail > div { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid rgba(36,29,33,.1); color: var(--store-muted); font-size: 10px; }
 .order-total-detail > div strong { color: var(--store-ink); font-size: 10px; font-weight: 600; }

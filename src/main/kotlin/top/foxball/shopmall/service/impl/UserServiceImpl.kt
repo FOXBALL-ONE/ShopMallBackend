@@ -126,6 +126,31 @@ class UserServiceImpl(
     }
 
     @Transactional
+    override fun saveDefaultDeliveryAddress(userId: Long, address: DeliveryAddressItem): DeliveryAddressItem? {
+        val user = userRepository.findWithDeliveryAddressById(userId) ?: return null
+        val savedAddress = user.deliveryAddress.firstOrNull {
+            it.name == address.name &&
+                it.phone == address.phone &&
+                it.company == address.company &&
+                it.country == address.country &&
+                it.stateOrProvince == address.stateOrProvince &&
+                it.city == address.city &&
+                it.district == address.district &&
+                it.postalCode == address.postalCode &&
+                it.address1 == address.address1 &&
+                it.address2 == address.address2 &&
+                it.deliveryInstructions == address.deliveryInstructions
+        } ?: run {
+            if (user.deliveryAddress.size >= MAX_DELIVERY_ADDRESSES) {
+                throw ParamErrorException("配送地址最多保存 $MAX_DELIVERY_ADDRESSES 个")
+            }
+            address.copy(id = UUID.randomUUID()).also(user.deliveryAddress::add)
+        }
+        user.deliveryAddress.forEach { it.isDefault = it.id == savedAddress.id }
+        return savedAddress
+    }
+
+    @Transactional
     override fun deleteDeliveryAddress(userId: Long, addressId: UUID): Boolean? {
         val user = userRepository.findWithDeliveryAddressById(userId) ?: return null
         val index = user.deliveryAddress.indexOfFirst { it.id == addressId }

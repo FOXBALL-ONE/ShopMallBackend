@@ -8,6 +8,7 @@ import type {
 } from '~/types/customer-account'
 import { customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
 import { customerInitials, formatAddressLine } from '~/utils/customer-display'
+import { ISO_COUNTRY_OPTIONS, isIsoCountryCode } from '~/utils/iso-countries'
 
 definePageMeta({ middleware: ['customer-auth'] })
 
@@ -64,6 +65,26 @@ const displayName = computed(() => {
 })
 const initials = computed(() => customerInitials(profile.value?.first_name, profile.value?.last_name, 'P'))
 const editingLabel = computed(() => editingAddressId.value ? 'Edit delivery address' : 'Add a delivery address')
+const countryCodeModel = computed({
+  get: () => addressForm.countryCode,
+  set: (value: string) => {
+    addressForm.countryCode = value.replace(/[^a-z]/gi, '').slice(0, 2).toUpperCase()
+  }
+})
+const filteredCountryOptions = computed(() => {
+  const query = countryCodeModel.value.trim()
+  if (!query) return ISO_COUNTRY_OPTIONS
+  return ISO_COUNTRY_OPTIONS.filter(country => country.code.startsWith(query))
+})
+const countryCodeMenuUi = {
+  base: 'country-code-input',
+  trailing: 'country-code-trailing',
+  content: 'country-code-content',
+  viewport: 'country-code-viewport',
+  group: 'country-code-group',
+  item: 'country-code-item',
+  empty: 'country-code-empty-wrap'
+}
 const addressPhonePattern = /^\+[1-9]\d{7,14}$/
 
 function syncProfileForm(value: CustomerProfile) {
@@ -228,8 +249,8 @@ function validateAddress() {
     addressError.value = 'Phone numbers must use E.164 format, for example +14155550123.'
     return false
   }
-  if (!/^[A-Z]{2}$/.test(input.country_code)) {
-    addressError.value = 'Country code must be two uppercase letters, for example US.'
+  if (!isIsoCountryCode(input.country_code)) {
+    addressError.value = 'Select a valid ISO 3166-1 alpha-2 country code, for example US.'
     return false
   }
   return true
@@ -476,10 +497,53 @@ onMounted(() => {
               <span>Company <small>OPTIONAL</small></span>
               <input v-model="addressForm.company" type="text" maxlength="100" autocomplete="organization">
             </label>
-            <label class="field-label">
-              <span>Country code</span>
-              <input v-model="addressForm.countryCode" type="text" maxlength="2" autocomplete="country" @input="addressForm.countryCode = addressForm.countryCode.toUpperCase()" required>
-            </label>
+            <div class="field-label country-code-field">
+              <label for="address-country-code">
+                <span>Country code</span>
+                <small>ISO 3166-1</small>
+              </label>
+              <UInputMenu
+                id="address-country-code"
+                v-model="countryCodeModel"
+                mode="autocomplete"
+                :items="filteredCountryOptions"
+                :ui="countryCodeMenuUi"
+                value-key="code"
+                label-key="label"
+                ignore-filter
+                open-on-click
+                open-on-focus
+                autocomplete="country"
+                maxlength="2"
+                placeholder="Type a code"
+                required
+                variant="none"
+                class="country-code-menu"
+              >
+                <template #trailing="{ open }">
+                  <UIcon name="i-lucide-chevron-down" class="country-code-chevron" :class="{ 'is-open': open }" />
+                </template>
+                <template #content-top>
+                  <div class="country-code-menu-heading">
+                    <span>Country or region</span>
+                    <strong>{{ filteredCountryOptions.length }}</strong>
+                  </div>
+                </template>
+                <template #item="{ item }">
+                  <span class="country-option-code">{{ item.code }}</span>
+                  <span class="country-option-copy">
+                    <strong>{{ item.name }}</strong>
+                    <small>ISO 3166-1 alpha-2</small>
+                  </span>
+                  <UIcon v-if="item.code === countryCodeModel" name="i-lucide-check" class="country-option-check" />
+                </template>
+                <template #empty>
+                  <span class="country-code-empty-icon"><UIcon name="i-lucide-search-x" /></span>
+                  <strong>No matching code</strong>
+                  <small>Try another two-letter ISO country code.</small>
+                </template>
+              </UInputMenu>
+            </div>
             <label class="field-label">
               <span>State / province</span>
               <input v-model="addressForm.stateOrProvince" type="text" maxlength="100" autocomplete="address-level1">
@@ -667,7 +731,8 @@ onMounted(() => {
 .field-span-two { grid-column: span 2; }
 .field-span-three { grid-column: 1 / -1; }
 .field-label { min-width: 0; display: flex; flex-direction: column; gap: 8px; color: var(--store-ink); font-size: 11px; font-weight: 600; }
-.field-label > span { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.field-label > span,
+.field-label > label { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .field-label small { color: var(--store-muted); font-family: 'DM Mono', monospace; font-size: 7px; font-weight: 400; letter-spacing: .05em; text-transform: uppercase; }
 .field-label input,
 .field-label select,
@@ -681,6 +746,33 @@ onMounted(() => {
 .field-label select:focus,
 .field-label textarea:focus { border-color: var(--store-wine); box-shadow: 0 0 0 3px rgba(154, 64, 85, .1); background: #fff; }
 .field-label input[readonly] { color: var(--store-muted); background: rgba(232, 224, 224, .48); cursor: not-allowed; }
+.country-code-field { position: relative; }
+.country-code-menu { position: relative; width: 100%; }
+.country-code-menu :deep(.country-code-input) { width: 100%; min-height: 43px; box-sizing: border-box; padding: 0 38px 0 12px; border: 1px solid rgba(36, 29, 33, .19); border-radius: 0; outline: 0; color: var(--store-ink); background: rgba(251, 247, 245, .82); box-shadow: none; font-family: inherit; font-size: 12px; font-weight: 400; letter-spacing: normal; text-transform: uppercase; transition: border-color .2s ease, box-shadow .2s ease, background .2s ease; }
+.country-code-menu :deep(.country-code-input:focus) { border-color: var(--store-wine); background: #fff; box-shadow: 0 0 0 3px rgba(154, 64, 85, .1); }
+.country-code-menu :deep(.country-code-input::placeholder) { color: #aaa0a4; font-family: inherit; font-size: 12px; font-weight: 400; letter-spacing: normal; text-transform: none; }
+.country-code-menu :deep(.country-code-trailing) { inset-inline-end: 0; padding-inline-end: 12px; }
+.country-code-chevron { width: 16px; height: 16px; color: var(--store-muted); transition: color .2s ease, transform .2s ease; }
+.country-code-chevron.is-open { color: var(--store-wine); transform: rotate(180deg); }
+:global(.country-code-content) { z-index: 90; max-height: min(340px, var(--reka-combobox-content-available-height, 340px)); border: 1px solid rgba(36, 29, 33, .16); border-radius: 0; background: #fffaf8; box-shadow: 0 18px 45px rgba(47, 31, 37, .16), 0 4px 12px rgba(47, 31, 37, .08); }
+:global(.country-code-menu-heading) { display: flex; align-items: center; justify-content: space-between; padding: 11px 13px 9px; border-bottom: 1px solid rgba(36, 29, 33, .09); color: var(--store-muted); background: rgba(241, 232, 231, .5); font-family: 'DM Mono', monospace; font-size: 8px; letter-spacing: .09em; text-transform: uppercase; }
+:global(.country-code-menu-heading strong) { min-width: 24px; padding: 2px 5px; color: var(--store-wine); background: rgba(154, 64, 85, .1); font-size: 8px; font-weight: 500; text-align: center; }
+:global(.country-code-viewport) { padding: 6px; scroll-padding-block: 6px; }
+:global(.country-code-group) { padding: 0; }
+:global(.country-code-item) { min-height: 51px; align-items: center; gap: 11px; padding: 7px 9px; border-bottom: 1px solid rgba(36, 29, 33, .055); border-radius: 0; color: var(--store-ink); cursor: pointer; }
+:global(.country-code-item:last-child) { border-bottom: 0; }
+:global(.country-code-item[data-highlighted]) { color: var(--store-wine); }
+:global(.country-code-item[data-highlighted]::before) { inset: 0; border-radius: 0; background: rgba(154, 64, 85, .085); }
+:global(.country-option-code) { min-width: 42px; padding: 7px 8px; border: 1px solid rgba(154, 64, 85, .22); color: var(--store-wine); background: rgba(255, 255, 255, .72); font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-align: center; }
+:global(.country-option-copy) { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
+:global(.country-option-copy strong) { overflow: hidden; font-family: 'Playfair Display', Georgia, serif; font-size: 14px; font-weight: 500; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
+:global(.country-option-copy small) { color: var(--store-muted); font-family: 'DM Mono', monospace; font-size: 7px; font-weight: 400; letter-spacing: .06em; text-transform: uppercase; }
+:global(.country-option-check) { width: 15px; height: 15px; flex: 0 0 auto; color: var(--store-wine); }
+:global(.country-code-empty-wrap) { display: flex; min-height: 130px; align-items: center; justify-content: center; flex-direction: column; gap: 5px; padding: 18px; color: var(--store-muted); text-align: center; }
+:global(.country-code-empty-wrap strong) { color: var(--store-ink); font-family: 'Playfair Display', Georgia, serif; font-size: 16px; font-weight: 500; }
+:global(.country-code-empty-wrap small) { font-size: 9px; line-height: 1.5; }
+:global(.country-code-empty-icon) { width: 32px; height: 32px; display: grid; place-items: center; margin-bottom: 3px; border: 1px solid rgba(154, 64, 85, .2); color: var(--store-wine); background: rgba(154, 64, 85, .06); }
+:global(.country-code-empty-icon .iconify) { width: 15px; height: 15px; }
 .input-with-icon { position: relative; }
 .input-with-icon input { padding-right: 38px; }
 .input-with-icon .iconify { position: absolute; top: 50%; right: 13px; width: 14px; height: 14px; color: var(--store-muted); transform: translateY(-50%); }

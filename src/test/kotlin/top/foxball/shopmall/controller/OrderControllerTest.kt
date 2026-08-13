@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
+import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
@@ -178,6 +179,31 @@ class OrderControllerTest {
         mockMvc.perform(get("/api/orders/ORD-HIDDEN"))
             .andExpect(status().isNotFound)
             .andExpect(jsonPath("$.message").value("订单不存在"))
+    }
+
+    @Test
+    fun `customer can set an order shipping address as default`() {
+        authenticate(7L)
+        val addressId = UUID.randomUUID()
+        `when`(orderService.saveShippingAddressAsDefault(7L, "ORD-API-1")).thenReturn(
+            DeliveryAddressItem(
+                id = addressId,
+                name = "API User",
+                phone = "+14155550123",
+                country = "US",
+                city = "Austin",
+                address1 = "1 Main St",
+                isDefault = true,
+            ),
+        )
+
+        mockMvc.perform(post("/api/orders/ORD-API-1/shipping-address/default"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.id").value(addressId.toString()))
+            .andExpect(jsonPath("$.data.address_line1").value("1 Main St"))
+            .andExpect(jsonPath("$.data.is_default").value(true))
+
+        verify(orderService).saveShippingAddressAsDefault(7L, "ORD-API-1")
     }
 
     @Test

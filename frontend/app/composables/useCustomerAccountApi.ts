@@ -133,6 +133,12 @@ export function useCustomerAccountApi() {
       return http.get<CustomerOrder>(`/orders/${encodeURIComponent(orderNo)}`)
     },
 
+    setOrderShippingAddressAsDefault(orderNo: string) {
+      return http.post<CustomerAddress>(
+        `/orders/${encodeURIComponent(orderNo)}/shipping-address/default`
+      )
+    },
+
     issueOrderIdempotencyKey() {
       return http.post<CustomerOrderIdempotencyKey>('/orders/idempotency-keys')
     },

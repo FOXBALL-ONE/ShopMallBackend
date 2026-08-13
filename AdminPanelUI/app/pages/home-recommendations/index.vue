@@ -214,7 +214,7 @@ function move<T>(items: T[], index: number, direction: -1 | 1) {
 async function searchProducts(keyword: string) {
   productSearchLoading.value = true
   try {
-    const result = await productApi.listProducts({ keyword: keyword.trim() || undefined, status: 'ACTIVE', deleted: false, page: 0, size: 20 })
+    const result = await productApi.listProducts({ keyword: keyword.trim() || undefined, status: 'ACTIVE', deleted: false, page: 1, size: 20 })
     result.list.forEach(product => { productCache[product.id] = product })
     productOptions.value = result.list.map(product => ({ label: `${product.name}（#${product.id}）`, value: product.id }))
   } catch (error) { message.error(`搜索商品失败：${errorMessage(error)}`) }
