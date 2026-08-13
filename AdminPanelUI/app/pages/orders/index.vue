@@ -27,6 +27,8 @@ const paymentStatus = ref<OrderPaymentStatusResponse | null>(null)
 const refundStatus = ref<OrderRefundStatusResponse | null>(null)
 const detailLoading = ref(false)
 const paymentStatusLoading = ref(false)
+const orderStatusUpdating = ref(false)
+const manualOrderStatus = ref<OrderStatus | null>(null)
 const refundStatusLoading = ref(false)
 const detailOpen = ref(false)
 const refundOpen = ref(false)
@@ -62,6 +64,9 @@ const refundRules: FormRules = {
 }
 
 const pageSizeOptions = [10, 25, 50, 100]
+const manualPaymentOrderStatusOptions = ORDER_STATUS_OPTIONS.filter(option =>
+  ['PENDING_PAYMENT', 'PAID', 'CANCELLED'].includes(option.value),
+)
 const resultSummary = computed(() => {
   if (loading.value) return '正在加载订单…'
   if (orders.value.length === 0) return '当前条件下没有订单'
@@ -239,6 +244,7 @@ async function openDetail(order: OrderListItem) {
   selectedOrder.value = order
   selectedOrderDetail.value = null
   paymentStatus.value = null
+  manualOrderStatus.value = null
   refundStatus.value = null
   detailOpen.value = true
   detailLoading.value = true
@@ -249,9 +255,12 @@ async function openDetail(order: OrderListItem) {
   } finally {
     detailLoading.value = false
   }
+  if (canQueryPaymentStatus.value) {
+    await queryStripePaymentStatus(true)
+  }
 }
 
-async function queryStripePaymentStatus() {
+async function queryStripePaymentStatus(silent = false) {
   const detail = selectedOrderDetail.value
   if (!detail || !canQueryPaymentStatus.value || paymentStatusLoading.value) return
 
@@ -260,20 +269,65 @@ async function queryStripePaymentStatus() {
   try {
     const result = await api.queryPaymentStatus(detail.order_no)
     paymentStatus.value = result
-    if (selectedOrder.value?.order_no === result.order_no) {
-      selectedOrder.value.status = result.order_status
-      selectedOrder.value.payment_status = result.payment_status
+    manualOrderStatus.value = result.order_status === 'PENDING_PAYMENT' ? result.order_status : null
+    if (selectedOrderDetail.value?.order_no === result.order_no) {
+      if (result.payment_intent_id) {
+        selectedOrderDetail.value.payment_intent_id = result.payment_intent_id
+      }
+      if (result.stripe_checkout_session_id) {
+        selectedOrderDetail.value.stripe_checkout_session_id = result.stripe_checkout_session_id
+      }
     }
-    const listOrder = orders.value.find(order => order.order_no === result.order_no)
-    if (listOrder) {
-      listOrder.status = result.order_status
-      listOrder.payment_status = result.payment_status
+    if (!silent) {
+      message.success(`已查询订单 ${result.order_no} 的 Stripe 收款状态，请手动确认最终订单状态`)
     }
-    message.success(`已查询订单 ${result.order_no} 的 Stripe 收款状态`)
   } catch (error) {
     message.error(`查询 Stripe 收款状态失败：${errorMessage(error)}`)
   } finally {
     paymentStatusLoading.value = false
+  }
+}
+
+async function updateManualOrderStatus() {
+  const detail = selectedOrderDetail.value
+  const status = manualOrderStatus.value
+  if (!detail || !paymentStatus.value || !status || orderStatusUpdating.value) return
+  if (detail.status !== 'PENDING_PAYMENT') {
+    message.warning('仅待付款订单可根据 Stripe 查询结果手动更新状态')
+    return
+  }
+  if (status === detail.status) {
+    message.info(`订单当前已经是${statusLabel(status)}`)
+    return
+  }
+
+  orderStatusUpdating.value = true
+  try {
+    const result = await api.updateStatus(detail.order_no, status)
+    if (selectedOrder.value?.order_no === result.order_no) {
+      selectedOrder.value.status = result.status
+      selectedOrder.value.payment_status = result.payment_status
+      selectedOrder.value.updated_at = result.updated_at
+    }
+    const listOrder = orders.value.find(order => order.order_no === result.order_no)
+    if (listOrder) {
+      listOrder.status = result.status
+      listOrder.payment_status = result.payment_status
+      listOrder.updated_at = result.updated_at
+    }
+    if (selectedOrderDetail.value?.order_no === result.order_no) {
+      selectedOrderDetail.value = await api.detail(result.order_no)
+    }
+    if (paymentStatus.value?.order_no === result.order_no) {
+      paymentStatus.value.order_status = result.status
+      paymentStatus.value.payment_status = result.payment_status
+    }
+    manualOrderStatus.value = result.status
+    message.success(`订单 ${result.order_no} 的最终状态已设为${statusLabel(result.status)}`)
+  } catch (error) {
+    message.error(`更新订单状态失败：${errorMessage(error)}`)
+  } finally {
+    orderStatusUpdating.value = false
   }
 }
 
@@ -743,7 +797,7 @@ onMounted(() => {
                     type="primary"
                     :loading="paymentStatusLoading"
                     :disabled="!canQueryPaymentStatus"
-                    @click="queryStripePaymentStatus"
+                    @click="queryStripePaymentStatus()"
                   >
                     <template #icon><RefreshCw :size="16" /></template>
                     查询 Stripe
@@ -815,7 +869,41 @@ onMounted(() => {
                   </NDescriptionsItem>
                 </NDescriptions>
 
-                <NEmpty v-else class="payment-empty" size="small" description="尚未查询 Stripe 收款状态" />
+                <div v-if="paymentStatus" class="manual-status-editor">
+                  <NAlert
+                    :type="selectedOrderDetail?.status === 'PENDING_PAYMENT' ? 'info' : 'default'"
+                    :bordered="false"
+                    :title="selectedOrderDetail?.status === 'PENDING_PAYMENT' ? '手动确认订单状态' : '订单状态不会自动同步'"
+                  >
+                    {{ selectedOrderDetail?.status === 'PENDING_PAYMENT'
+                      ? 'Stripe 查询仅供核对，不会修改本地订单。请选择最终状态后手动保存。'
+                      : `当前订单已是${statusLabel(selectedOrderDetail?.status || paymentStatus.order_status)}，Stripe 查询结果不会覆盖该状态。` }}
+                  </NAlert>
+                  <div v-if="selectedOrderDetail?.status === 'PENDING_PAYMENT'" class="manual-status-actions">
+                    <NSelect
+                      v-model:value="manualOrderStatus"
+                      class="manual-status-select"
+                      :options="manualPaymentOrderStatusOptions"
+                      :disabled="orderStatusUpdating"
+                      placeholder="选择最终订单状态"
+                    />
+                    <NButton
+                      type="primary"
+                      :loading="orderStatusUpdating"
+                      :disabled="!manualOrderStatus || manualOrderStatus === selectedOrderDetail.status"
+                      @click="updateManualOrderStatus"
+                    >
+                      保存最终状态
+                    </NButton>
+                  </div>
+                </div>
+
+                <NEmpty
+                  v-else
+                  class="payment-empty"
+                  size="small"
+                  :description="paymentStatusLoading ? '正在自动查询 Stripe 收款状态' : '未获取到 Stripe 收款状态，可点击右上角重试'"
+                />
               </div>
 
               <div v-if="canQueryRefundStatus || refundStatus">
@@ -1038,6 +1126,24 @@ onMounted(() => {
   padding: 20px 0 4px;
 }
 
+.manual-status-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.manual-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.manual-status-select {
+  flex: 1;
+  min-width: 0;
+}
+
 .payment-reference {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   overflow-wrap: anywhere;
@@ -1081,9 +1187,15 @@ onMounted(() => {
   }
 
   .order-item-row,
-  .order-item-values {
+  .order-item-values,
+  .manual-status-actions {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .manual-status-select,
+  .manual-status-actions :deep(.n-button) {
+    width: 100%;
   }
 }
 </style>

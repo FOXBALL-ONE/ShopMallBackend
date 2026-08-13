@@ -106,6 +106,9 @@ interface OrderService {
     /** 以管理员权限查询订单详情及当前有效的履约分配。 */
     fun getAdmin(adminId: Long, orderNo: String): AdminOrderDetails
 
+    /** 由管理员根据 Stripe 查询结果，将待付款订单手动确认为待付款、已支付或已取消。 */
+    fun updateAdminStatus(adminId: Long, orderNo: String, status: OrderStatus): OrderEntity
+
     /** 由管理员为未发货的已付款订单申请退款，Stripe 确认成功后再恢复库存。 */
     fun refund(adminId: Long, orderNo: String, reason: String): OrderView
 

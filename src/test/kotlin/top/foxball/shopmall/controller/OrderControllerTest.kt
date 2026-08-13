@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
+import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
 import top.foxball.shopmall.entity.jdbc.OrderShippingAddress
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.entity.jdbc.User
@@ -295,6 +296,57 @@ class OrderControllerTest {
             .andExpect(jsonPath("$.data.amount_matches_order").value(true))
 
         verify(orderPaymentService).queryAdminPaymentStatus(99L, "ORD-API-1")
+    }
+
+    @Test
+    fun `admin can manually set the final order status after querying Stripe`() {
+        authenticate(99L)
+        val updated = OrderEntity(
+            id = 10,
+            orderNo = "ORD-API-1",
+            customerId = 7,
+            status = OrderStatus.PAID,
+            paymentStatus = OrderPaymentStatus.PAID,
+        )
+        `when`(orderService.updateAdminStatus(99L, "ORD-API-1", OrderStatus.PAID)).thenReturn(updated)
+
+        mockMvc.perform(
+            post("/admin/api/orders/ORD-API-1/status")
+                .param("status", "PAID"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.id").value(10))
+            .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.status").value("PAID"))
+            .andExpect(jsonPath("$.data.payment_status").value("PAID"))
+
+        verify(orderService).updateAdminStatus(99L, "ORD-API-1", OrderStatus.PAID)
+    }
+
+    @Test
+    fun `admin refund immediately requests Stripe refund`() {
+        authenticate(99L)
+        val order = OrderEntity(
+            id = 10,
+            orderNo = "ORD-API-1",
+            customerId = 7,
+            status = OrderStatus.REFUNDING,
+            paymentStatus = OrderPaymentStatus.REFUNDING,
+        )
+        `when`(orderService.refund(99L, "ORD-API-1", "duplicate charge"))
+            .thenReturn(OrderView(order, emptyList()))
+
+        mockMvc.perform(
+            post("/admin/api/orders/ORD-API-1/refund")
+                .param("reason", "duplicate charge"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.status").value("REFUNDING"))
+            .andExpect(jsonPath("$.data.payment_status").value("REFUNDING"))
+
+        verify(orderService).refund(99L, "ORD-API-1", "duplicate charge")
+        verify(orderPaymentService).reconcileRequestedRefund(10)
     }
 
     @Test

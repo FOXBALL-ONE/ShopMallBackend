@@ -59,6 +59,15 @@ export interface OrderListResponse {
     };
 }
 
+export interface UpdateOrderStatusResponse {
+    id: number;
+    order_no: string;
+    status: OrderStatus;
+    payment_status: OrderPaymentStatus;
+    cancel_reason: string | null;
+    updated_at: string | null;
+}
+
 export interface RefundOrderResponse {
     id: number;
     order_no: string;

@@ -65,7 +65,7 @@ interface OrderPaymentService {
     /** 在申请退款的事务内写入 Stripe 退款外盒事件。 */
     fun requestRefund(order: OrderEntity)
 
-    /** 外盒消费者向 Stripe 发起已申请的退款并记录退款标识。 */
+    /** 立即向 Stripe 发起已申请的退款并记录退款标识；外盒消费者也使用此方法进行可靠重试。 */
     fun reconcileRequestedRefund(orderId: Long)
 
     /** 在当前事务内写入支付补偿外盒事件。 */

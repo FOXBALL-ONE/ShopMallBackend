@@ -426,6 +426,62 @@ class OrderServiceImpl(
     }
 
     @Transactional
+    override fun updateAdminStatus(adminId: Long, orderNo: String, status: OrderStatus): OrderEntity {
+        adminAccessService.requireAdmin(adminId)
+        if (status !in setOf(OrderStatus.PENDING_PAYMENT, OrderStatus.PAID, OrderStatus.CANCELLED)) {
+            throw ParamErrorException("Stripe 收款核对仅支持待付款、已支付或已取消状态")
+        }
+        val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
+        if (order.status == OrderStatus.DELETED) throw OrderNotFoundException()
+        if (order.status == status) return order
+        if (order.status != OrderStatus.PENDING_PAYMENT) {
+            throw OrderStatusException("仅待付款订单可根据 Stripe 查询结果手动更新状态")
+        }
+
+        val orderId = requireNotNull(order.id)
+        when (status) {
+            OrderStatus.PAID -> {
+                if (
+                    orderRepository.markPaid(
+                        orderId,
+                        OrderStatus.PENDING_PAYMENT,
+                        OrderStatus.PAID,
+                        clock.instant(),
+                    ) == 0
+                ) {
+                    throw OrderStatusException("订单状态已发生变化，请刷新后重试")
+                }
+                orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(orderId).forEach { item ->
+                    check(productVariantRepository.incrementSales(item.variantId, item.quantity) == 1) {
+                        "无法更新已支付订单 SKU 销量: ${item.variantId}"
+                    }
+                }
+                publishOrderEvent(orderId, "PAID")
+            }
+            OrderStatus.CANCELLED -> {
+                val items = orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(orderId)
+                if (
+                    orderRepository.markCancelled(
+                        orderId,
+                        OrderStatus.PENDING_PAYMENT,
+                        OrderStatus.CANCELLED,
+                        clock.instant(),
+                        "管理员根据 Stripe 查询结果手动取消",
+                    ) == 0
+                ) {
+                    throw OrderStatusException("订单状态已发生变化，请刷新后重试")
+                }
+                publishOrderEvent(orderId, "CANCELLED")
+                restock(items)
+                paymentService.cancelOrRefund(order, "admin-manual-payment-status")
+            }
+            OrderStatus.PENDING_PAYMENT -> Unit
+            else -> error("已在前置校验中排除不支持的订单状态")
+        }
+        return reload(orderId)
+    }
+
+    @Transactional
     override fun refund(adminId: Long, orderNo: String, reason: String): OrderView {
         adminAccessService.requireAdmin(adminId)
         val normalizedReason = requireNotNull(normalizeReason(reason, required = true))

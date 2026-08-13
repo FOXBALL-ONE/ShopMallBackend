@@ -5,6 +5,7 @@ import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.inOrder
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.springframework.data.domain.PageImpl
@@ -15,12 +16,14 @@ import top.foxball.shopmall.config.OrderProperties
 import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.OrderEntity
 import top.foxball.shopmall.entity.jdbc.OrderItem
+import top.foxball.shopmall.entity.jdbc.OrderPaymentStatus
 import top.foxball.shopmall.entity.jdbc.OrderStatus
 import top.foxball.shopmall.entity.jdbc.OutboxEvent
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.entity.jdbc.ProductType
 import top.foxball.shopmall.entity.jdbc.ProductVariant
+import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ProductVariantRepository
@@ -38,6 +41,7 @@ import java.util.Optional
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class OrderServiceImplTest {
     private val orderRepository = mock(OrderRepository::class.java)
@@ -179,6 +183,126 @@ class OrderServiceImplTest {
         assertEquals(OrderStatus.CANCELLED, result.order.status)
         verify(variantRepository).restock(10, 2)
         verify(paymentService).cancelOrRefund(order, "customer-cancel")
+    }
+
+    @Test
+    fun `administrator manually marks a pending Stripe order as paid with normal payment side effects`() {
+        val order = OrderEntity(
+            id = 102,
+            orderNo = "ORDER-102",
+            customerId = 5,
+            status = OrderStatus.PENDING_PAYMENT,
+            paymentStatus = OrderPaymentStatus.PENDING_PAYMENT,
+        )
+        val item = OrderItem(
+            id = 202,
+            order = order,
+            productId = 100,
+            variantId = 10,
+            sku = "SKU-10",
+            quantity = 2,
+        )
+        val paid = OrderEntity(
+            id = 102,
+            orderNo = order.orderNo,
+            customerId = order.customerId,
+            status = OrderStatus.PAID,
+            paymentStatus = OrderPaymentStatus.PAID,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(
+            orderRepository.markPaid(
+                102,
+                OrderStatus.PENDING_PAYMENT,
+                OrderStatus.PAID,
+                clock.instant(),
+            ),
+        ).thenReturn(1)
+        `when`(orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(102)).thenReturn(listOf(item))
+        `when`(variantRepository.incrementSales(10, 2)).thenReturn(1)
+        `when`(orderRepository.findById(102)).thenReturn(Optional.of(paid))
+
+        val result = service.updateAdminStatus(99, order.orderNo, OrderStatus.PAID)
+
+        assertEquals(OrderStatus.PAID, result.status)
+        assertEquals(OrderPaymentStatus.PAID, result.paymentStatus)
+        verify(adminAccessService).requireAdmin(99)
+        verify(variantRepository).incrementSales(10, 2)
+        verify(eventPublisher).publishInTx("ORDER", 102, "PAID", "{\"orderId\":102}")
+        verify(paymentService, never()).cancelOrRefund(order, "admin-manual-payment-status")
+    }
+
+    @Test
+    fun `administrator manually cancels a pending Stripe order and restores stock`() {
+        val order = OrderEntity(
+            id = 103,
+            orderNo = "ORDER-103",
+            customerId = 5,
+            status = OrderStatus.PENDING_PAYMENT,
+            paymentStatus = OrderPaymentStatus.PENDING_PAYMENT,
+            stripeCheckoutSessionId = "cs_103",
+        )
+        val item = OrderItem(
+            id = 203,
+            order = order,
+            productId = 100,
+            variantId = 10,
+            sku = "SKU-10",
+            quantity = 2,
+        )
+        val cancelled = OrderEntity(
+            id = 103,
+            orderNo = order.orderNo,
+            customerId = order.customerId,
+            status = OrderStatus.CANCELLED,
+            paymentStatus = OrderPaymentStatus.CANCELLED,
+            stripeCheckoutSessionId = order.stripeCheckoutSessionId,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(103)).thenReturn(listOf(item))
+        `when`(
+            orderRepository.markCancelled(
+                103,
+                OrderStatus.PENDING_PAYMENT,
+                OrderStatus.CANCELLED,
+                clock.instant(),
+                "管理员根据 Stripe 查询结果手动取消",
+            ),
+        ).thenReturn(1)
+        `when`(variantRepository.restock(10, 2)).thenReturn(1)
+        `when`(orderRepository.findById(103)).thenReturn(Optional.of(cancelled))
+
+        val result = service.updateAdminStatus(99, order.orderNo, OrderStatus.CANCELLED)
+
+        assertEquals(OrderStatus.CANCELLED, result.status)
+        assertEquals(OrderPaymentStatus.CANCELLED, result.paymentStatus)
+        verify(variantRepository).restock(10, 2)
+        verify(eventPublisher).publishInTx("ORDER", 103, "CANCELLED", "{\"orderId\":103}")
+        verify(paymentService).cancelOrRefund(order, "admin-manual-payment-status")
+    }
+
+    @Test
+    fun `administrator cannot overwrite a non-pending order from the Stripe status editor`() {
+        val order = OrderEntity(
+            id = 104,
+            orderNo = "ORDER-104",
+            customerId = 5,
+            status = OrderStatus.PAID,
+            paymentStatus = OrderPaymentStatus.PAID,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+
+        assertFailsWith<OrderStatusException> {
+            service.updateAdminStatus(99, order.orderNo, OrderStatus.CANCELLED)
+        }
+
+        verify(orderRepository, never()).markCancelled(
+            104,
+            OrderStatus.PENDING_PAYMENT,
+            OrderStatus.CANCELLED,
+            clock.instant(),
+            "管理员根据 Stripe 查询结果手动取消",
+        )
     }
 
     private fun variant(variantId: Long, productId: Long, price: String): ProductVariant {

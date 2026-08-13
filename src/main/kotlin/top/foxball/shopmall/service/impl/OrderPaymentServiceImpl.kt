@@ -210,9 +210,11 @@ class OrderPaymentServiceImpl(
         )
     }
 
+    @Transactional
     override fun reconcileRequestedRefund(orderId: Long) {
         val order = orderRepository.findById(orderId).orElse(null) ?: return
         if (order.status != OrderStatus.REFUNDING || order.paymentStatus != OrderPaymentStatus.REFUNDING) return
+        if (order.stripeRefundId != null) return
         val paymentIntentId = order.paymentIntentId
             ?: throw IllegalStateException("Refunding order ${order.orderNo} has no Stripe PaymentIntent")
         val refund = paymentIntentCoordinator.refund(paymentIntentId, requestedRefundIdempotencyKey(order))

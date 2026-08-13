@@ -352,6 +352,44 @@ class AdminOrderController(
     }
 
     /**
+     * @api 根据 Stripe 查询结果手动更新订单状态
+     * @param orderNo 订单编号
+     * @param status 最终订单状态
+     */
+    @PostMapping("/{order_no}/status")
+    fun updateOrderStatus(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("order_no") orderNo: String,
+        @RequestParam("status") status: OrderStatus,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            @param:JsonProperty("order_no")
+            val orderNo: String,
+            val status: String,
+            @param:JsonProperty("payment_status")
+            val paymentStatus: String,
+            @param:JsonProperty("cancel_reason")
+            val cancelReason: String?,
+            @param:JsonProperty("updated_at")
+            val updatedAt: Instant?,
+        )
+
+        val order = orderService.updateAdminStatus(adminId, orderNo, status)
+        val rs = Response(
+            id = requireNotNull(order.id),
+            orderNo = order.orderNo,
+            status = order.status.name,
+            paymentStatus = order.paymentStatus.name,
+            cancelReason = order.cancelReason,
+            updatedAt = order.updatedAt,
+        )
+        return builder.ok()
+            .data(rs)
+            .build()
+    }
+
+    /**
      * @api 退款订单
      * @param orderNo 订单编号
      * @param reason 退款原因
@@ -377,6 +415,7 @@ class AdminOrderController(
 
         val view = orderService.refund(adminId, orderNo, reason)
         val order = view.order
+        orderPaymentService.reconcileRequestedRefund(requireNotNull(order.id))
         val rs = Response(
             id = requireNotNull(order.id),
             orderNo = order.orderNo,

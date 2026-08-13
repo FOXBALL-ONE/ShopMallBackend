@@ -5,6 +5,7 @@ import type {
     OrderPaymentStatusResponse,
     OrderRefundStatusResponse,
     OrderStatus,
+    UpdateOrderStatusResponse,
     RefundOrderResponse,
     DeleteOrderResponse,
     PermanentDeleteOrderResponse,
@@ -43,6 +44,10 @@ export const useOrderApi = () => {
         return post<OrderPaymentStatusResponse>(`/orders/${encodeURIComponent(orderNo)}/payment-status`);
     }
 
+    function updateStatus(orderNo: string, status: OrderStatus): Promise<UpdateOrderStatusResponse> {
+        return post<UpdateOrderStatusResponse>(`/orders/${encodeURIComponent(orderNo)}/status`, {status});
+    }
+
     function queryRefundStatus(orderNo: string): Promise<OrderRefundStatusResponse> {
         return post<OrderRefundStatusResponse>(`/orders/${encodeURIComponent(orderNo)}/refund-status`);
     }
@@ -59,6 +64,7 @@ export const useOrderApi = () => {
         list,
         detail,
         queryPaymentStatus,
+        updateStatus,
         queryRefundStatus,
         refund,
         deleteOrder,

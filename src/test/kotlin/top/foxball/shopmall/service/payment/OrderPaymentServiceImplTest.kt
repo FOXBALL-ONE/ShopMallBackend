@@ -36,6 +36,7 @@ import top.foxball.shopmall.shared.PaymentIntentCoordinator
 import java.math.BigDecimal
 import java.time.Clock
 import java.time.Instant
+import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.util.Optional
 import kotlin.test.Test
@@ -177,6 +178,61 @@ class OrderPaymentServiceImplTest {
         val key = "ORD-PAYMENT-1:cancelled-order-refund"
         verify(coordinator).cancelOrRefund("cs_order", "pi_order", key)
         verify(coordinator).refund("pi_order", key)
+    }
+
+    @Test
+    fun `requested refund immediately calls Stripe and records the refund id`() {
+        val requestedAt = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
+        val order = pendingOrder().apply {
+            status = OrderStatus.REFUNDING
+            paymentStatus = OrderPaymentStatus.REFUNDING
+            paymentIntentId = "pi_requested"
+            refundRequestedAt = requestedAt
+        }
+        val refund = mock(Refund::class.java).also {
+            `when`(it.id).thenReturn("re_requested")
+        }
+        `when`(orderRepository.findById(10)).thenReturn(Optional.of(order))
+        `when`(
+            coordinator.refund(
+                "pi_requested",
+                "ORD-PAYMENT-1:requested-refund:$requestedAt",
+            ),
+        ).thenReturn(refund)
+
+        service.reconcileRequestedRefund(10)
+
+        verify(coordinator).refund(
+            "pi_requested",
+            "ORD-PAYMENT-1:requested-refund:$requestedAt",
+        )
+        verify(orderRepository).recordStripeRefund(
+            10,
+            OrderStatus.REFUNDING,
+            OrderPaymentStatus.REFUNDING,
+            "re_requested",
+        )
+    }
+
+    @Test
+    fun `outbox retry does not request Stripe again after refund id is recorded`() {
+        val order = pendingOrder().apply {
+            status = OrderStatus.REFUNDING
+            paymentStatus = OrderPaymentStatus.REFUNDING
+            paymentIntentId = "pi_requested"
+            stripeRefundId = "re_requested"
+        }
+        `when`(orderRepository.findById(10)).thenReturn(Optional.of(order))
+
+        service.reconcileRequestedRefund(10)
+
+        verifyNoInteractions(coordinator)
+        verify(orderRepository, never()).recordStripeRefund(
+            10,
+            OrderStatus.REFUNDING,
+            OrderPaymentStatus.REFUNDING,
+            "re_requested",
+        )
     }
 
     @Test
@@ -360,8 +416,11 @@ class OrderPaymentServiceImplTest {
         assertEquals(PaymentStatus.SUCCEEDED, result.providerStatus)
         assertEquals(true, result.amountMatchesOrder)
         assertEquals("succeeded", result.paymentIntentStatus)
+        assertEquals(OrderStatus.PENDING_PAYMENT, result.orderStatus)
+        assertEquals(OrderPaymentStatus.PENDING_PAYMENT, result.paymentStatus)
         verify(adminAccessService).requireAdmin(99)
         verify(stripeService).queryPayment(PaymentQueryRequest("pi_order"))
+        verify(orderRepository, never()).markPaid(10, OrderStatus.PENDING_PAYMENT, OrderStatus.PAID, clock.instant())
     }
 
     @Test
