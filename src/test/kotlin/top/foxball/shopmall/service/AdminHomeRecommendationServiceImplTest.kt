@@ -9,6 +9,7 @@ import top.foxball.shopmall.entity.jdbc.HomeRecommendationGroup
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationItem
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationPlan
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationSection
+import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.handler.HomeRecommendationScheduleConflictException
 import top.foxball.shopmall.handler.HomeRecommendationVersionConflictException
 import top.foxball.shopmall.handler.ParamErrorException
@@ -89,6 +90,154 @@ class AdminHomeRecommendationServiceImplTest {
 
         assertEquals("商品不存在：88", error.message)
         verify(planRepository, never()).saveAndFlush(org.mockito.ArgumentMatchers.any(HomeRecommendationPlan::class.java))
+    }
+
+    @Test
+    fun `hero carousel requires carousel display style`() {
+        val error = assertFailsWith<ParamErrorException> {
+            service.create(
+                99,
+                createCommand(
+                    sections = listOf(
+                        sectionCommand(
+                            code = HomeRecommendationSection.HERO_CAROUSEL_CODE,
+                            groups = listOf(heroGroupCommand()),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals("首页顶部轮播的展示形态必须为 CAROUSEL", error.message)
+    }
+
+    @Test
+    fun `hero carousel must be the first section`() {
+        val error = assertFailsWith<ParamErrorException> {
+            service.create(
+                99,
+                createCommand(
+                    sections = listOf(
+                        sectionCommand(),
+                        sectionCommand(
+                            code = HomeRecommendationSection.HERO_CAROUSEL_CODE,
+                            displayStyle = HomeRecommendationSection.DisplayStyle.CAROUSEL,
+                            sortOrder = 1,
+                            groups = listOf(heroGroupCommand()),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals("首页顶部轮播必须位于第一个楼层且排序值为 0", error.message)
+    }
+
+    @Test
+    fun `hero carousel requires manual selection`() {
+        val error = assertFailsWith<ParamErrorException> {
+            service.create(
+                99,
+                createCommand(
+                    sections = listOf(
+                        sectionCommand(
+                            code = HomeRecommendationSection.HERO_CAROUSEL_CODE,
+                            displayStyle = HomeRecommendationSection.DisplayStyle.CAROUSEL,
+                            groups = listOf(
+                                groupCommand(
+                                    selectionMode = HomeRecommendationGroup.SelectionMode.AUTO,
+                                    strategy = HomeRecommendationGroup.Strategy.EDITOR_PICKS,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals("首页顶部轮播必须使用人工选品", error.message)
+    }
+
+    @Test
+    fun `hero carousel accepts at most eight products`() {
+        val items = (1L..9L).mapIndexed { index, productId ->
+            AdminHomeRecommendationService.ItemCommand(productId, false, null, index)
+        }
+
+        val error = assertFailsWith<ParamErrorException> {
+            service.create(
+                99,
+                createCommand(
+                    sections = listOf(
+                        sectionCommand(
+                            code = HomeRecommendationSection.HERO_CAROUSEL_CODE,
+                            displayStyle = HomeRecommendationSection.DisplayStyle.CAROUSEL,
+                            groups = listOf(heroGroupCommand(items = items)),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals("首页顶部轮播最多只能配置 8 个商品", error.message)
+    }
+
+    @Test
+    fun `publish rejects hero carousel without effective products`() {
+        val heroGroup = HomeRecommendationGroup(
+            code = "hero_products",
+            title = "首页顶部轮播商品",
+            selectionMode = HomeRecommendationGroup.SelectionMode.MANUAL,
+            strategy = HomeRecommendationGroup.Strategy.EDITOR_PICKS,
+            itemLimit = HomeRecommendationSection.HERO_CAROUSEL_MAX_ITEMS,
+            minimumStock = 1,
+            fallbackStrategy = HomeRecommendationGroup.FallbackStrategy.NONE,
+        ).apply {
+            replaceItems(listOf(HomeRecommendationItem(productId = 1, sortOrder = 0)))
+        }
+        val heroSection = HomeRecommendationSection(
+            code = HomeRecommendationSection.HERO_CAROUSEL_CODE,
+            title = "Shop the featured edit.",
+            displayStyle = HomeRecommendationSection.DisplayStyle.CAROUSEL,
+            itemLimit = HomeRecommendationSection.HERO_CAROUSEL_MAX_ITEMS,
+            sortOrder = 0,
+        ).apply { replaceGroups(listOf(heroGroup)) }
+        val plan = plan(id = 7).apply { replaceSections(listOf(heroSection)) }
+        val resolvedGroup = HomeRecommendationService.ResolvedGroup(
+            id = null,
+            code = "hero_products",
+            title = "首页顶部轮播商品",
+            selectionMode = HomeRecommendationGroup.SelectionMode.MANUAL,
+            strategy = HomeRecommendationGroup.Strategy.EDITOR_PICKS,
+            minimumStock = 1,
+            products = emptyList(),
+        )
+        `when`(planRepository.findByIdForUpdate(7)).thenReturn(plan)
+        `when`(productRepository.findAllById(setOf(1L))).thenReturn(listOf(Product(id = 1)))
+        `when`(homeRecommendationService.resolve(plan, 20, null, false)).thenReturn(
+            resolvedPlan(
+                listOf(
+                    HomeRecommendationService.ResolvedSection(
+                        id = null,
+                        code = HomeRecommendationSection.HERO_CAROUSEL_CODE,
+                        eyebrow = null,
+                        title = "Shop the featured edit.",
+                        subtitle = null,
+                        displayStyle = HomeRecommendationSection.DisplayStyle.CAROUSEL,
+                        desktopColumns = 4,
+                        mobileColumns = 2,
+                        linkLabel = null,
+                        linkUrl = null,
+                        groups = listOf(resolvedGroup),
+                    ),
+                ),
+            ),
+        )
+
+        val error = assertFailsWith<ParamErrorException> { service.publish(99, 7, 0) }
+
+        assertEquals("首页顶部轮播解析后没有可展示商品", error.message)
+        verify(planRepository, never()).saveAndFlush(plan)
     }
 
     @Test
@@ -295,10 +444,13 @@ class AdminHomeRecommendationServiceImplTest {
     )
 
     private fun sectionCommand(
+        code: String = "featured",
         displayStyle: HomeRecommendationSection.DisplayStyle = HomeRecommendationSection.DisplayStyle.GRID,
+        itemLimit: Int = 8,
+        sortOrder: Int = 0,
         groups: List<AdminHomeRecommendationService.GroupCommand> = listOf(groupCommand()),
     ) = AdminHomeRecommendationService.SectionCommand(
-        code = "featured",
+        code = code,
         eyebrow = null,
         title = "Featured",
         subtitle = null,
@@ -307,29 +459,45 @@ class AdminHomeRecommendationServiceImplTest {
         mobileColumns = 2,
         linkLabel = null,
         linkUrl = null,
-        itemLimit = 8,
+        itemLimit = itemLimit,
         hideWhenEmpty = true,
-        sortOrder = 0,
+        sortOrder = sortOrder,
         groups = groups,
     )
 
     private fun groupCommand(
+        code: String = "featured",
         selectionMode: HomeRecommendationGroup.SelectionMode = HomeRecommendationGroup.SelectionMode.AUTO,
         strategy: HomeRecommendationGroup.Strategy = HomeRecommendationGroup.Strategy.NEW_ARRIVALS,
+        itemLimit: Int = 8,
+        fallbackStrategy: HomeRecommendationGroup.FallbackStrategy = HomeRecommendationGroup.FallbackStrategy.NONE,
         items: List<AdminHomeRecommendationService.ItemCommand> = emptyList(),
     ) = AdminHomeRecommendationService.GroupCommand(
-        code = "featured",
+        code = code,
         title = "Featured",
         selectionMode = selectionMode,
         strategy = strategy,
-        itemLimit = 8,
+        itemLimit = itemLimit,
         categoryId = null,
         productType = null,
         tagId = null,
         lookbackDays = if (strategy == HomeRecommendationGroup.Strategy.NEW_ARRIVALS) 30 else null,
         minimumStock = 1,
-        fallbackStrategy = HomeRecommendationGroup.FallbackStrategy.NONE,
+        fallbackStrategy = fallbackStrategy,
         sortOrder = 0,
+        items = items,
+    )
+
+    private fun heroGroupCommand(
+        items: List<AdminHomeRecommendationService.ItemCommand> = listOf(
+            AdminHomeRecommendationService.ItemCommand(1, false, null, 0),
+        ),
+    ) = groupCommand(
+        code = "hero_products",
+        selectionMode = HomeRecommendationGroup.SelectionMode.MANUAL,
+        strategy = HomeRecommendationGroup.Strategy.EDITOR_PICKS,
+        itemLimit = HomeRecommendationSection.HERO_CAROUSEL_MAX_ITEMS,
+        fallbackStrategy = HomeRecommendationGroup.FallbackStrategy.NONE,
         items = items,
     )
 

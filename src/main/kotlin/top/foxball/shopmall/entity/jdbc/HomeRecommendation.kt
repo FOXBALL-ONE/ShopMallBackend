@@ -204,6 +204,11 @@ class HomeRecommendationSection(
         CAROUSEL,
         TABS,
     }
+
+    companion object {
+        const val HERO_CAROUSEL_CODE = "hero_carousel"
+        const val HERO_CAROUSEL_MAX_ITEMS = 8
+    }
 }
 
 /** 推荐楼层中的单组商品，TABS 模式下一个组对应一个页签。 */

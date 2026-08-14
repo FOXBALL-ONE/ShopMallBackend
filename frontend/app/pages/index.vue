@@ -23,6 +23,12 @@ const {
     })
   }
 )
+const HERO_CAROUSEL_CODE = 'hero_carousel'
+const HERO_CAROUSEL_MAX_ITEMS = 8
+const recommendationSections = computed(() => (recommendations.value?.sections ?? [])
+  .filter(section => section.code !== HERO_CAROUSEL_CODE)
+  .filter(section => section.groups.some(group => group.products.length > 0))
+)
 const {
   data: catalogCategories,
   status: categoryRequestStatus,
@@ -46,12 +52,13 @@ useHead({
 })
 
 type HeroSlide = {
+  productId: number
   eyebrow: string
   title: string
   copy: string
-  action: string
   image: string
   position: string
+  to: string
 }
 
 type StoreLocation = {
@@ -68,33 +75,6 @@ const navItems = computed(() => [
   ...catalogCategories.value.map(category => ({ label: category.name, to: `/collections/${category.code}` })),
   { label: 'Shop all', to: '/collections/shop' }
 ])
-
-const heroSlides: HeroSlide[] = [
-  {
-    eyebrow: 'THE EVERYDAY EDIT',
-    title: 'Feel good in\nyour own skin.',
-    copy: 'Soft support, thoughtful details, and the kind of confidence you can feel all day.',
-    action: 'Shop lingerie',
-    image: '/lingerie/hero-corset.jpg',
-    position: 'center 34%'
-  },
-  {
-    eyebrow: 'LACE AFTER DARK',
-    title: 'A little more\nsomething.',
-    copy: 'Sheer lace, sculpted lines, and pieces that turn an ordinary night into a mood.',
-    action: 'Explore lace',
-    image: '/lingerie/hero-lace.jpg',
-    position: 'center 42%'
-  },
-  {
-    eyebrow: 'THE SOFT SET',
-    title: 'Comfort,\nreimagined.',
-    copy: 'Second-skin layers and easy silhouettes for slow mornings, late nights, and everything between.',
-    action: 'Shop loungewear',
-    image: '/lingerie/hero-soft.jpg',
-    position: 'center 51%'
-  }
-]
 
 const categoryImages = [
   '/lingerie/hero-corset.jpg',
@@ -114,7 +94,6 @@ const categories = computed(() => catalogCategories.value
   }))
 )
 const firstCategoryLink = computed(() => categories.value[0]?.to ?? '/collections/shop')
-
 const locationOptions: StoreLocation[] = [
   { label: 'United States', value: 'US' },
   { label: 'United Kingdom', value: 'GB' },
@@ -144,8 +123,33 @@ const selectedLocation = ref('US')
 const selectedCurrency = ref('USD')
 let carouselTimer: ReturnType<typeof setInterval> | undefined
 
-const activeHero = computed<HeroSlide>(() => heroSlides[activeSlide.value] ?? heroSlides[0]!)
-const activeHeroLink = computed(() => firstCategoryLink.value)
+const heroSection = computed(() => recommendations.value?.sections.find(section => section.code === HERO_CAROUSEL_CODE))
+const heroSlides = computed<HeroSlide[]>(() => {
+  const configuredProducts = heroSection.value?.groups[0]?.products ?? []
+  const fallbackProducts = (recommendations.value?.sections ?? [])
+    .filter(section => section.code !== HERO_CAROUSEL_CODE)
+    .flatMap(section => section.groups.flatMap(group => group.products))
+  const products = configuredProducts.length > 0 ? configuredProducts : fallbackProducts
+  const seen = new Set<number>()
+
+  return products
+    .filter((product) => {
+      if (seen.has(product.id) || !product.images[0]) return false
+      seen.add(product.id)
+      return true
+    })
+    .slice(0, HERO_CAROUSEL_MAX_ITEMS)
+    .map(product => ({
+      productId: product.id,
+      eyebrow: product.badge || heroSection.value?.eyebrow || 'FEATURED PRODUCT',
+      title: product.name,
+      copy: product.description.trim() || product.highlight.find(Boolean) || 'Discover this featured style.',
+      image: product.images[0]!,
+      position: product.image_positions?.[0] || 'center',
+      to: `/product/${product.id}`
+    }))
+})
+const activeHero = computed<HeroSlide | null>(() => heroSlides.value[activeSlide.value] ?? heroSlides.value[0] ?? null)
 const locationLabel = computed(() => locationOptions.find(option => option.value === selectedLocation.value)?.label ?? locationOptions[0]!.label)
 const currencyLabel = computed(() => selectedCurrency.value)
 const cartCount = computed(() => customerCart.totalQuantity.value)
@@ -155,11 +159,18 @@ function setActiveSlide(index: number) {
 }
 
 function previousSlide() {
-  activeSlide.value = (activeSlide.value + heroSlides.length - 1) % heroSlides.length
+  if (heroSlides.value.length < 2) return
+  activeSlide.value = (activeSlide.value + heroSlides.value.length - 1) % heroSlides.value.length
 }
 
 function nextSlide() {
-  activeSlide.value = (activeSlide.value + 1) % heroSlides.length
+  if (heroSlides.value.length < 2) return
+  activeSlide.value = (activeSlide.value + 1) % heroSlides.value.length
+}
+
+function restartCarouselTimer() {
+  if (carouselTimer) clearInterval(carouselTimer)
+  carouselTimer = heroSlides.value.length > 1 ? setInterval(nextSlide, 8000) : undefined
 }
 
 function toggleMenu() {
@@ -220,7 +231,12 @@ onMounted(() => {
   if (locationOptions.some(option => option.value === savedLocation)) selectedLocation.value = savedLocation!
   if (currencyOptions.some(option => option.value === savedCurrency)) selectedCurrency.value = savedCurrency!
   if (session.isAuthenticated.value) void refreshCart()
-  carouselTimer = setInterval(nextSlide, 8000)
+  restartCarouselTimer()
+})
+
+watch(() => heroSlides.value.length, (length) => {
+  if (length === 0 || activeSlide.value >= length) activeSlide.value = 0
+  if (import.meta.client) restartCarouselTimer()
 })
 
 watch(() => session.userId.value, userId => {
@@ -341,31 +357,48 @@ onBeforeUnmount(() => {
       <StoreCartPopover v-if="isCartOpen" @close="isCartOpen = false" />
     </header>
 
-    <section id="top" class="hero" :style="{ '--hero-image': `url(${activeHero.image})`, '--hero-position': activeHero.position }">
-      <div class="hero-shade" />
-      <div class="hero-content">
-        <p class="eyebrow light">{{ activeHero.eyebrow }}</p>
-        <h1>{{ activeHero.title }}</h1>
-        <p class="hero-copy">{{ activeHero.copy }}</p>
-        <NuxtLink class="button button-light" :to="activeHeroLink">{{ activeHero.action }} <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
-      </div>
+    <section
+      v-if="activeHero"
+      id="top"
+      :key="activeHero.productId"
+      class="hero"
+      :style="{ '--hero-image': `url(${activeHero.image})`, '--hero-position': activeHero.position }"
+    >
+      <NuxtLink class="hero-link" :to="activeHero.to" :aria-label="`View ${activeHero.title}`">
+        <div class="hero-shade" />
+        <div class="hero-content">
+          <p class="eyebrow light">{{ activeHero.eyebrow }}</p>
+          <h1>{{ activeHero.title }}</h1>
+          <p class="hero-copy">{{ activeHero.copy }}</p>
+          <span class="button button-light">Shop this product <UIcon name="i-lucide-arrow-up-right" /></span>
+        </div>
+      </NuxtLink>
 
-      <div class="hero-controls">
-        <div class="hero-progress" aria-label="Hero slides">
+      <div v-if="heroSlides.length > 1" class="hero-controls">
+        <div class="hero-progress" aria-label="Featured products">
           <button
-            v-for="(_, index) in heroSlides"
-            :key="index"
+            v-for="slide in heroSlides"
+            :key="slide.productId"
             class="progress-dot"
-            :class="{ active: activeSlide === index }"
+            :class="{ active: activeHero.productId === slide.productId }"
             type="button"
-            :aria-label="`Show slide ${index + 1}`"
-            @click="setActiveSlide(index)"
+            :aria-label="`Show ${slide.title}`"
+            @click="setActiveSlide(heroSlides.indexOf(slide))"
           />
         </div>
         <div class="hero-arrows">
-          <button type="button" aria-label="Previous slide" @click="previousSlide"><UIcon name="i-lucide-arrow-left" /></button>
-          <button type="button" aria-label="Next slide" @click="nextSlide"><UIcon name="i-lucide-arrow-right" /></button>
+          <button type="button" aria-label="Previous featured product" @click="previousSlide"><UIcon name="i-lucide-arrow-left" /></button>
+          <button type="button" aria-label="Next featured product" @click="nextSlide"><UIcon name="i-lucide-arrow-right" /></button>
         </div>
+      </div>
+    </section>
+    <section v-else id="top" class="hero hero-state">
+      <div>
+        <p class="eyebrow">FEATURED PRODUCTS</p>
+        <h1 v-if="recommendationRequestStatus === 'pending'">Loading the featured edit.</h1>
+        <h1 v-else-if="recommendationRequestError">Featured products are temporarily unavailable.</h1>
+        <h1 v-else>Featured products are coming soon.</h1>
+        <button v-if="recommendationRequestError" class="button button-dark" type="button" @click="refreshRecommendations()">Try again</button>
       </div>
     </section>
 
@@ -437,9 +470,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </section>
-    <template v-else-if="recommendations.sections.length">
+    <template v-else-if="recommendationSections.length">
       <HomeRecommendationSection
-        v-for="(section, index) in recommendations.sections"
+        v-for="(section, index) in recommendationSections"
         :key="section.code"
         :section="section"
         :eager="index === 0"
@@ -599,8 +632,12 @@ a { color: inherit; text-decoration: none; }
 .search-panel button { display: grid; place-items: center; padding: 0; border: 0; background: transparent; cursor: pointer; }
 
 .hero { --hero-image: none; --hero-position: center; position: relative; min-height: min(690px, calc(100vh - 190px)); display: flex; align-items: end; background-image: var(--hero-image); background-position: var(--hero-position); background-size: cover; color: #fff; transition: background-image .45s ease; }
+.hero-link { position: absolute; inset: 0; display: flex; align-items: flex-end; color: inherit; }
 .hero-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(30, 16, 22, .52) 0%, rgba(30, 16, 22, .17) 53%, rgba(30, 16, 22, .05) 100%); }
 .hero-content { position: relative; width: min(100% - 64px, 1440px); margin: 0 auto; padding: 88px 0 82px; }
+.hero-state { align-items: center; color: var(--ink); background: linear-gradient(135deg, var(--linen), #fff); }
+.hero-state > div { width: min(100% - 64px, 1440px); margin: 0 auto; }
+.hero-state h1 { max-width: 760px; margin-bottom: 28px; }
 .eyebrow { margin: 0 0 16px; color: var(--sea); font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; letter-spacing: .125em; line-height: 1.3; text-transform: uppercase; }
 .eyebrow.light { color: inherit; }
 .hero h1, h2 { margin: 0; font-family: 'Playfair Display', Georgia, serif; font-weight: 500; letter-spacing: 0; }
@@ -612,7 +649,7 @@ a { color: inherit; text-decoration: none; }
 .button-light:hover { color: #fff; border-color: #fff; background: transparent; }
 .button-dark { color: #fff; background: var(--ink); }
 .button-dark:hover { color: var(--ink); border-color: var(--ink); background: transparent; }
-.hero-controls { position: absolute; right: max(32px, calc((100vw - 1440px) / 2)); bottom: 31px; left: max(32px, calc((100vw - 1440px) / 2)); display: flex; align-items: center; justify-content: space-between; }
+.hero-controls { position: absolute; z-index: 2; right: max(32px, calc((100vw - 1440px) / 2)); bottom: 31px; left: max(32px, calc((100vw - 1440px) / 2)); display: flex; align-items: center; justify-content: space-between; }
 .hero-progress { display: flex; gap: 8px; }
 .progress-dot { width: 36px; height: 2px; padding: 0; border: 0; background: rgba(255, 255, 255, .48); cursor: pointer; }
 .progress-dot.active { background: #fff; }

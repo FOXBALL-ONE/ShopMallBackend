@@ -31,6 +31,9 @@ type EditableGroup = HomeRecommendationGroupInput & { productToAdd: number | nul
 type EditableSection = Omit<HomeRecommendationSectionInput, 'groups'> & { groups: EditableGroup[] }
 type EditableForm = Omit<HomeRecommendationFormInput, 'sections'> & { sections: EditableSection[] }
 
+const HERO_CAROUSEL_CODE = 'hero_carousel'
+const HERO_CAROUSEL_MAX_ITEMS = 8
+
 const api = useHomeRecommendationApi()
 const productApi = useProductApi()
 const message = useMessage()
@@ -79,13 +82,49 @@ function defaultSection(code = 'whats_hot'): EditableSection {
   }
 }
 
+function defaultHeroSection(): EditableSection {
+  return {
+    code: HERO_CAROUSEL_CODE,
+    eyebrow: 'FEATURED PRODUCTS',
+    title: 'Shop the featured edit.',
+    subtitle: '',
+    displayStyle: 'CAROUSEL',
+    desktopColumns: 4,
+    mobileColumns: 2,
+    linkLabel: '',
+    linkUrl: '',
+    itemLimit: HERO_CAROUSEL_MAX_ITEMS,
+    hideWhenEmpty: true,
+    groups: [{
+      code: 'hero_products',
+      title: '首页顶部轮播商品',
+      selectionMode: 'MANUAL',
+      strategy: 'EDITOR_PICKS',
+      itemLimit: HERO_CAROUSEL_MAX_ITEMS,
+      categoryId: null,
+      productType: '',
+      tagId: null,
+      lookbackDays: null,
+      minimumStock: 1,
+      fallbackStrategy: 'NONE',
+      items: [],
+      productToAdd: null,
+    }],
+  }
+}
+
+function isHeroSection(section: EditableSection) {
+  return section.code.trim().toLowerCase() === HERO_CAROUSEL_CODE
+}
+
 const form = reactive<EditableForm>({
   name: '首页默认推荐', effectiveFrom: localDateTimeNow(), effectiveUntil: null, fallbackEnabled: true,
-  deduplicateAcrossSections: true, sections: [defaultSection()],
+  deduplicateAcrossSections: true, sections: [defaultHeroSection(), defaultSection()],
 })
 const editorTitle = computed(() => editing.value ? `编辑推荐方案 #${editing.value.id}` : '新建首页推荐方案')
 const publishedCount = computed(() => plans.value.filter(item => item.status === 'PUBLISHED').length)
 const scheduledCount = computed(() => plans.value.filter(item => item.status === 'SCHEDULED').length)
+const hasHeroSection = computed(() => form.sections.some(isHeroSection))
 const categoryOptions = computed<SelectOption[]>(() => categories.value.filter(item => item.status === 'ACTIVE').map(item => ({ label: `${item.name}（${item.code}）`, value: item.id })))
 const productTypeOptions = computed<SelectOption[]>(() => productTypes.value.filter(item => item.active).map(item => ({ label: `${item.name}（${item.code}）`, value: item.code })))
 const tagOptions = computed<SelectOption[]>(() => tags.value.filter(item => item.active).map(item => ({ label: item.name, value: item.id })))
@@ -112,7 +151,7 @@ function displayStyleLabel(style: HomeRecommendationDisplayStyle) { return HOME_
 
 function resetForm() {
   form.name = '首页默认推荐'; form.effectiveFrom = localDateTimeNow(); form.effectiveUntil = null
-  form.fallbackEnabled = true; form.deduplicateAcrossSections = true; form.sections = [defaultSection()]
+  form.fallbackEnabled = true; form.deduplicateAcrossSections = true; form.sections = [defaultHeroSection(), defaultSection()]
   editing.value = null; productOptions.value = []
 }
 
@@ -122,7 +161,7 @@ function assignDetail(detail: HomeRecommendationPlanDetail) {
   form.effectiveUntil = detail.effective_until ? datetimeInputValue(detail.effective_until) : null
   form.fallbackEnabled = detail.fallback_enabled
   form.deduplicateAcrossSections = detail.deduplicate_across_sections
-  form.sections = detail.sections.slice().sort((a, b) => a.sort_order - b.sort_order).map(section => ({
+  const sections: EditableSection[] = detail.sections.slice().sort((a, b) => a.sort_order - b.sort_order).map(section => ({
     code: section.code, eyebrow: section.eyebrow ?? '', title: section.title, subtitle: section.subtitle ?? '',
     displayStyle: section.display_style, desktopColumns: section.desktop_columns, mobileColumns: section.mobile_columns,
     linkLabel: section.link_label ?? '', linkUrl: section.link_url ?? '', itemLimit: section.item_limit, hideWhenEmpty: section.hide_when_empty,
@@ -134,6 +173,28 @@ function assignDetail(detail: HomeRecommendationPlanDetail) {
       productToAdd: null,
     })),
   }))
+  const heroIndex = sections.findIndex(section => section.code.trim().toLowerCase() === HERO_CAROUSEL_CODE)
+  if (heroIndex >= 0) {
+    const [heroSection] = sections.splice(heroIndex, 1)
+    if (heroSection) {
+      const heroGroup = heroSection.groups[0] ?? defaultHeroSection().groups[0]!
+      heroSection.code = HERO_CAROUSEL_CODE
+      heroSection.displayStyle = 'CAROUSEL'
+      heroSection.itemLimit = Math.min(HERO_CAROUSEL_MAX_ITEMS, Math.max(1, heroSection.itemLimit))
+      heroGroup.selectionMode = 'MANUAL'
+      heroGroup.strategy = 'EDITOR_PICKS'
+      heroGroup.itemLimit = Math.min(HERO_CAROUSEL_MAX_ITEMS, Math.max(1, heroGroup.itemLimit))
+      heroGroup.categoryId = null
+      heroGroup.productType = ''
+      heroGroup.tagId = null
+      heroGroup.lookbackDays = null
+      heroGroup.fallbackStrategy = 'NONE'
+      heroGroup.items = heroGroup.items.slice(0, HERO_CAROUSEL_MAX_ITEMS).map(item => ({ ...item, pinned: false }))
+      heroSection.groups = [heroGroup]
+      sections.unshift(heroSection)
+    }
+  }
+  form.sections = sections
 }
 
 async function loadPlans() {
@@ -185,6 +246,11 @@ async function openEdit(row: HomeRecommendationPlanListItem) {
   finally { actionKey.value = '' }
 }
 
+function addHeroSection() {
+  if (hasHeroSection.value) return
+  if (form.sections.length >= 10) { message.warning('一个方案最多配置 10 个楼层'); return }
+  form.sections.unshift(defaultHeroSection())
+}
 function addSection() {
   if (form.sections.length >= 10) { message.warning('一个方案最多配置 10 个楼层'); return }
   const index = form.sections.length + 1
@@ -210,6 +276,13 @@ function move<T>(items: T[], index: number, direction: -1 | 1) {
   if (current === undefined || next === undefined) return
   items[index] = next; items[target] = current
 }
+function moveSection(index: number, direction: -1 | 1) {
+  const section = form.sections[index]
+  const target = index + direction
+  if (!section || isHeroSection(section) || target < 0 || target >= form.sections.length) return
+  if (target === 0 && form.sections[0] && isHeroSection(form.sections[0])) return
+  move(form.sections, index, direction)
+}
 
 async function searchProducts(keyword: string) {
   productSearchLoading.value = true
@@ -220,14 +293,14 @@ async function searchProducts(keyword: string) {
   } catch (error) { message.error(`搜索商品失败：${errorMessage(error)}`) }
   finally { productSearchLoading.value = false }
 }
-function addSelectedProduct(group: EditableGroup, productId: number | null) {
+function addSelectedProduct(group: EditableGroup, productId: number | null, limit = 24) {
   if (productId == null) return
   if (group.items.some(item => item.productId === productId)) { message.warning('该商品已在当前商品组中'); group.productToAdd = null; return }
-  if (group.items.length >= 24) { message.warning('一个商品组最多配置 24 个人工商品'); group.productToAdd = null; return }
+  if (group.items.length >= limit) { message.warning(`当前商品组最多配置 ${limit} 个人工商品`); group.productToAdd = null; return }
   group.items.push({ productId, pinned: group.selectionMode === 'HYBRID', customBadge: '' }); group.productToAdd = null
 }
 function productLabel(productId: number) { return productCache[productId] ? `${productCache[productId].name}（#${productId}）` : `商品 #${productId}` }
-function productImage(productId: number) { return productCache[productId]?.images.find(image => image.primary)?.url || productCache[productId]?.images[0]?.url }
+function productImage(productId: number) { return productCache[productId]?.images[0]?.url }
 
 function validateForm() {
   if (!form.name.trim()) return '请输入方案名称'
@@ -243,6 +316,11 @@ function validateForm() {
     if (!/^[a-z][a-z0-9_]*$/.test(code)) return `${label}编码只能使用小写字母、数字和下划线，且必须以字母开头`
     if (sectionCodes.has(code)) return `楼层编码“${code}”重复`
     sectionCodes.add(code)
+    if (code === HERO_CAROUSEL_CODE) {
+      if (sectionIndex !== 0) return '首页顶部轮播必须位于第一个楼层'
+      if (section.displayStyle !== 'CAROUSEL') return '首页顶部轮播的展示形态必须为轮播'
+      if (section.itemLimit < 1 || section.itemLimit > HERO_CAROUSEL_MAX_ITEMS) return `首页顶部轮播展示数量必须在 1 到 ${HERO_CAROUSEL_MAX_ITEMS} 之间`
+    }
     if (!section.title.trim()) return `${label}标题不能为空`
     if (section.title.trim().length > 120) return `${label}标题不能超过 120 个字符`
     if (section.desktopColumns < 2 || section.desktopColumns > 6) return `${label}桌面列数必须在 2 到 6 之间`
@@ -263,6 +341,12 @@ function validateForm() {
       groupCodes.add(groupCode)
       if (section.displayStyle === 'TABS' && !group.title.trim()) return `${groupLabel}在页签模式下必须填写标题`
       if (group.itemLimit < 1 || group.itemLimit > 24) return `${groupLabel}展示数量必须在 1 到 24 之间`
+      if (code === HERO_CAROUSEL_CODE) {
+        if (group.selectionMode !== 'MANUAL') return '首页顶部轮播必须使用人工选品'
+        if (group.strategy !== 'EDITOR_PICKS') return '首页顶部轮播必须使用编辑精选策略'
+        if (group.fallbackStrategy !== 'NONE') return '首页顶部轮播不能配置自动补位'
+        if (group.itemLimit > HERO_CAROUSEL_MAX_ITEMS || group.items.length > HERO_CAROUSEL_MAX_ITEMS) return `首页顶部轮播最多只能配置 ${HERO_CAROUSEL_MAX_ITEMS} 个商品`
+      }
       if (group.minimumStock < 1) return `${groupLabel}最低库存必须大于等于 1`
       if (group.strategy === 'NEW_ARRIVALS' && (!group.lookbackDays || group.lookbackDays < 1 || group.lookbackDays > 365)) return `${groupLabel}新品回溯天数必须在 1 到 365 之间`
       if (group.selectionMode === 'MANUAL' && group.items.length === 0) return `${groupLabel}使用人工选品时至少选择一个商品`
@@ -421,57 +505,64 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
             </NGrid>
           </NCard>
 
-          <div class="section-toolbar"><div><h2>推荐楼层</h2><span>按顺序渲染到客户首页，最多 10 个楼层。</span></div><NButton type="primary" secondary @click="addSection"><template #icon><Plus :size="16" /></template>添加楼层</NButton></div>
+          <div class="section-toolbar">
+            <div><h2>推荐楼层</h2><span>按顺序渲染到客户首页，最多 10 个楼层。</span></div>
+            <NSpace>
+              <NButton secondary :disabled="hasHeroSection || form.sections.length >= 10" @click="addHeroSection"><template #icon><Sparkles :size="16" /></template>{{ hasHeroSection ? '已配置顶部轮播' : '添加顶部轮播' }}</NButton>
+              <NButton type="primary" secondary :disabled="form.sections.length >= 10" @click="addSection"><template #icon><Plus :size="16" /></template>添加楼层</NButton>
+            </NSpace>
+          </div>
           <NCollapse :default-expanded-names="form.sections.map((_, index) => `section-${index}`)">
             <NCollapseItem v-for="(section, sectionIndex) in form.sections" :key="`section-${sectionIndex}`" :name="`section-${sectionIndex}`">
-              <template #header><div class="collapse-header"><strong>楼层 {{ sectionIndex + 1 }} · {{ section.title || '未命名楼层' }}</strong><NTag size="small" :bordered="false">{{ displayStyleLabel(section.displayStyle) }}</NTag></div></template>
+              <template #header><div class="collapse-header"><strong>楼层 {{ sectionIndex + 1 }} · {{ section.title || '未命名楼层' }}</strong><NTag v-if="isHeroSection(section)" size="small" type="warning" :bordered="false">首页顶部轮播</NTag><NTag size="small" :bordered="false">{{ displayStyleLabel(section.displayStyle) }}</NTag></div></template>
               <template #header-extra><NSpace @click.stop>
-                <NButton quaternary circle size="small" :disabled="sectionIndex === 0" @click="move(form.sections, sectionIndex, -1)"><template #icon><ArrowUp :size="15" /></template></NButton>
-                <NButton quaternary circle size="small" :disabled="sectionIndex === form.sections.length - 1" @click="move(form.sections, sectionIndex, 1)"><template #icon><ArrowDown :size="15" /></template></NButton>
+                <NButton quaternary circle size="small" :disabled="sectionIndex === 0 || isHeroSection(section) || (sectionIndex === 1 && !!form.sections[0] && isHeroSection(form.sections[0]))" @click="moveSection(sectionIndex, -1)"><template #icon><ArrowUp :size="15" /></template></NButton>
+                <NButton quaternary circle size="small" :disabled="sectionIndex === form.sections.length - 1 || isHeroSection(section)" @click="moveSection(sectionIndex, 1)"><template #icon><ArrowDown :size="15" /></template></NButton>
                 <NButton quaternary circle size="small" type="error" @click="removeSection(sectionIndex)"><template #icon><Trash2 :size="15" /></template></NButton>
               </NSpace></template>
-              <NCard size="small" embedded class="section-card">
+              <NCard size="small" embedded class="section-card" :class="{ 'hero-section-card': isHeroSection(section) }">
+                <NAlert v-if="isHeroSection(section)" type="warning" :bordered="false" class="hero-section-alert">按人工商品列表顺序轮播，使用每个商品的第一张图片；客户点击轮播图、标题或按钮后会进入对应商品详情页。最多配置 {{ HERO_CAROUSEL_MAX_ITEMS }} 个商品。</NAlert>
                 <NGrid cols="1 m:2" responsive="screen" :x-gap="16">
-                  <NFormItemGi label="楼层编码"><NInput v-model:value="section.code" maxlength="64" placeholder="例如 whats_hot" /></NFormItemGi>
-                  <NFormItemGi label="展示形态"><NSelect v-model:value="section.displayStyle" :options="HOME_RECOMMENDATION_DISPLAY_STYLE_OPTIONS" /></NFormItemGi>
+                  <NFormItemGi label="楼层编码"><NInput v-model:value="section.code" maxlength="64" placeholder="例如 whats_hot" :disabled="isHeroSection(section)" /></NFormItemGi>
+                  <NFormItemGi label="展示形态"><NSelect v-model:value="section.displayStyle" :options="HOME_RECOMMENDATION_DISPLAY_STYLE_OPTIONS" :disabled="isHeroSection(section)" /></NFormItemGi>
                   <NFormItemGi label="眉题"><NInput v-model:value="section.eyebrow" maxlength="80" /></NFormItemGi>
                   <NFormItemGi label="楼层标题"><NInput v-model:value="section.title" maxlength="120" /></NFormItemGi>
                   <NFormItemGi span="2" label="副标题"><NInput v-model:value="section.subtitle" maxlength="255" /></NFormItemGi>
                   <NFormItemGi label="桌面端列数"><NInputNumber v-model:value="section.desktopColumns" :min="2" :max="6" /></NFormItemGi>
                   <NFormItemGi label="移动端列数"><NInputNumber v-model:value="section.mobileColumns" :min="1" :max="2" /></NFormItemGi>
-                  <NFormItemGi label="楼层展示上限"><NInputNumber v-model:value="section.itemLimit" :min="1" :max="24" /></NFormItemGi>
+                  <NFormItemGi label="楼层展示上限"><NInputNumber v-model:value="section.itemLimit" :min="1" :max="isHeroSection(section) ? HERO_CAROUSEL_MAX_ITEMS : 24" /></NFormItemGi>
                   <NFormItemGi label="空楼层自动隐藏"><NSwitch v-model:value="section.hideWhenEmpty" /></NFormItemGi>
                   <NFormItemGi label="链接文案"><NInput v-model:value="section.linkLabel" maxlength="40" placeholder="查看全部" /></NFormItemGi>
                   <NFormItemGi label="跳转链接"><NInput v-model:value="section.linkUrl" maxlength="500" placeholder="/collections/shop 或 https://..." /></NFormItemGi>
                 </NGrid>
                 <div class="group-toolbar">
                   <div><strong>商品组</strong><span v-if="section.displayStyle !== 'TABS'">网格和轮播只能配置一个商品组。</span><span v-else>每个商品组对应一个首页页签。</span></div>
-                  <NButton size="small" secondary :disabled="section.groups.length >= 8" @click="addGroup(section)"><template #icon><Plus :size="14" /></template>添加商品组</NButton>
+                  <NButton size="small" secondary :disabled="isHeroSection(section) || section.groups.length >= 8" @click="addGroup(section)"><template #icon><Plus :size="14" /></template>添加商品组</NButton>
                 </div>
                 <NCard v-for="(group, groupIndex) in section.groups" :key="`${sectionIndex}-${groupIndex}`" size="small" class="group-card">
                   <template #header><div class="group-title"><strong>商品组 {{ groupIndex + 1 }} · {{ group.title || group.code || '未命名' }}</strong><NTag size="small" :bordered="false" type="info">{{ strategyLabel(group.strategy) }}</NTag></div></template>
                   <template #header-extra><NSpace>
-                    <NButton quaternary circle size="small" :disabled="groupIndex === 0" @click="move(section.groups, groupIndex, -1)"><template #icon><ArrowUp :size="15" /></template></NButton>
-                    <NButton quaternary circle size="small" :disabled="groupIndex === section.groups.length - 1" @click="move(section.groups, groupIndex, 1)"><template #icon><ArrowDown :size="15" /></template></NButton>
-                    <NButton quaternary circle size="small" type="error" @click="removeGroup(section, groupIndex)"><template #icon><Trash2 :size="15" /></template></NButton>
+                    <NButton quaternary circle size="small" :disabled="isHeroSection(section) || groupIndex === 0" @click="move(section.groups, groupIndex, -1)"><template #icon><ArrowUp :size="15" /></template></NButton>
+                    <NButton quaternary circle size="small" :disabled="isHeroSection(section) || groupIndex === section.groups.length - 1" @click="move(section.groups, groupIndex, 1)"><template #icon><ArrowDown :size="15" /></template></NButton>
+                    <NButton quaternary circle size="small" type="error" :disabled="isHeroSection(section)" @click="removeGroup(section, groupIndex)"><template #icon><Trash2 :size="15" /></template></NButton>
                   </NSpace></template>
                   <NGrid cols="1 m:2 l:3" responsive="screen" :x-gap="16">
-                    <NFormItemGi label="商品组编码"><NInput v-model:value="group.code" maxlength="64" /></NFormItemGi>
+                    <NFormItemGi label="商品组编码"><NInput v-model:value="group.code" maxlength="64" :disabled="isHeroSection(section)" /></NFormItemGi>
                     <NFormItemGi label="页签标题"><NInput v-model:value="group.title" maxlength="80" :placeholder="section.displayStyle === 'TABS' ? '必填' : '可选'" /></NFormItemGi>
-                    <NFormItemGi label="选品方式"><NSelect v-model:value="group.selectionMode" :options="HOME_RECOMMENDATION_SELECTION_MODE_OPTIONS" /></NFormItemGi>
-                    <NFormItemGi label="自动策略"><NSelect v-model:value="group.strategy" :options="HOME_RECOMMENDATION_STRATEGY_OPTIONS" /></NFormItemGi>
-                    <NFormItemGi label="商品数量"><NInputNumber v-model:value="group.itemLimit" :min="1" :max="24" /></NFormItemGi>
+                    <NFormItemGi label="选品方式"><NSelect v-model:value="group.selectionMode" :options="HOME_RECOMMENDATION_SELECTION_MODE_OPTIONS" :disabled="isHeroSection(section)" /></NFormItemGi>
+                    <NFormItemGi label="自动策略"><NSelect v-model:value="group.strategy" :options="HOME_RECOMMENDATION_STRATEGY_OPTIONS" :disabled="isHeroSection(section)" /></NFormItemGi>
+                    <NFormItemGi label="商品数量"><NInputNumber v-model:value="group.itemLimit" :min="1" :max="isHeroSection(section) ? HERO_CAROUSEL_MAX_ITEMS : 24" /></NFormItemGi>
                     <NFormItemGi label="最低可售库存"><NInputNumber v-model:value="group.minimumStock" :min="1" /></NFormItemGi>
-                    <NFormItemGi label="分类过滤"><NSelect v-model:value="group.categoryId" clearable filterable :options="categoryOptions" placeholder="不限分类" /></NFormItemGi>
-                    <NFormItemGi label="商品类型过滤"><NSelect v-model:value="group.productType" clearable filterable :options="productTypeOptions" placeholder="不限类型" /></NFormItemGi>
-                    <NFormItemGi label="标签过滤"><NSelect v-model:value="group.tagId" clearable filterable :options="tagOptions" placeholder="不限标签" /></NFormItemGi>
+                    <NFormItemGi label="分类过滤"><NSelect v-model:value="group.categoryId" clearable filterable :options="categoryOptions" placeholder="不限分类" :disabled="isHeroSection(section)" /></NFormItemGi>
+                    <NFormItemGi label="商品类型过滤"><NSelect v-model:value="group.productType" clearable filterable :options="productTypeOptions" placeholder="不限类型" :disabled="isHeroSection(section)" /></NFormItemGi>
+                    <NFormItemGi label="标签过滤"><NSelect v-model:value="group.tagId" clearable filterable :options="tagOptions" placeholder="不限标签" :disabled="isHeroSection(section)" /></NFormItemGi>
                     <NFormItemGi v-if="group.strategy === 'NEW_ARRIVALS'" label="新品回溯天数"><NInputNumber v-model:value="group.lookbackDays" :min="1" :max="365" /></NFormItemGi>
-                    <NFormItemGi label="不足时补位"><NSelect v-model:value="group.fallbackStrategy" :options="HOME_RECOMMENDATION_FALLBACK_OPTIONS" /></NFormItemGi>
+                    <NFormItemGi label="不足时补位"><NSelect v-model:value="group.fallbackStrategy" :options="HOME_RECOMMENDATION_FALLBACK_OPTIONS" :disabled="isHeroSection(section)" /></NFormItemGi>
                   </NGrid>
                   <div v-if="group.selectionMode !== 'AUTO'" class="manual-products">
                     <div class="manual-heading">
-                      <div><strong>人工商品</strong><span>{{ group.selectionMode === 'MANUAL' ? '按下方顺序直接展示。' : '人工商品优先，空位由自动策略补齐。' }}</span></div>
-                      <NSelect v-model:value="group.productToAdd" filterable remote clearable :loading="productSearchLoading" :options="productOptions" placeholder="搜索并添加在售商品" style="width: min(360px, 100%)" @search="searchProducts" @update:value="value => addSelectedProduct(group, value as number | null)" />
+                      <div><strong>人工商品（{{ group.items.length }}/{{ isHeroSection(section) ? HERO_CAROUSEL_MAX_ITEMS : 24 }}）</strong><span>{{ isHeroSection(section) ? '顺序即轮播顺序，商品第一张图片将作为轮播图。' : (group.selectionMode === 'MANUAL' ? '按下方顺序直接展示。' : '人工商品优先，空位由自动策略补齐。') }}</span></div>
+                      <NSelect v-model:value="group.productToAdd" filterable remote clearable :disabled="group.items.length >= (isHeroSection(section) ? HERO_CAROUSEL_MAX_ITEMS : 24)" :loading="productSearchLoading" :options="productOptions" placeholder="搜索并添加在售商品" style="width: min(360px, 100%)" @search="searchProducts" @update:value="value => addSelectedProduct(group, value as number | null, isHeroSection(section) ? HERO_CAROUSEL_MAX_ITEMS : 24)" />
                     </div>
                     <NEmpty v-if="group.items.length === 0" size="small" description="尚未选择人工商品" />
                     <div v-else class="manual-list">
@@ -505,7 +596,7 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
         <NAlert v-if="preview" type="info" :bordered="false" class="preview-meta">服务端实时解析 · 请求 ID：{{ preview.request_id }}<span v-if="preview.generated_at"> · 生成时间：{{ formatDate(preview.generated_at) }}</span></NAlert>
         <NEmpty v-if="!previewLoading && (!preview || preview.sections.length === 0)" description="当前规则未解析出可展示商品" />
         <div v-else-if="preview" class="preview-sections">
-          <section v-for="section in preview.sections" :key="section.code" class="preview-section">
+          <section v-for="section in preview.sections" :key="section.code" class="preview-section" :class="{ 'hero-preview': section.code === HERO_CAROUSEL_CODE }">
             <div class="preview-section-heading"><span>{{ section.eyebrow }}</span><h2>{{ section.title }}</h2><p>{{ section.subtitle }}</p><NTag size="small" :bordered="false">{{ displayStyleLabel(section.display_style) }}</NTag></div>
             <div v-for="group in section.groups" :key="group.code" class="preview-group">
               <div class="preview-group-title"><strong>{{ group.title || group.code }}</strong><span>{{ strategyLabel(group.strategy) }} · {{ group.products.length }} 件</span></div>
@@ -542,6 +633,8 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
 .section-toolbar span, .group-toolbar span, .manual-heading span { display: block; color: #777; font-size: 13px; }
 .collapse-header, .group-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .section-card { margin-bottom: 8px; }
+.hero-section-card { border-color: rgba(240, 160, 32, .45); }
+.hero-section-alert { margin-bottom: 16px; }
 .group-toolbar { padding: 12px 0; border-top: 1px solid #e5e7eb; }
 .group-card + .group-card { margin-top: 12px; }
 .manual-products { padding-top: 14px; margin-top: 4px; border-top: 1px dashed #d1d5db; }
@@ -563,6 +656,9 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
 .preview-group-title { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
 .preview-group-title span { color: #777; font-size: 13px; }
 .preview-products { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.hero-preview .preview-section-heading { text-align: left; }
+.hero-preview .preview-products { display: flex; overflow-x: auto; padding-bottom: 8px; }
+.hero-preview .preview-product { min-width: min(360px, 72vw); }
 .preview-product { min-width: 0; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; background: #fff; }
 .preview-product :deep(.n-image) { width: 100%; aspect-ratio: 3 / 4; display: block; }
 .preview-product :deep(img) { width: 100%; height: 100%; }

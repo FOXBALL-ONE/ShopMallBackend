@@ -419,6 +419,19 @@ class AdminHomeRecommendationServiceImpl(
             val code = section.code.trim().lowercase()
             if (!CODE_PATTERN.matches(code)) throw ParamErrorException("$location 的 code 格式无效")
             if (!sectionCodes.add(code)) throw ParamErrorException("楼层 code 不能重复：$code")
+            if (code == HomeRecommendationSection.HERO_CAROUSEL_CODE) {
+                if (sectionIndex != 0 || section.sortOrder != 0) {
+                    throw ParamErrorException("首页顶部轮播必须位于第一个楼层且排序值为 0")
+                }
+                if (section.displayStyle != HomeRecommendationSection.DisplayStyle.CAROUSEL) {
+                    throw ParamErrorException("首页顶部轮播的展示形态必须为 CAROUSEL")
+                }
+                if (section.itemLimit !in 1..HomeRecommendationSection.HERO_CAROUSEL_MAX_ITEMS) {
+                    throw ParamErrorException(
+                        "首页顶部轮播的商品数必须为 1 到 ${HomeRecommendationSection.HERO_CAROUSEL_MAX_ITEMS}",
+                    )
+                }
+            }
             if (section.title.trim().isEmpty() || section.title.trim().length > 120) {
                 throw ParamErrorException("$location 的标题不能为空且不能超过 120 个字符")
             }
@@ -454,6 +467,24 @@ class AdminHomeRecommendationServiceImpl(
                 }
                 if (group.itemLimit !in 1..24 || group.minimumStock < 1 || group.sortOrder < 0) {
                     throw ParamErrorException("$groupLocation 的商品数、最低库存或排序值无效")
+                }
+                if (code == HomeRecommendationSection.HERO_CAROUSEL_CODE) {
+                    if (group.selectionMode != HomeRecommendationGroup.SelectionMode.MANUAL) {
+                        throw ParamErrorException("首页顶部轮播必须使用人工选品")
+                    }
+                    if (group.strategy != HomeRecommendationGroup.Strategy.EDITOR_PICKS) {
+                        throw ParamErrorException("首页顶部轮播的推荐策略必须为 EDITOR_PICKS")
+                    }
+                    if (group.fallbackStrategy != HomeRecommendationGroup.FallbackStrategy.NONE) {
+                        throw ParamErrorException("首页顶部轮播不能配置自动兜底商品")
+                    }
+                    if (group.itemLimit !in 1..HomeRecommendationSection.HERO_CAROUSEL_MAX_ITEMS ||
+                        group.items.size > HomeRecommendationSection.HERO_CAROUSEL_MAX_ITEMS
+                    ) {
+                        throw ParamErrorException(
+                            "首页顶部轮播最多只能配置 ${HomeRecommendationSection.HERO_CAROUSEL_MAX_ITEMS} 个商品",
+                        )
+                    }
                 }
                 if (group.categoryId != null && group.categoryId < 1) throw ParamErrorException("$groupLocation 的分类 ID 无效")
                 if (group.tagId != null && group.tagId < 1) throw ParamErrorException("$groupLocation 的标签 ID 无效")
@@ -555,6 +586,15 @@ class AdminHomeRecommendationServiceImpl(
             throw ParamErrorException("所有商品组解析后都为空，且方案未开启系统兜底")
         }
         val resolvedSections = resolved.sections.associateBy { it.code }
+        if (plan.sections.any { it.code == HomeRecommendationSection.HERO_CAROUSEL_CODE }) {
+            val heroProductCount = resolvedSections[HomeRecommendationSection.HERO_CAROUSEL_CODE]
+                ?.groups
+                ?.sumOf { it.products.size }
+                ?: 0
+            if (heroProductCount == 0) {
+                throw ParamErrorException("首页顶部轮播解析后没有可展示商品")
+            }
+        }
         plan.sections.filter { it.displayStyle == HomeRecommendationSection.DisplayStyle.TABS }.forEach { section ->
             val effectiveGroupCount = resolvedSections[section.code]?.groups?.count { it.products.isNotEmpty() } ?: 0
             if (effectiveGroupCount < 2) {
