@@ -49,6 +49,7 @@
     "vue-tsc": "^3.3.9"
   },
   "devDependencies": {
-    "@iconify-json/lucide": "^1.2.123"
+    "@iconify-json/lucide": "^1.2.123",
+    "@takumi-rs/wasm": "^2.5.11"
   }
 }
