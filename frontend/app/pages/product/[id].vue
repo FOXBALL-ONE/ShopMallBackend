@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { CatalogProduct, CatalogVariant } from '~/data/catalog'
+import type { CatalogVariant } from '~/data/catalog'
 import { displayProductType, formatPrice, getCollection } from '~/data/catalog'
-import type { CatalogAttributeDefinition } from '~/composables/useCatalogApi'
 import { customerRequestMessage } from '~/composables/useCustomerAccountApi'
 
 const route = useRoute()
@@ -113,13 +112,15 @@ function matchingVariants(candidateSelection: Record<string, string>): CatalogVa
 }
 
 function selectionThrough(code: string, value?: string): Record<string, string> {
-  const next = { ...selection.value }
   const dependentCodes = code === 'size'
     ? dimensions.value.filter(dimension => dimension.code !== 'size').map(dimension => dimension.code)
     : code === 'top_size' ? ['bottom_size'] : []
-  dependentCodes.forEach(dependentCode => delete next[dependentCode])
+  const next = Object.fromEntries(
+    Object.entries(selection.value).filter(([selectionCode]) => (
+      !dependentCodes.includes(selectionCode) && (value || selectionCode !== code)
+    )),
+  )
   if (value) next[code] = value
-  else delete next[code]
   return next
 }
 
