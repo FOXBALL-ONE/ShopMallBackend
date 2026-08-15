@@ -3,6 +3,7 @@ import Components from 'unplugin-vue-components/vite'
 import {NaiveUiResolver} from 'unplugin-vue-components/resolvers'
 
 export default defineNuxtConfig({
+  ssr: true,
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
   modules: ['nuxtjs-naive-ui'],
