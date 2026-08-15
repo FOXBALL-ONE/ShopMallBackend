@@ -5,20 +5,18 @@ import {
   customerRequestMessage
 } from '~/composables/useCustomerAccountApi'
 import {
-  customerStatusLabel,
   customerStatusTone,
-  formatCustomerDate,
-  formatCustomerMoney,
-  orderItemCount,
   parseProductSnapshot
 } from '~/utils/customer-display'
 
 definePageMeta({ middleware: ['customer-auth'] })
 
-useHead({
-  title: 'Your account | Pelissa',
-  meta: [{ name: 'description', content: 'Manage your Pelissa profile, orders, cart, and delivery updates.' }]
-})
+const { formatMoney, orderStatusLabel, t } = useStorefrontI18n()
+
+useHead(() => ({
+  title: t('accountDashboard.seoTitle'),
+  meta: [{ name: 'description', content: t('accountDashboard.seoDescription') }]
+}))
 
 const api = useCustomerAccountApi()
 const session = useCustomerSession()
@@ -30,24 +28,24 @@ const addressCount = ref(0)
 const isLoading = ref(true)
 const requestError = ref('')
 
-const displayName = computed(() => profile.value?.first_name?.trim() || profile.value?.username || 'there')
+const displayName = computed(() => profile.value?.first_name?.trim() || profile.value?.username || t('accountDashboard.fallbackName'))
 const openOrders = computed(() => orders.value.filter(order => !['CANCELLED', 'DELETED', 'COMPLETED', 'DELIVERED'].includes(order.status)).length)
 const deliveredOrders = computed(() => orders.value.filter(order => ['DELIVERED', 'COMPLETED'].includes(order.status)).length)
 const bagQuantity = computed(() => cart.value?.total_quantity || 0)
-const bagSubtotal = computed(() => formatCustomerMoney(cart.value?.subtotal, profile.value?.currency || 'USD'))
+const bagSubtotal = computed(() => formatMoney(cart.value?.subtotal, profile.value?.currency || 'USD'))
 const recentOrders = computed(() => orders.value.slice(0, 3))
 
 function orderItemPreview(order: CustomerOrder) {
   const firstItem = order.items[0]
-  if (!firstItem) return 'No item details yet'
+  if (!firstItem) return t('accountDashboard.noItemDetails')
   const item = parseProductSnapshot(firstItem.product_snapshot)
-  const extra = order.items.length > 1 ? ` + ${order.items.length - 1} more` : ''
+  const extra = order.items.length > 1 ? ` ${t('accountDashboard.moreItems', { count: order.items.length - 1 })}` : ''
   return `${item.name}${extra}`
 }
 
 function orderAddress(order: CustomerOrder) {
   const address = order.shipping_address
-  return [address.city, address.state_or_province].filter(Boolean).join(', ') || 'Address on file'
+  return [address.city, address.state_or_province].filter(Boolean).join(', ') || t('accountDashboard.addressFallback')
 }
 
 async function loadDashboard() {
@@ -74,9 +72,9 @@ async function loadDashboard() {
 
   const failures = [profileResult, ordersResult, cartResult, addressesResult].filter(result => result.status === 'rejected')
   if (failures.length && !profile.value && !orders.value.length && !cart.value) {
-    requestError.value = customerRequestMessage(failures[0]?.reason, 'We could not load your account just now.')
+    requestError.value = customerRequestMessage(failures[0]?.reason, t('accountDashboard.loadError'))
   } else if (failures.length) {
-    requestError.value = 'Some account details are still catching up. You can refresh to try again.'
+    requestError.value = t('accountDashboard.partialError')
   }
 
   isLoading.value = false
@@ -89,9 +87,9 @@ onMounted(() => {
 
 <template>
   <CustomerAccountShell
-    eyebrow="THE MEMBER EDIT · 01"
-    title="A quiet place for your edit."
-    intro="Keep your details close, revisit every order, and follow each piece from our studio to your door."
+    :eyebrow="t('accountDashboard.eyebrow')"
+    :title="t('accountDashboard.title')"
+    :intro="t('accountDashboard.intro')"
     :profile="profile"
   >
     <div v-if="isLoading" class="account-loading" aria-live="polite">
@@ -106,34 +104,34 @@ onMounted(() => {
       <div v-if="requestError" class="account-notice account-notice-warning" role="status">
         <UIcon name="i-lucide-info" />
         <span>{{ requestError }}</span>
-        <button type="button" @click="loadDashboard">Refresh</button>
+        <button type="button" @click="loadDashboard">{{ t('accountDashboard.refresh') }}</button>
       </div>
 
       <section class="dashboard-welcome">
         <div>
-          <p class="panel-kicker">WELCOME BACK</p>
-          <h2>Good to see you, {{ displayName }}.</h2>
-          <p>Everything you love, gathered in one place — from saved details to the latest delivery note.</p>
+          <p class="panel-kicker">{{ t('accountDashboard.welcomeEyebrow') }}</p>
+          <h2>{{ t('accountDashboard.welcomeTitle', { name: displayName }) }}</h2>
+          <p>{{ t('accountDashboard.welcomeCopy') }}</p>
         </div>
         <NuxtLink class="panel-link" to="/collections/new">
-          Explore new in <UIcon name="i-lucide-arrow-up-right" />
+          {{ t('accountDashboard.exploreNew') }} <UIcon name="i-lucide-arrow-up-right" />
         </NuxtLink>
       </section>
 
-      <section class="dashboard-stats" aria-label="Account summary">
+      <section class="dashboard-stats" :aria-label="t('accountDashboard.summary')">
         <NuxtLink class="dashboard-stat" to="/account/orders">
           <span class="dashboard-stat-number">{{ orders.length }}</span>
-          <span class="dashboard-stat-label">Recent orders</span>
+          <span class="dashboard-stat-label">{{ t('accountDashboard.recentOrders') }}</span>
           <UIcon name="i-lucide-arrow-up-right" />
         </NuxtLink>
         <NuxtLink class="dashboard-stat" to="/account/logistics">
           <span class="dashboard-stat-number">{{ openOrders }}</span>
-          <span class="dashboard-stat-label">In the making</span>
+          <span class="dashboard-stat-label">{{ t('accountDashboard.inTheMaking') }}</span>
           <UIcon name="i-lucide-arrow-up-right" />
         </NuxtLink>
         <NuxtLink class="dashboard-stat" to="/cart">
           <span class="dashboard-stat-number">{{ bagQuantity }}</span>
-          <span class="dashboard-stat-label">Pieces in your cart</span>
+          <span class="dashboard-stat-label">{{ t('accountDashboard.piecesInCart') }}</span>
           <UIcon name="i-lucide-arrow-up-right" />
         </NuxtLink>
       </section>
@@ -142,10 +140,10 @@ onMounted(() => {
         <article class="dashboard-panel dashboard-orders-panel">
           <div class="panel-heading">
             <div>
-              <p class="panel-kicker">RECENTLY YOURS</p>
-              <h2>Orders in motion</h2>
+              <p class="panel-kicker">{{ t('accountDashboard.recentEyebrow') }}</p>
+              <h2>{{ t('accountDashboard.ordersInMotion') }}</h2>
             </div>
-            <NuxtLink class="panel-text-link" to="/account/orders">View all <UIcon name="i-lucide-arrow-right" /></NuxtLink>
+            <NuxtLink class="panel-text-link" to="/account/orders">{{ t('accountDashboard.viewAll') }} <UIcon name="i-lucide-arrow-right" /></NuxtLink>
           </div>
 
           <div v-if="recentOrders.length" class="mini-order-list">
@@ -155,57 +153,57 @@ onMounted(() => {
                 <strong>{{ orderItemPreview(order) }}</strong>
                 <small>{{ order.order_no }} · {{ orderAddress(order) }}</small>
               </span>
-              <span class="status-pill" :class="`tone-${customerStatusTone(order.status)}`">{{ customerStatusLabel(order.status) }}</span>
+              <span class="status-pill" :class="`tone-${customerStatusTone(order.status)}`">{{ orderStatusLabel(order.status) }}</span>
               <UIcon name="i-lucide-arrow-up-right" />
             </NuxtLink>
           </div>
           <div v-else class="panel-empty">
             <UIcon name="i-lucide-package-open" />
-            <p>Your first order will feel right at home here.</p>
-            <NuxtLink to="/collections/shop">Start exploring <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
+            <p>{{ t('accountDashboard.emptyOrder') }}</p>
+            <NuxtLink to="/collections/shop">{{ t('accountDashboard.startExploring') }} <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
           </div>
         </article>
 
         <article class="dashboard-panel dashboard-cart-panel">
           <div class="panel-heading">
             <div>
-              <p class="panel-kicker">THE FITTING ROOM</p>
-              <h2>Your cart</h2>
+              <p class="panel-kicker">{{ t('accountDashboard.cartEyebrow') }}</p>
+              <h2>{{ t('accountDashboard.cartTitle') }}</h2>
             </div>
             <UIcon name="i-lucide-shopping-cart" class="panel-heading-icon" />
           </div>
           <div class="cart-summary-art">
-            <img src="/lingerie/lace-texture.jpg" alt="Lace texture" loading="lazy">
+            <img src="/lingerie/lace-texture.jpg" :alt="t('accountDashboard.laceAlt')" loading="lazy">
             <div>
-              <strong>{{ bagQuantity ? `${bagQuantity} ${bagQuantity === 1 ? 'piece' : 'pieces'}` : 'A little space' }}</strong>
-              <span>{{ bagQuantity ? `${bagSubtotal} ready when you are.` : 'Your next favorite might be waiting.' }}</span>
+              <strong>{{ bagQuantity ? t('accountDashboard.cartPieces', bagQuantity) : t('accountDashboard.cartEmptySpace') }}</strong>
+              <span>{{ bagQuantity ? t('accountDashboard.cartReady', { subtotal: bagSubtotal }) : t('accountDashboard.cartEmptyCopy') }}</span>
             </div>
           </div>
           <NuxtLink class="panel-button" to="/cart">
-            {{ bagQuantity ? 'Review your cart' : 'Shop the collection' }} <UIcon name="i-lucide-arrow-up-right" />
+            {{ bagQuantity ? t('accountDashboard.reviewCart') : t('accountDashboard.shopCollection') }} <UIcon name="i-lucide-arrow-up-right" />
           </NuxtLink>
         </article>
 
         <article class="dashboard-panel dashboard-details-panel">
           <div class="panel-heading">
             <div>
-              <p class="panel-kicker">YOUR DETAILS</p>
-              <h2>Made personal</h2>
+              <p class="panel-kicker">{{ t('accountDashboard.detailsEyebrow') }}</p>
+              <h2>{{ t('accountDashboard.madePersonal') }}</h2>
             </div>
-            <NuxtLink class="panel-text-link" to="/account/profile">Edit <UIcon name="i-lucide-arrow-right" /></NuxtLink>
+            <NuxtLink class="panel-text-link" to="/account/profile">{{ t('accountDashboard.edit') }} <UIcon name="i-lucide-arrow-right" /></NuxtLink>
           </div>
           <div class="detail-lines">
-            <div><span>Email</span><strong>{{ profile?.email || 'Not available' }}</strong></div>
-            <div><span>Delivery addresses</span><strong>{{ addressCount }} saved</strong></div>
-            <div><span>Completed orders</span><strong>{{ deliveredOrders }}</strong></div>
+            <div><span>{{ t('accountDashboard.email') }}</span><strong>{{ profile?.email || t('accountDashboard.unavailable') }}</strong></div>
+            <div><span>{{ t('accountDashboard.deliveryAddresses') }}</span><strong>{{ t('accountDashboard.savedAddresses', { count: addressCount }) }}</strong></div>
+            <div><span>{{ t('accountDashboard.completedOrders') }}</span><strong>{{ deliveredOrders }}</strong></div>
           </div>
         </article>
 
         <article class="dashboard-note-panel">
           <span class="note-mark">P°</span>
-          <p class="panel-kicker">A NOTE FROM THE STUDIO</p>
-          <blockquote>“The best pieces are the ones that make the rest of your day feel more like you.”</blockquote>
-          <NuxtLink to="/collections/lounge">Find your soft start <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
+          <p class="panel-kicker">{{ t('accountDashboard.noteEyebrow') }}</p>
+          <blockquote>“{{ t('accountDashboard.noteQuote') }}”</blockquote>
+          <NuxtLink to="/collections/lounge">{{ t('accountDashboard.noteLink') }} <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
         </article>
       </section>
     </template>

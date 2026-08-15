@@ -24,22 +24,54 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const authApi = useCustomerAuthApi()
+const { t } = useStorefrontI18n()
 const isMenuOpen = ref(false)
 const isSigningOut = ref(false)
 
-const navItems: AccountNavItem[] = [
-  { label: 'Overview', note: 'Your Pelissa edit', to: '/account', icon: 'i-lucide-layout-dashboard' },
-  { label: 'Profile', note: 'Details & preferences', to: '/account/profile', icon: 'i-lucide-circle-user-round' },
-  { label: 'Orders', note: 'History & status', to: '/account/orders', icon: 'i-lucide-receipt-text' },
-  { label: 'Delivery', note: 'Track your parcels', to: '/account/logistics', icon: 'i-lucide-truck' },
-  { label: 'Shopping cart', note: 'Pieces waiting for you', to: '/cart', icon: 'i-lucide-shopping-cart' }
-]
+const navItems = computed<AccountNavItem[]>(() => [
+  {
+    label: t('accountShell.nav.overview.label'),
+    note: t('accountShell.nav.overview.note'),
+    to: '/account',
+    icon: 'i-lucide-layout-dashboard'
+  },
+  {
+    label: t('accountShell.nav.profile.label'),
+    note: t('accountShell.nav.profile.note'),
+    to: '/account/profile',
+    icon: 'i-lucide-circle-user-round'
+  },
+  {
+    label: t('accountShell.nav.orders.label'),
+    note: t('accountShell.nav.orders.note'),
+    to: '/account/orders',
+    icon: 'i-lucide-receipt-text'
+  },
+  {
+    label: t('accountShell.nav.delivery.label'),
+    note: t('accountShell.nav.delivery.note'),
+    to: '/account/logistics',
+    icon: 'i-lucide-truck'
+  },
+  {
+    label: t('accountShell.nav.support.label'),
+    note: t('accountShell.nav.support.note'),
+    to: '/account/support-tickets',
+    icon: 'i-lucide-message-circle-question'
+  },
+  {
+    label: t('accountShell.nav.cart.label'),
+    note: t('accountShell.nav.cart.note'),
+    to: '/cart',
+    icon: 'i-lucide-shopping-cart'
+  }
+])
 
 const displayName = computed(() => {
   const fullName = [props.profile?.first_name, props.profile?.last_name]
     .filter(value => value?.trim())
     .join(' ')
-  return fullName || props.profile?.username || 'Pelissa member'
+  return fullName || props.profile?.username || t('accountShell.member')
 })
 
 const initials = computed(() => customerInitials(props.profile?.first_name, props.profile?.last_name, 'P'))
@@ -58,10 +90,18 @@ async function signOut() {
   isSigningOut.value = true
   try {
     await authApi.logout()
-    toast.add({ title: 'Signed out', description: 'Come back whenever you are ready.', color: 'success' })
+    toast.add({
+      title: t('accountShell.signedOutTitle'),
+      description: t('accountShell.signedOutDescription'),
+      color: 'success'
+    })
     await router.replace('/')
-  } catch (error: unknown) {
-    toast.add({ title: 'Signed out locally', description: 'Your local session was cleared.', color: 'warning' })
+  } catch {
+    toast.add({
+      title: t('accountShell.signedOutLocallyTitle'),
+      description: t('accountShell.signedOutLocallyDescription'),
+      color: 'warning'
+    })
     await router.replace('/')
   } finally {
     isSigningOut.value = false
@@ -82,7 +122,7 @@ async function signOut() {
         </div>
         <div class="account-masthead-art" aria-hidden="true">
           <div class="account-art-image" />
-          <span class="account-art-index">MEMBER / 01</span>
+          <span class="account-art-index">{{ t('accountShell.memberIndex') }}</span>
           <span class="account-art-mark">P°</span>
         </div>
       </div>
@@ -91,7 +131,7 @@ async function signOut() {
     <section class="store-container account-body">
       <aside class="account-sidebar">
         <button class="account-sidebar-toggle" type="button" @click="isMenuOpen = !isMenuOpen">
-          <span><UIcon name="i-lucide-menu" /> Account menu</span>
+          <span><UIcon name="i-lucide-menu" /> {{ t('accountShell.menu') }}</span>
           <UIcon :name="isMenuOpen ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" />
         </button>
 
@@ -102,13 +142,13 @@ async function signOut() {
             </div>
             <div v-else class="account-avatar">{{ initials }}</div>
             <div>
-              <span class="account-identity-label">SIGNED IN AS</span>
+              <span class="account-identity-label">{{ t('accountShell.signedInAs') }}</span>
               <strong>{{ displayName }}</strong>
-              <small>{{ props.profile?.email || 'Your Pelissa account' }}</small>
+              <small>{{ props.profile?.email || t('accountShell.fallbackAccount') }}</small>
             </div>
           </div>
 
-          <nav class="account-nav" aria-label="Account navigation">
+          <nav class="account-nav" :aria-label="t('accountShell.navigation')">
             <NuxtLink
               v-for="item in navItems"
               :key="item.to"
@@ -128,11 +168,15 @@ async function signOut() {
 
           <div class="account-sidebar-bottom">
             <NuxtLink class="account-back-shop" to="/collections/shop" @click="closeMenu">
-              <UIcon name="i-lucide-arrow-left" /> Back to the shop
+              <UIcon name="i-lucide-arrow-left" />
+              {{ t('accountShell.backToShop') }}
             </NuxtLink>
             <button class="account-sign-out" type="button" :disabled="isSigningOut" @click="signOut">
-              <UIcon :name="isSigningOut ? 'i-lucide-loader-circle' : 'i-lucide-log-out'" :class="{ 'is-spinning': isSigningOut }" />
-              {{ isSigningOut ? 'Signing out…' : 'Sign out' }}
+              <UIcon
+                :name="isSigningOut ? 'i-lucide-loader-circle' : 'i-lucide-log-out'"
+                :class="{ 'is-spinning': isSigningOut }"
+              />
+              {{ isSigningOut ? t('common.actions.signingOut') : t('common.actions.signOut') }}
             </button>
           </div>
         </div>

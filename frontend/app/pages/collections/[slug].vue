@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { displayProductType } from '~/data/catalog'
 
 const route = useRoute()
 const catalogApi = useCatalogApi()
+const { catalogCategoryName, catalogProductTypeName, t } = useStorefrontI18n()
 
 const activeSlug = computed(() => String(route.params.slug || 'shop'))
 const isShopCollection = computed(() => activeSlug.value === 'shop')
@@ -62,20 +62,20 @@ const activeCollection = computed(() => {
   const image = collectionProducts.value.find(product => product.images[0])?.images[0] ?? '/lingerie/hero-corset.jpg'
   if (isShopCollection.value) {
     return {
-      label: 'All products',
-      eyebrow: 'THE PELISSA COLLECTION',
-      title: 'Every layer,\nevery mood.',
-      subtitle: 'Modern lingerie for the way you move through the day.',
-      description: 'Discover every active piece in the collection.',
+      label: t('catalogPage.collection.allProducts'),
+      eyebrow: t('catalogPage.collection.eyebrow'),
+      title: t('catalogPage.collection.shopTitle'),
+      subtitle: t('catalogPage.collection.shopSubtitle'),
+      description: t('catalogPage.collection.shopDescription'),
       image
     }
   }
   return {
-    label: category?.name ?? 'Collection',
-    eyebrow: 'THE PELISSA COLLECTION',
-    title: category?.name ?? 'Collection not found',
-    subtitle: category ? `Explore the ${category.name} collection.` : '',
-    description: category ? `Browse every active ${category.name} piece, selected directly from our catalog.` : '',
+    label: category ? catalogCategoryName(category.code, category.name) : t('catalogPage.collection.fallbackLabel'),
+    eyebrow: t('catalogPage.collection.eyebrow'),
+    title: category ? catalogCategoryName(category.code, category.name) : t('catalogPage.collection.notFoundTitle'),
+    subtitle: category ? t('catalogPage.collection.categorySubtitle', { name: catalogCategoryName(category.code, category.name) }) : '',
+    description: category ? t('catalogPage.collection.categoryDescription', { name: catalogCategoryName(category.code, category.name) }) : '',
     image
   }
 })
@@ -120,9 +120,9 @@ useHead(() => ({
 
     <section v-if="collectionNotFound" class="collection-empty collection-missing" role="alert">
       <UIcon class="collection-empty-icon" name="i-lucide-folder-x" />
-      <h1>Collection not found.</h1>
-      <p>This category is not available in the current catalog.</p>
-      <NuxtLink class="store-button" to="/collections/shop">View all products</NuxtLink>
+      <h1>{{ t('catalogPage.collection.missingTitle') }}</h1>
+      <p>{{ t('catalogPage.collection.missingCopy') }}</p>
+      <NuxtLink class="store-button" to="/collections/shop">{{ t('catalogPage.collection.viewAll') }}</NuxtLink>
     </section>
 
     <template v-else>
@@ -131,17 +131,17 @@ useHead(() => ({
           <div>
             <div class="collection-hero-kicker">
               <p class="store-eyebrow">{{ activeCollection.eyebrow }}</p>
-              <span>{{ catalogRequestStatus === 'pending' ? 'Curating' : `${collectionProducts.length} pieces` }}</span>
+              <span>{{ catalogRequestStatus === 'pending' ? t('catalogPage.collection.curating') : t('catalogPage.collection.pieces', collectionProducts.length) }}</span>
             </div>
             <h1>{{ activeCollection.title }}</h1>
             <p class="collection-hero-subtitle">{{ activeCollection.subtitle }}</p>
             <p class="collection-hero-description">{{ activeCollection.description }}</p>
             <div class="collection-hero-actions">
               <a href="#collection-products" class="collection-scroll-link collection-scroll-link-primary">
-                Explore the edit <UIcon class="collection-scroll-icon" name="i-lucide-arrow-down" />
+                {{ t('catalogPage.collection.explore') }} <UIcon class="collection-scroll-icon" name="i-lucide-arrow-down" />
               </a>
               <NuxtLink v-if="!isShopCollection" to="/collections/shop" class="collection-scroll-link">
-                Shop all <UIcon class="collection-scroll-icon" name="i-lucide-arrow-up-right" />
+                {{ t('catalogPage.collection.shopAll') }} <UIcon class="collection-scroll-icon" name="i-lucide-arrow-up-right" />
               </NuxtLink>
             </div>
           </div>
@@ -151,7 +151,7 @@ useHead(() => ({
             <img :src="activeCollection.image" :alt="activeCollection.label">
             <div class="collection-hero-image-caption">
               <span>{{ activeCollection.label }}</span>
-              <small>Pelissa editorial selection</small>
+              <small>{{ t('catalogPage.collection.editorialSelection') }}</small>
             </div>
           </div>
         </div>
@@ -160,24 +160,24 @@ useHead(() => ({
       <section id="collection-products" class="collection-products store-container">
         <div class="collection-heading">
           <div class="collection-heading-title">
-            <p class="store-eyebrow">CURATED FOR YOU</p>
+            <p class="store-eyebrow">{{ t('catalogPage.collection.curatedEyebrow') }}</p>
             <div>
               <h2>{{ activeCollection.label }}</h2>
-              <span>{{ catalogRequestStatus === 'pending' ? 'Loading pieces' : `${visibleProducts.length} pieces` }}</span>
+              <span>{{ catalogRequestStatus === 'pending' ? t('catalogPage.collection.loadingProducts') : t('catalogPage.collection.pieces', visibleProducts.length) }}</span>
             </div>
           </div>
-          <p>Every piece is designed around soft structure, thoughtful detail, and an easy sense of confidence.</p>
+          <p>{{ t('catalogPage.collection.curatedCopy') }}</p>
         </div>
 
         <div class="collection-toolbar">
-          <div class="collection-type-filter" aria-label="Filter by product type">
+          <div class="collection-type-filter" :aria-label="t('catalogPage.collection.filterLabel')">
             <button
               type="button"
               :class="{ active: productType === 'ALL' }"
               :aria-pressed="productType === 'ALL'"
               @click="selectProductType('ALL')"
             >
-              All types
+              {{ t('catalogPage.productTypes.all') }}
             </button>
             <button
               v-for="type in availableTypes"
@@ -187,18 +187,18 @@ useHead(() => ({
               :aria-pressed="productType === type"
               @click="selectProductType(type)"
             >
-              {{ displayProductType(type) }}
+              {{ catalogProductTypeName(type) }}
             </button>
           </div>
 
           <label class="collection-sort">
-            <span>Sort by</span>
+            <span>{{ t('catalogPage.sort.sortBy') }}</span>
             <select v-model="sortBy">
-              <option value="featured">Featured</option>
-              <option value="newest">Newest</option>
-              <option value="best-selling">Best selling</option>
-              <option value="price-low">Price: low to high</option>
-              <option value="price-high">Price: high to low</option>
+              <option value="featured">{{ t('catalogPage.sort.featured') }}</option>
+              <option value="newest">{{ t('catalogPage.sort.newest') }}</option>
+              <option value="best-selling">{{ t('catalogPage.sort.bestSelling') }}</option>
+              <option value="price-low">{{ t('catalogPage.sort.priceLow') }}</option>
+              <option value="price-high">{{ t('catalogPage.sort.priceHigh') }}</option>
             </select>
             <UIcon class="collection-sort-icon" name="i-lucide-chevron-down" />
           </label>
@@ -207,7 +207,7 @@ useHead(() => ({
         <div
           v-if="catalogRequestStatus === 'pending'"
           class="collection-product-grid"
-          aria-label="Loading products"
+          :aria-label="t('catalogPage.collection.loadingProducts')"
           aria-busy="true"
         >
           <article v-for="index in 4" :key="index" class="collection-product-skeleton" aria-hidden="true">
@@ -219,9 +219,9 @@ useHead(() => ({
 
         <div v-else-if="catalogRequestError" class="collection-empty" role="alert">
           <UIcon class="collection-empty-icon" name="i-lucide-cloud-alert" />
-          <h3>We could not load this edit.</h3>
-          <p>The catalog service is unavailable right now. Please try again.</p>
-          <button class="store-button" type="button" @click="refreshCatalog()">Try again</button>
+          <h3>{{ t('catalogPage.collection.loadFailedTitle') }}</h3>
+          <p>{{ t('catalogPage.collection.loadFailedCopy') }}</p>
+          <button class="store-button" type="button" @click="refreshCatalog()">{{ t('common.actions.retry') }}</button>
         </div>
 
         <div v-else-if="visibleProducts.length" class="collection-product-grid">
@@ -235,21 +235,21 @@ useHead(() => ({
 
         <div v-else class="collection-empty">
           <UIcon class="collection-empty-icon" name="i-lucide-search-x" />
-          <h3>No pieces in this edit yet.</h3>
-          <p>Try another product type or explore the full Pelissa collection.</p>
-          <button v-if="productType !== 'ALL'" class="store-button" type="button" @click="selectProductType('ALL')">Clear filter</button>
+          <h3>{{ t('catalogPage.collection.emptyTitle') }}</h3>
+          <p>{{ t('catalogPage.collection.emptyCopy') }}</p>
+          <button v-if="productType !== 'ALL'" class="store-button" type="button" @click="selectProductType('ALL')">{{ t('catalogPage.collection.clearFilter') }}</button>
         </div>
       </section>
 
       <section class="collection-note">
         <div class="collection-note-image">
-          <img src="/lingerie/lace-texture.jpg" alt="Pelissa lace and fabric detail">
+          <img src="/lingerie/lace-texture.jpg" :alt="t('catalogPage.collection.detailImageAlt')">
         </div>
         <div class="collection-note-copy">
-          <p class="store-eyebrow">FIT, FEEL, REPEAT</p>
-          <h2>The details make the difference.</h2>
-          <p>Each product page translates the backend item type into the fit details that matter—from support and coverage to fabric, length, and sheerness.</p>
-          <NuxtLink to="/product/1">See a product story <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
+          <p class="store-eyebrow">{{ t('catalogPage.collection.detailEyebrow') }}</p>
+          <h2>{{ t('catalogPage.collection.detailTitle') }}</h2>
+          <p>{{ t('catalogPage.collection.detailCopy') }}</p>
+          <NuxtLink to="/product/1">{{ t('catalogPage.collection.detailLink') }} <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
         </div>
       </section>
     </template>

@@ -1,8 +1,10 @@
 <script setup lang="ts">
-useHead({
-  title: 'Opening secure payment | Pelissa',
+const { t } = useStorefrontI18n()
+
+useHead(() => ({
+  title: t('paymentPage.redirect.seoTitle'),
   meta: [{ name: 'robots', content: 'noindex' }]
-})
+}))
 </script>
 
 <template>
@@ -10,10 +12,10 @@ useHead({
     <NuxtLink class="redirect-brand" to="/">PELISSA<i>°</i></NuxtLink>
     <div class="redirect-status">
       <span class="redirect-icon"><UIcon name="i-lucide-loader-circle" /></span>
-      <p>SECURE CHECKOUT</p>
-      <h1>Opening Stripe…</h1>
+      <p>{{ t('paymentPage.redirect.eyebrow') }}</p>
+      <h1>{{ t('paymentPage.redirect.title') }}</h1>
     </div>
-    <span class="redirect-secure"><UIcon name="i-lucide-shield-check" /> Protected payment</span>
+    <span class="redirect-secure"><UIcon name="i-lucide-shield-check" /> {{ t('paymentPage.redirect.protected') }}</span>
   </main>
 </template>
 

@@ -40,16 +40,17 @@ const router = useRouter()
 const session = useCustomerSession()
 const customerCart = useCustomerCart()
 const announcementCenter = useAnnouncementCenter()
+const { catalogCategoryName, currentLocale, t } = useStorefrontI18n()
 
-useHead({
-  title: 'Pelissa | Modern lingerie',
+useHead(() => ({
+  title: t('home.seoTitle'),
   meta: [
     {
       name: 'description',
-      content: 'Modern lingerie designed for comfort, confidence, and every version of you.'
+      content: t('home.seoDescription')
     }
   ]
-})
+}))
 
 type HeroSlide = {
   productId: number
@@ -72,8 +73,11 @@ type StoreCurrency = {
 }
 
 const navItems = computed(() => [
-  ...catalogCategories.value.map(category => ({ label: category.name, to: `/collections/${category.code}` })),
-  { label: 'Shop all', to: '/collections/shop' }
+  ...catalogCategories.value.map(category => ({
+    label: catalogCategoryName(category.code, category.name),
+    to: `/collections/${category.code}`
+  })),
+  { label: t('home.shopAll'), to: '/collections/shop' }
 ])
 
 const categoryImages = [
@@ -87,28 +91,28 @@ const categories = computed(() => catalogCategories.value
   .filter(category => category.parent_id === null)
   .map((category, index) => ({
     id: category.id,
-    label: category.name,
-    title: category.name,
+    label: catalogCategoryName(category.code, category.name),
+    title: catalogCategoryName(category.code, category.name),
     image: categoryImages[index % categoryImages.length] ?? '/lingerie/hero-corset.jpg',
     to: `/collections/${category.code}`
   }))
 )
 const firstCategoryLink = computed(() => categories.value[0]?.to ?? '/collections/shop')
-const locationOptions: StoreLocation[] = [
-  { label: 'United States', value: 'US' },
-  { label: 'United Kingdom', value: 'GB' },
-  { label: 'Canada', value: 'CA' },
-  { label: 'Australia', value: 'AU' },
-  { label: 'China', value: 'CN' }
-]
+const locationOptions = computed<StoreLocation[]>(() => {
+  const displayNames = new Intl.DisplayNames([currentLocale.value], { type: 'region' })
+  return ['US', 'GB', 'CA', 'AU', 'CN'].map(value => ({
+    label: displayNames.of(value) || value,
+    value
+  }))
+})
 
-const currencyOptions: StoreCurrency[] = [
-  { label: 'USD - US Dollar', value: 'USD' },
-  { label: 'GBP - British Pound', value: 'GBP' },
-  { label: 'CAD - Canadian Dollar', value: 'CAD' },
-  { label: 'AUD - Australian Dollar', value: 'AUD' },
-  { label: 'CNY - Chinese Yuan', value: 'CNY' }
-]
+const currencyOptions = computed<StoreCurrency[]>(() => {
+  const displayNames = new Intl.DisplayNames([currentLocale.value], { type: 'currency' })
+  return ['USD', 'GBP', 'CAD', 'AUD', 'CNY'].map(value => ({
+    label: `${value} - ${displayNames.of(value) || value}`,
+    value
+  }))
+})
 
 const isMenuOpen = ref(false)
 const isSearchOpen = ref(false)
@@ -141,16 +145,16 @@ const heroSlides = computed<HeroSlide[]>(() => {
     .slice(0, HERO_CAROUSEL_MAX_ITEMS)
     .map(product => ({
       productId: product.id,
-      eyebrow: product.badge || heroSection.value?.eyebrow || 'FEATURED PRODUCT',
+      eyebrow: product.badge || heroSection.value?.eyebrow || t('home.featuredProduct'),
       title: product.name,
-      copy: product.description.trim() || product.highlight.find(Boolean) || 'Discover this featured style.',
+      copy: product.description.trim() || product.highlight.find(Boolean) || t('home.featuredFallback'),
       image: product.images[0]!,
       position: product.image_positions?.[0] || 'center',
       to: `/product/${product.id}`
     }))
 })
 const activeHero = computed<HeroSlide | null>(() => heroSlides.value[activeSlide.value] ?? heroSlides.value[0] ?? null)
-const locationLabel = computed(() => locationOptions.find(option => option.value === selectedLocation.value)?.label ?? locationOptions[0]!.label)
+const locationLabel = computed(() => locationOptions.value.find(option => option.value === selectedLocation.value)?.label ?? locationOptions.value[0]!.label)
 const currencyLabel = computed(() => selectedCurrency.value)
 const cartCount = computed(() => customerCart.totalQuantity.value)
 
@@ -228,8 +232,8 @@ async function submitSearch() {
 onMounted(() => {
   const savedLocation = localStorage.getItem('pelissa-location')
   const savedCurrency = localStorage.getItem('pelissa-currency')
-  if (locationOptions.some(option => option.value === savedLocation)) selectedLocation.value = savedLocation!
-  if (currencyOptions.some(option => option.value === savedCurrency)) selectedCurrency.value = savedCurrency!
+  if (locationOptions.value.some(option => option.value === savedLocation)) selectedLocation.value = savedLocation!
+  if (currencyOptions.value.some(option => option.value === savedCurrency)) selectedCurrency.value = savedCurrency!
   if (session.isAuthenticated.value) void refreshCart()
   restartCarouselTimer()
 })
@@ -259,14 +263,14 @@ onBeforeUnmount(() => {
           <button
             class="utility-link"
             type="button"
-            aria-label="Choose shipping location"
+            :aria-label="t('home.chooseLocation')"
             :aria-expanded="isLocationMenuOpen"
             @click="isLocationMenuOpen = !isLocationMenuOpen; isCurrencyMenuOpen = false"
           >
             <UIcon name="i-lucide-map-pin" /> {{ locationLabel }}
             <UIcon name="i-lucide-chevron-down" />
           </button>
-          <div v-if="isLocationMenuOpen" class="utility-menu" role="menu" aria-label="Shipping locations">
+          <div v-if="isLocationMenuOpen" class="utility-menu" role="menu" :aria-label="t('home.shippingLocations')">
             <button
               v-for="option in locationOptions"
               :key="option.value"
@@ -285,13 +289,13 @@ onBeforeUnmount(() => {
           <button
             class="utility-link"
             type="button"
-            aria-label="Choose currency"
+            :aria-label="t('home.chooseCurrency')"
             :aria-expanded="isCurrencyMenuOpen"
             @click="isCurrencyMenuOpen = !isCurrencyMenuOpen; isLocationMenuOpen = false"
           >
             {{ currencyLabel }} <UIcon name="i-lucide-chevron-down" />
           </button>
-          <div v-if="isCurrencyMenuOpen" class="utility-menu currency-menu" role="menu" aria-label="Currencies">
+          <div v-if="isCurrencyMenuOpen" class="utility-menu currency-menu" role="menu" :aria-label="t('home.currencies')">
             <button
               v-for="option in currencyOptions"
               :key="option.value"
@@ -306,52 +310,53 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
+        <StoreLocaleSwitcher />
         <NuxtLink class="utility-link utility-notices" to="/announcements">
-          <UIcon name="i-lucide-megaphone" /> Notices
+          <UIcon name="i-lucide-megaphone" /> {{ t('header.notices') }}
           <b v-if="announcementCenter.currentCount.value">
             {{ announcementCenter.currentCount.value >= 50 ? '50+' : announcementCenter.currentCount.value }}
           </b>
         </NuxtLink>
-        <button class="utility-link utility-help" type="button">Help</button>
+        <button class="utility-link utility-help" type="button">{{ t('header.help') }}</button>
       </div>
 
       <div class="brand-row">
-        <button class="icon-button mobile-only" type="button" aria-label="Open menu" @click="toggleMenu">
+        <button class="icon-button mobile-only" type="button" :aria-label="t('home.openMenu')" @click="toggleMenu">
           <UIcon :name="isMenuOpen ? 'i-lucide-x' : 'i-lucide-menu'" />
         </button>
 
-        <NuxtLink class="brand" to="/" aria-label="Pelissa home">
+        <NuxtLink class="brand" to="/" :aria-label="t('header.home')">
           <span>PELISSA</span><i>°</i>
         </NuxtLink>
 
         <div class="header-actions">
-          <button class="icon-button" type="button" aria-label="Search" @click="toggleSearch">
+          <button class="icon-button" type="button" :aria-label="t('header.searchProducts')" @click="toggleSearch">
             <UIcon name="i-lucide-search" />
           </button>
-          <NuxtLink class="icon-button desktop-only" to="/account" aria-label="My account">
+          <NuxtLink class="icon-button desktop-only" to="/account" :aria-label="t('header.account')">
             <UIcon name="i-lucide-user-round" />
           </NuxtLink>
-          <button class="icon-button cart-button" type="button" aria-label="Shopping cart" @click="toggleCart">
+          <button class="icon-button cart-button" type="button" :aria-label="t('header.cart')" @click="toggleCart">
             <UIcon name="i-lucide-shopping-cart" />
             <span v-if="cartCount" class="cart-count">{{ cartCount > 99 ? '99+' : cartCount }}</span>
           </button>
         </div>
       </div>
 
-      <nav class="main-nav" :class="{ 'is-open': isMenuOpen }" aria-label="Main navigation">
+      <nav class="main-nav" :class="{ 'is-open': isMenuOpen }" :aria-label="t('header.mainNavigation')">
         <NuxtLink class="mobile-account-nav" to="/account" @click="isMenuOpen = false">
           <UIcon name="i-lucide-user-round" />
-          My account
+          {{ t('header.account') }}
         </NuxtLink>
         <NuxtLink v-for="item in navItems" :key="item.to" :to="item.to" @click="isMenuOpen = false">{{ item.label }}</NuxtLink>
       </nav>
 
       <form v-if="isSearchOpen" class="search-panel" role="search" @submit.prevent="submitSearch">
-        <label class="sr-only" for="site-search">Search products</label>
+        <label class="sr-only" for="site-search">{{ t('header.searchProducts') }}</label>
         <UIcon name="i-lucide-search" />
-        <input id="site-search" v-model="searchQuery" type="search" placeholder="Search bras, lace, sets..." autofocus>
-        <button type="submit" aria-label="Submit search"><UIcon name="i-lucide-arrow-right" /></button>
-        <button type="button" aria-label="Close search" @click="isSearchOpen = false"><UIcon name="i-lucide-x" /></button>
+        <input id="site-search" v-model="searchQuery" type="search" :placeholder="t('header.searchPlaceholder')" autofocus>
+        <button type="submit" :aria-label="t('header.submitSearch')"><UIcon name="i-lucide-arrow-right" /></button>
+        <button type="button" :aria-label="t('header.closeSearch')" @click="isSearchOpen = false"><UIcon name="i-lucide-x" /></button>
       </form>
 
       <StoreCartPopover v-if="isCartOpen" @close="isCartOpen = false" />
@@ -364,55 +369,55 @@ onBeforeUnmount(() => {
       class="hero"
       :style="{ '--hero-image': `url(${activeHero.image})`, '--hero-position': activeHero.position }"
     >
-      <NuxtLink class="hero-link" :to="activeHero.to" :aria-label="`View ${activeHero.title}`">
+      <NuxtLink class="hero-link" :to="activeHero.to" :aria-label="t('home.viewProduct', { name: activeHero.title })">
         <div class="hero-shade" />
         <div class="hero-content">
           <p class="eyebrow light">{{ activeHero.eyebrow }}</p>
           <h1>{{ activeHero.title }}</h1>
           <p class="hero-copy">{{ activeHero.copy }}</p>
-          <span class="button button-light">Shop this product <UIcon name="i-lucide-arrow-up-right" /></span>
+          <span class="button button-light">{{ t('home.shopProduct') }} <UIcon name="i-lucide-arrow-up-right" /></span>
         </div>
       </NuxtLink>
 
       <div v-if="heroSlides.length > 1" class="hero-controls">
-        <div class="hero-progress" aria-label="Featured products">
+        <div class="hero-progress" :aria-label="t('home.featuredProducts')">
           <button
             v-for="slide in heroSlides"
             :key="slide.productId"
             class="progress-dot"
             :class="{ active: activeHero.productId === slide.productId }"
             type="button"
-            :aria-label="`Show ${slide.title}`"
+            :aria-label="t('home.showProduct', { name: slide.title })"
             @click="setActiveSlide(heroSlides.indexOf(slide))"
           />
         </div>
         <div class="hero-arrows">
-          <button type="button" aria-label="Previous featured product" @click="previousSlide"><UIcon name="i-lucide-arrow-left" /></button>
-          <button type="button" aria-label="Next featured product" @click="nextSlide"><UIcon name="i-lucide-arrow-right" /></button>
+          <button type="button" :aria-label="t('home.previousProduct')" @click="previousSlide"><UIcon name="i-lucide-arrow-left" /></button>
+          <button type="button" :aria-label="t('home.nextProduct')" @click="nextSlide"><UIcon name="i-lucide-arrow-right" /></button>
         </div>
       </div>
     </section>
     <section v-else id="top" class="hero hero-state">
       <div>
-        <p class="eyebrow">FEATURED PRODUCTS</p>
-        <h1 v-if="recommendationRequestStatus === 'pending'">Loading the featured edit.</h1>
-        <h1 v-else-if="recommendationRequestError">Featured products are temporarily unavailable.</h1>
-        <h1 v-else>Featured products are coming soon.</h1>
-        <button v-if="recommendationRequestError" class="button button-dark" type="button" @click="refreshRecommendations()">Try again</button>
+        <p class="eyebrow">{{ t('home.featuredEyebrow') }}</p>
+        <h1 v-if="recommendationRequestStatus === 'pending'">{{ t('home.featuredLoading') }}</h1>
+        <h1 v-else-if="recommendationRequestError">{{ t('home.featuredUnavailable') }}</h1>
+        <h1 v-else>{{ t('home.featuredSoon') }}</h1>
+        <button v-if="recommendationRequestError" class="button button-dark" type="button" @click="refreshRecommendations()">{{ t('common.actions.retry') }}</button>
       </div>
     </section>
 
-    <section class="benefit-bar" aria-label="Shopping benefits">
-      <div><UIcon name="i-lucide-truck" /><span><strong>Easy delivery</strong> Fast, trackable shipping</span></div>
-      <div><UIcon name="i-lucide-refresh-ccw" /><span><strong>30-day returns</strong> Made to try at home</span></div>
-      <div><UIcon name="i-lucide-sparkles" /><span><strong>Made for every body</strong> Sizes XS-4X</span></div>
+    <section class="benefit-bar" :aria-label="t('home.benefitsLabel')">
+      <div><UIcon name="i-lucide-truck" /><span><strong>{{ t('home.deliveryTitle') }}</strong> {{ t('home.deliveryCopy') }}</span></div>
+      <div><UIcon name="i-lucide-refresh-ccw" /><span><strong>{{ t('home.returnsTitle') }}</strong> {{ t('home.returnsCopy') }}</span></div>
+      <div><UIcon name="i-lucide-sparkles" /><span><strong>{{ t('home.sizingTitle') }}</strong> {{ t('home.sizingCopy') }}</span></div>
     </section>
 
     <section class="category-section page-width">
       <div class="section-heading centered">
-        <p class="eyebrow">THE LINGERIE EDIT</p>
-        <h2>Made for every moment.</h2>
-        <p>Thoughtful intimates with an effortless point of view.</p>
+        <p class="eyebrow">{{ t('home.categoryEyebrow') }}</p>
+        <h2>{{ t('home.categoryTitle') }}</h2>
+        <p>{{ t('home.categoryCopy') }}</p>
       </div>
       <div class="category-grid">
         <template v-if="categoryRequestStatus === 'pending'">
@@ -423,8 +428,8 @@ onBeforeUnmount(() => {
         </template>
         <div v-else-if="categoryRequestError" class="category-state" role="alert">
           <UIcon name="i-lucide-cloud-alert" />
-          <p>Categories are unavailable right now.</p>
-          <button type="button" @click="refreshCategories()">Try again</button>
+          <p>{{ t('home.categoriesUnavailable') }}</p>
+          <button type="button" @click="refreshCategories()">{{ t('common.actions.retry') }}</button>
         </div>
         <NuxtLink v-for="category in categories" v-else :key="category.id" class="category-card" :to="category.to">
           <div class="category-image" :style="{ backgroundImage: `url(${category.image})` }" />
@@ -436,7 +441,7 @@ onBeforeUnmount(() => {
         </NuxtLink>
         <div v-if="categoryRequestStatus === 'success' && !categories.length" class="category-state">
           <UIcon name="i-lucide-folder-open" />
-          <p>No categories are available yet.</p>
+          <p>{{ t('home.noCategories') }}</p>
         </div>
       </div>
     </section>
@@ -445,11 +450,11 @@ onBeforeUnmount(() => {
       <div class="page-width">
         <div class="section-heading section-heading-row">
           <div>
-            <p class="eyebrow">CURATED FOR YOU</p>
-            <h2>Discover your next favorite.</h2>
+            <p class="eyebrow">{{ t('home.curatedEyebrow') }}</p>
+            <h2>{{ t('home.curatedTitle') }}</h2>
           </div>
         </div>
-        <div class="product-grid" aria-label="Loading recommended products" aria-busy="true">
+        <div class="product-grid" :aria-label="t('home.loadingRecommendations')" aria-busy="true">
           <article v-for="index in 4" :key="index" class="product-skeleton" aria-hidden="true">
             <div class="product-skeleton-media" />
             <span />
@@ -463,10 +468,10 @@ onBeforeUnmount(() => {
         <div class="product-request-state" role="alert">
           <UIcon name="i-lucide-cloud-alert" />
           <div>
-            <h3>Recommendations are unavailable right now.</h3>
-            <p>The rest of the shop is still ready to explore.</p>
+            <h3>{{ t('home.recommendationsUnavailable') }}</h3>
+            <p>{{ t('home.recommendationsUnavailableCopy') }}</p>
           </div>
-          <button class="product-retry-button" type="button" @click="refreshRecommendations()">Try again</button>
+          <button class="product-retry-button" type="button" @click="refreshRecommendations()">{{ t('common.actions.retry') }}</button>
         </div>
       </div>
     </section>
@@ -483,53 +488,53 @@ onBeforeUnmount(() => {
         <div class="product-request-state">
           <UIcon name="i-lucide-package-open" />
           <div>
-            <h3>Fresh recommendations are on their way.</h3>
-            <p>Explore the full collection while we prepare this edit.</p>
+            <h3>{{ t('home.recommendationsSoon') }}</h3>
+            <p>{{ t('home.recommendationsSoonCopy') }}</p>
           </div>
-          <NuxtLink class="product-retry-button" to="/collections/shop">Shop all</NuxtLink>
+          <NuxtLink class="product-retry-button" to="/collections/shop">{{ t('home.shopAll') }}</NuxtLink>
         </div>
       </div>
     </section>
 
     <section class="escape-section">
-      <div class="escape-image" role="img" aria-label="Soft lingerie and loungewear">
+      <div class="escape-image" role="img" :aria-label="t('home.escapeImage')">
         <div class="escape-stamp">PELISSA<br>AFTER<br>DARK</div>
       </div>
       <div class="escape-content">
-        <p class="eyebrow">THE LOUNGE EDIT</p>
-        <h2>From first light to last call.</h2>
-        <p>Silky layers and soft sets made for slow mornings, candlelit evenings, and everything between.</p>
+        <p class="eyebrow">{{ t('home.loungeEyebrow') }}</p>
+        <h2>{{ t('home.loungeTitle') }}</h2>
+        <p>{{ t('home.loungeCopy') }}</p>
         <div class="button-group">
-          <NuxtLink class="button button-dark" :to="firstCategoryLink">Shop the collection <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
-          <NuxtLink class="text-link underlined" :to="firstCategoryLink">View the collection</NuxtLink>
+          <NuxtLink class="button button-dark" :to="firstCategoryLink">{{ t('home.shopCollection') }} <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
+          <NuxtLink class="text-link underlined" :to="firstCategoryLink">{{ t('home.viewCollection') }}</NuxtLink>
         </div>
       </div>
     </section>
 
     <section class="editorial-section page-width">
       <div class="editorial-card editorial-copy">
-        <p class="eyebrow">PELISSA NOTES</p>
-        <h2>Wear it your way.</h2>
-        <p>Fit notes, care rituals, and thoughtful ways to make every layer feel like yours.</p>
-        <NuxtLink class="text-link underlined" to="/search?q=fit">Discover our journal <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
+        <p class="eyebrow">{{ t('home.notesEyebrow') }}</p>
+        <h2>{{ t('home.notesTitle') }}</h2>
+        <p>{{ t('home.notesCopy') }}</p>
+        <NuxtLink class="text-link underlined" to="/search?q=fit">{{ t('home.discoverJournal') }} <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
       </div>
-      <NuxtLink class="editorial-card editorial-image" to="/search?q=lace" aria-label="Explore the Pelissa journal">
+      <NuxtLink class="editorial-card editorial-image" to="/search?q=lace" :aria-label="t('home.exploreJournal')">
         <div class="editorial-image-inner" />
-        <span>The Pelissa journal <UIcon name="i-lucide-arrow-up-right" /></span>
+        <span>{{ t('home.journal') }} <UIcon name="i-lucide-arrow-up-right" /></span>
       </NuxtLink>
     </section>
 
     <section class="newsletter-section">
       <div class="newsletter-content">
-        <p class="eyebrow light">A LITTLE SOMETHING IN YOUR INBOX</p>
-        <h2>Take 15% off your first order.</h2>
-        <p>New drops, fit notes, and private offers.</p>
+        <p class="eyebrow light">{{ t('home.newsletterEyebrow') }}</p>
+        <h2>{{ t('home.newsletterTitle') }}</h2>
+        <p>{{ t('home.newsletterCopy') }}</p>
         <form class="newsletter-form" @submit.prevent="subscribe">
-          <label class="sr-only" for="newsletter-email">Email address</label>
-          <input id="newsletter-email" v-model="email" type="email" required placeholder="Email address">
-          <button type="submit">{{ isSubscribed ? 'You are on the list' : 'Sign me up' }} <UIcon v-if="!isSubscribed" name="i-lucide-arrow-right" /></button>
+          <label class="sr-only" for="newsletter-email">{{ t('home.email') }}</label>
+          <input id="newsletter-email" v-model="email" type="email" required :placeholder="t('home.email')">
+          <button type="submit">{{ isSubscribed ? t('home.subscribed') : t('home.subscribe') }} <UIcon v-if="!isSubscribed" name="i-lucide-arrow-right" /></button>
         </form>
-        <small>By subscribing, you agree to our terms and privacy policy.</small>
+        <small>{{ t('home.newsletterTerms') }}</small>
       </div>
     </section>
 
@@ -537,7 +542,7 @@ onBeforeUnmount(() => {
       <div class="page-width footer-grid">
         <div class="footer-brand">
           <NuxtLink class="brand" to="/">PELISSA<i>°</i></NuxtLink>
-          <p>Modern intimates for every version of you.</p>
+          <p>{{ t('footer.tagline') }}</p>
           <div class="social-links">
             <a href="#top" aria-label="Instagram"><UIcon name="i-lucide-instagram" /></a>
             <a href="#top" aria-label="TikTok"><UIcon name="i-lucide-music-2" /></a>
@@ -545,29 +550,29 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="footer-column">
-          <strong>Shop</strong>
-          <NuxtLink v-for="category in catalogCategories" :key="category.id" :to="`/collections/${category.code}`">{{ category.name }}</NuxtLink>
-          <NuxtLink to="/collections/shop">Shop all</NuxtLink>
+          <strong>{{ t('footer.shop') }}</strong>
+          <NuxtLink v-for="category in catalogCategories" :key="category.id" :to="`/collections/${category.code}`">{{ catalogCategoryName(category.code, category.name) }}</NuxtLink>
+          <NuxtLink to="/collections/shop">{{ t('home.shopAll') }}</NuxtLink>
         </div>
         <div class="footer-column">
-          <strong>About</strong>
-          <NuxtLink to="/search?q=story">Our story</NuxtLink>
-          <NuxtLink to="/search?q=journal">Journal</NuxtLink>
-          <NuxtLink to="/announcements">Notices</NuxtLink>
-          <NuxtLink to="/search?q=size">Size guide</NuxtLink>
-          <NuxtLink to="/search?q=care">Careers</NuxtLink>
+          <strong>{{ t('home.about') }}</strong>
+          <NuxtLink to="/search?q=story">{{ t('home.story') }}</NuxtLink>
+          <NuxtLink to="/search?q=journal">{{ t('home.journalLink') }}</NuxtLink>
+          <NuxtLink to="/announcements">{{ t('footer.notices') }}</NuxtLink>
+          <NuxtLink to="/search?q=size">{{ t('home.sizeGuide') }}</NuxtLink>
+          <NuxtLink to="/search?q=care">{{ t('home.careers') }}</NuxtLink>
         </div>
         <div class="footer-column">
-          <strong>Help</strong>
-          <NuxtLink to="/search?q=shipping">Shipping &amp; returns</NuxtLink>
-          <NuxtLink to="/account/logistics">Track an order</NuxtLink>
-          <NuxtLink to="/search?q=contact">Contact us</NuxtLink>
-          <NuxtLink to="/search?q=faq">FAQs</NuxtLink>
+          <strong>{{ t('footer.help') }}</strong>
+          <NuxtLink to="/search?q=shipping">{{ t('footer.shippingReturns') }}</NuxtLink>
+          <NuxtLink to="/account/logistics">{{ t('footer.trackOrder') }}</NuxtLink>
+          <NuxtLink to="/search?q=contact">{{ t('footer.contact') }}</NuxtLink>
+          <NuxtLink to="/search?q=faq">{{ t('footer.faqs') }}</NuxtLink>
         </div>
       </div>
       <div class="page-width footer-bottom">
-        <span>© 2026 Pelissa. All rights reserved.</span>
-        <div><a href="#top">Privacy</a><a href="#top">Terms</a><button type="button">{{ locationLabel }} / {{ currencyLabel }}</button></div>
+        <span>{{ t('footer.rights', { year: new Date().getFullYear() }) }}</span>
+        <div><a href="#top">{{ t('footer.privacy') }}</a><a href="#top">{{ t('footer.terms') }}</a><button type="button">{{ locationLabel }} / {{ currencyLabel }}</button></div>
       </div>
     </footer>
   </main>

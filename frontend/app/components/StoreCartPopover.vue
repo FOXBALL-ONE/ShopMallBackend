@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { customerRequestMessage } from '~/composables/useCustomerAccountApi'
-import type { CustomerCartItem } from '~/types/customer-account'
-import { formatCustomerMoney } from '~/utils/customer-display'
+import {computed, onMounted, ref} from 'vue'
+import {customerRequestMessage} from '~/composables/useCustomerAccountApi'
+import type {CustomerCartItem} from '~/types/customer-account'
 
 const emit = defineEmits<{ close: [] }>()
 const session = useCustomerSession()
 const customerCart = useCustomerCart()
 const toast = useToast()
+const {t, formatMoney} = useStorefrontI18n()
 
 const busyItemId = ref<number | null>(null)
 const requestError = ref('')
@@ -29,7 +29,7 @@ async function refreshCart() {
   try {
     await customerCart.refresh(true)
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not load your cart.')
+    requestError.value = customerRequestMessage(error, t('cartPopover.loadError'))
   }
 }
 
@@ -43,8 +43,8 @@ async function updateQuantity(item: CustomerCartItem, quantity: number) {
   try {
     await customerCart.updateItem(item.id, nextQuantity)
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not update this item.')
-    toast.add({ title: 'Cart not updated', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, t('cartPopover.updateError'))
+    toast.add({title: t('cartPopover.updateErrorTitle'), description: requestError.value, color: 'error'})
   } finally {
     busyItemId.value = null
   }
@@ -56,10 +56,14 @@ async function removeItem(item: CustomerCartItem) {
   requestError.value = ''
   try {
     await customerCart.removeItem(item.id)
-    toast.add({ title: 'Removed from cart', description: `${item.name} was removed.`, color: 'success' })
+    toast.add({
+      title: t('cartPopover.removedTitle'),
+      description: t('cartPopover.removedDescription', {name: item.name}),
+      color: 'success'
+    })
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not remove this item.')
-    toast.add({ title: 'Item not removed', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, t('cartPopover.removeError'))
+    toast.add({title: t('cartPopover.removeErrorTitle'), description: requestError.value, color: 'error'})
   } finally {
     busyItemId.value = null
   }
@@ -71,45 +75,49 @@ onMounted(() => {
 </script>
 
 <template>
-  <aside class="store-cart-popover" aria-label="Shopping cart">
+  <aside class="store-cart-popover" :aria-label="t('header.cart')">
     <header class="store-cart-heading">
       <div>
-        <span>YOUR CART</span>
-        <strong>Shopping cart</strong>
+        <span>{{ t('cartPopover.eyebrow') }}</span>
+        <strong>{{ t('cartPopover.title') }}</strong>
       </div>
-      <button type="button" aria-label="Close shopping cart" title="Close" @click="emit('close')">
-        <UIcon name="i-lucide-x" />
+      <button type="button" :aria-label="t('cartPopover.close')" :title="t('common.actions.close')"
+              @click="emit('close')">
+        <UIcon name="i-lucide-x"/>
       </button>
     </header>
 
     <div v-if="!session.isAuthenticated.value" class="store-cart-state">
-      <UIcon name="i-lucide-lock-keyhole" />
-      <strong>Sign in to use your cart</strong>
-      <p>Your saved items and quantities are linked to your account.</p>
+      <UIcon name="i-lucide-lock-keyhole"/>
+      <strong>{{ t('cartPopover.signInTitle') }}</strong>
+      <p>{{ t('cartPopover.signInDescription') }}</p>
       <div class="store-cart-state-actions">
-        <NuxtLink :to="{ path: '/login', query: { redirect: '/cart' } }" @click="emit('close')">Sign in</NuxtLink>
-        <NuxtLink to="/collections/shop" @click="emit('close')">Keep browsing</NuxtLink>
+        <NuxtLink :to="{ path: '/login', query: { redirect: '/cart' } }" @click="emit('close')">
+          {{ t('common.actions.signIn') }}
+        </NuxtLink>
+        <NuxtLink to="/collections/shop" @click="emit('close')">{{ t('common.actions.keepBrowsing') }}</NuxtLink>
       </div>
     </div>
 
-    <div v-else-if="customerCart.isLoading.value && !customerCart.cart.value" class="store-cart-state" aria-live="polite">
-      <UIcon name="i-lucide-loader-circle" class="is-spinning" />
-      <strong>Loading your cart</strong>
-      <p>Checking current prices and availability.</p>
+    <div v-else-if="customerCart.isLoading.value && !customerCart.cart.value" class="store-cart-state"
+         aria-live="polite">
+      <UIcon name="i-lucide-loader-circle" class="is-spinning"/>
+      <strong>{{ t('cartPopover.loadingTitle') }}</strong>
+      <p>{{ t('cartPopover.loadingDescription') }}</p>
     </div>
 
     <template v-else-if="cartItems.length">
       <div class="store-cart-summary-line">
-        <span>{{ cartCount }} {{ cartCount === 1 ? 'item' : 'items' }}</span>
-        <strong>{{ formatCustomerMoney(customerCart.cart.value?.subtotal, 'USD') }}</strong>
+        <span>{{ t('cartPopover.itemCount', cartCount) }}</span>
+        <strong>{{ formatMoney(customerCart.cart.value?.subtotal, 'USD') }}</strong>
       </div>
 
       <div class="store-cart-items">
         <article
-          v-for="item in cartItems"
-          :key="item.id"
-          class="store-cart-item"
-          :class="{ unavailable: !item.purchasable || item.quantity > item.stock }"
+            v-for="item in cartItems"
+            :key="item.id"
+            class="store-cart-item"
+            :class="{ unavailable: !item.purchasable || item.quantity > item.stock }"
         >
           <NuxtLink class="store-cart-item-image" :to="`/product/${item.product_id}`" @click="emit('close')">
             <img v-if="item.primary_image" :src="item.primary_image" :alt="item.name">
@@ -119,42 +127,42 @@ onMounted(() => {
           <div class="store-cart-item-copy">
             <div class="store-cart-item-title">
               <NuxtLink :to="`/product/${item.product_id}`" @click="emit('close')">{{ item.name }}</NuxtLink>
-              <strong>{{ formatCustomerMoney(item.line_total, 'USD') }}</strong>
+              <strong>{{ formatMoney(item.line_total, 'USD') }}</strong>
             </div>
             <p>{{ itemVariant(item) || item.sku }}</p>
-            <small v-if="!item.purchasable || item.quantity > item.stock">Unavailable or insufficient stock</small>
+            <small v-if="!item.purchasable || item.quantity > item.stock">{{ t('cartPopover.unavailable') }}</small>
 
             <div class="store-cart-item-actions">
-              <div class="store-cart-quantity" aria-label="Item quantity">
+              <div class="store-cart-quantity" :aria-label="t('cartPopover.quantity')">
                 <button
-                  type="button"
-                  aria-label="Decrease quantity"
-                  title="Decrease quantity"
-                  :disabled="busyItemId === item.id || item.quantity <= 1 || !canAdjustQuantity(item)"
-                  @click="updateQuantity(item, item.quantity - 1)"
+                    type="button"
+                    :aria-label="t('cartPopover.decrease')"
+                    :title="t('cartPopover.decrease')"
+                    :disabled="busyItemId === item.id || item.quantity <= 1 || !canAdjustQuantity(item)"
+                    @click="updateQuantity(item, item.quantity - 1)"
                 >
-                  <UIcon name="i-lucide-minus" />
+                  <UIcon name="i-lucide-minus"/>
                 </button>
                 <span>{{ item.quantity }}</span>
                 <button
-                  type="button"
-                  aria-label="Increase quantity"
-                  title="Increase quantity"
-                  :disabled="busyItemId === item.id || item.quantity >= item.stock || item.quantity >= 99 || !canAdjustQuantity(item)"
-                  @click="updateQuantity(item, item.quantity + 1)"
+                    type="button"
+                    :aria-label="t('cartPopover.increase')"
+                    :title="t('cartPopover.increase')"
+                    :disabled="busyItemId === item.id || item.quantity >= item.stock || item.quantity >= 99 || !canAdjustQuantity(item)"
+                    @click="updateQuantity(item, item.quantity + 1)"
                 >
-                  <UIcon name="i-lucide-plus" />
+                  <UIcon name="i-lucide-plus"/>
                 </button>
               </div>
               <button
-                type="button"
-                class="store-cart-remove"
-                aria-label="Remove item"
-                title="Remove item"
-                :disabled="busyItemId !== null"
-                @click="removeItem(item)"
+                  type="button"
+                  class="store-cart-remove"
+                  :aria-label="t('cartPopover.remove')"
+                  :title="t('cartPopover.remove')"
+                  :disabled="busyItemId !== null"
+                  @click="removeItem(item)"
               >
-                <UIcon name="i-lucide-trash-2" />
+                <UIcon name="i-lucide-trash-2"/>
               </button>
             </div>
           </div>
@@ -162,24 +170,29 @@ onMounted(() => {
       </div>
 
       <p v-if="requestError" class="store-cart-notice" role="alert">{{ requestError }}</p>
-      <p v-else-if="hasUnavailableItems" class="store-cart-notice">Resolve unavailable items before checkout.</p>
+      <p v-else-if="hasUnavailableItems" class="store-cart-notice">{{ t('cartPopover.resolveUnavailable') }}</p>
 
       <footer class="store-cart-footer">
-        <div><span>Subtotal</span><strong>{{ formatCustomerMoney(customerCart.cart.value?.subtotal, 'USD') }}</strong></div>
+        <div><span>{{
+            t('cartPopover.subtotal')
+          }}</span><strong>{{ formatMoney(customerCart.cart.value?.subtotal, 'USD') }}</strong></div>
         <div class="store-cart-footer-actions">
-          <NuxtLink to="/cart" @click="emit('close')">View cart</NuxtLink>
-          <NuxtLink v-if="!hasUnavailableItems" to="/checkout" @click="emit('close')">Checkout</NuxtLink>
+          <NuxtLink to="/cart" @click="emit('close')">{{ t('cartPopover.viewCart') }}</NuxtLink>
+          <NuxtLink v-if="!hasUnavailableItems" to="/checkout" @click="emit('close')">{{
+              t('cartPopover.checkout')
+            }}
+          </NuxtLink>
         </div>
       </footer>
     </template>
 
     <div v-else class="store-cart-state">
-      <UIcon name="i-lucide-shopping-cart" />
-      <strong>Your cart is empty</strong>
-      <p>{{ requestError || 'Add a piece to start building your order.' }}</p>
+      <UIcon name="i-lucide-shopping-cart"/>
+      <strong>{{ t('cartPopover.emptyTitle') }}</strong>
+      <p>{{ requestError || t('cartPopover.emptyDescription') }}</p>
       <div class="store-cart-state-actions">
-        <NuxtLink to="/collections/shop" @click="emit('close')">Start shopping</NuxtLink>
-        <button v-if="requestError" type="button" @click="refreshCart">Try again</button>
+        <NuxtLink to="/collections/shop" @click="emit('close')">{{ t('common.actions.startShopping') }}</NuxtLink>
+        <button v-if="requestError" type="button" @click="refreshCart">{{ t('common.actions.retry') }}</button>
       </div>
     </div>
   </aside>
@@ -511,7 +524,9 @@ onMounted(() => {
 }
 
 @keyframes store-cart-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 820px) {
@@ -544,6 +559,8 @@ onMounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .is-spinning { animation: none; }
+  .is-spinning {
+    animation: none;
+  }
 }
 </style>

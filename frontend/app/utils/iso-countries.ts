@@ -6,16 +6,19 @@ export interface IsoCountryOption {
   label: string
 }
 
-const regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
+export function getIsoCountryOptions(locale = 'en-US'): IsoCountryOption[] {
+  const regionNames = new Intl.DisplayNames([locale], { type: 'region' })
+  return ISO_COUNTRY_CODES.map((code) => {
+    const name = regionNames.of(code) || code
+    return {
+      code,
+      name,
+      label: `${code} — ${name}`
+    }
+  })
+}
 
-export const ISO_COUNTRY_OPTIONS: IsoCountryOption[] = ISO_COUNTRY_CODES.map((code) => {
-  const name = regionNames.of(code) || code
-  return {
-    code,
-    name,
-    label: `${code} — ${name}`
-  }
-})
+export const ISO_COUNTRY_OPTIONS = getIsoCountryOptions()
 
 const ISO_COUNTRY_CODE_SET = new Set(ISO_COUNTRY_CODES)
 

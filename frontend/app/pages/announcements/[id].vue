@@ -1,24 +1,22 @@
 <script setup lang="ts">
-import { CUSTOMER_ANNOUNCEMENT_TYPE_OPTIONS, type CustomerAnnouncementDetail } from '~/types/announcement'
+import type { CustomerAnnouncementDetail } from '~/types/announcement'
 import { isSafeHttpsAnnouncementActionUrl, isSafeInternalAnnouncementActionUrl } from '~/utils/announcementActionUrl'
 
 const route = useRoute()
 const announcementApi = useAnnouncementApi()
 const announcementClientState = useAnnouncementClientState()
 const customerSession = useCustomerSession()
+const { formatDate: formatLocalizedDate, t } = useStorefrontI18n()
 const announcement = ref<CustomerAnnouncementDetail | null>(null)
 const isLoading = ref(true)
-const errorMessage = ref('')
+const errorKey = ref('')
 
 function typeLabel(type: CustomerAnnouncementDetail['type']) {
-  return CUSTOMER_ANNOUNCEMENT_TYPE_OPTIONS.find(option => option.value === type)?.label ?? type
+  return t(`announcement.types.${type.toLowerCase()}`)
 }
 
 function formatDate(value: string | null) {
-  if (!value) return 'Open ended'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'long', timeStyle: 'short' }).format(date)
+  return value ? formatLocalizedDate(value, 'long') : t('announcement.page.openEnded')
 }
 
 function reportSeen(id: number, ownerId = customerSession.userId.value ?? null) {
@@ -35,11 +33,11 @@ async function loadAnnouncement() {
   const ownerId = customerSession.userId.value ?? null
   const id = Number(route.params.id)
   announcement.value = null
-  errorMessage.value = ''
+  errorKey.value = ''
   isLoading.value = true
 
   if (!Number.isSafeInteger(id) || id <= 0) {
-    errorMessage.value = 'This notice address is invalid.'
+    errorKey.value = 'invalidAddress'
     isLoading.value = false
     return
   }
@@ -49,7 +47,7 @@ async function loadAnnouncement() {
     announcement.value = response
     reportSeen(response.id, ownerId)
   } catch {
-    errorMessage.value = 'This notice is unavailable or is no longer public.'
+    errorKey.value = 'unavailable'
   } finally {
     isLoading.value = false
   }
@@ -66,9 +64,9 @@ watch(() => route.params.id, (id, previousId) => {
   if (previousId !== undefined && id !== previousId) void loadAnnouncement()
 })
 
-useHead({
-  title: computed(() => announcement.value ? `${announcement.value.title} | PELISSA°` : 'Notice | PELISSA°'),
-})
+useHead(() => ({
+  title: announcement.value ? `${announcement.value.title} | PELISSA°` : t('announcement.page.detailSeoTitle'),
+}))
 </script>
 
 <template>
@@ -77,19 +75,19 @@ useHead({
 
     <section class="store-container announcement-detail-shell">
       <NuxtLink class="announcement-detail-back" to="/announcements">
-        <UIcon name="i-lucide-arrow-left" /> All notices
+        <UIcon name="i-lucide-arrow-left" /> {{ t('announcement.page.allNotices') }}
       </NuxtLink>
 
       <div v-if="isLoading" class="announcement-detail-state" aria-live="polite">
-        <UIcon name="i-lucide-loader-circle" class="is-spinning" /> Loading notice…
+        <UIcon name="i-lucide-loader-circle" class="is-spinning" /> {{ t('announcement.page.loadingDetail') }}
       </div>
 
-      <div v-else-if="errorMessage" class="announcement-detail-state" role="alert">
+      <div v-else-if="errorKey" class="announcement-detail-state" role="alert">
         <UIcon name="i-lucide-circle-alert" />
         <div>
-          <h1>Notice unavailable</h1>
-          <p>{{ errorMessage }}</p>
-          <NuxtLink to="/announcements">Return to all notices</NuxtLink>
+          <h1>{{ t('announcement.page.unavailableTitle') }}</h1>
+          <p>{{ t(`announcement.page.${errorKey}`) }}</p>
+          <NuxtLink to="/announcements">{{ t('announcement.page.returnAll') }}</NuxtLink>
         </div>
       </div>
 
@@ -97,7 +95,7 @@ useHead({
         <header>
           <div class="announcement-detail-meta">
             <span>{{ typeLabel(announcement.type) }}</span>
-            <span v-if="announcement.is_read">Previously read</span>
+            <span v-if="announcement.is_read">{{ t('announcement.page.previouslyRead') }}</span>
           </div>
           <h1>{{ announcement.title }}</h1>
           <p>{{ announcement.summary }}</p>
@@ -107,15 +105,15 @@ useHead({
           <aside>
             <dl>
               <div>
-                <dt>Published</dt>
+                <dt>{{ t('announcement.page.published') }}</dt>
                 <dd>{{ formatDate(announcement.published_at ?? announcement.effective_from) }}</dd>
               </div>
               <div>
-                <dt>Effective from</dt>
+                <dt>{{ t('announcement.page.effectiveFrom') }}</dt>
                 <dd>{{ formatDate(announcement.effective_from) }}</dd>
               </div>
               <div>
-                <dt>Effective until</dt>
+                <dt>{{ t('announcement.page.effectiveUntil') }}</dt>
                 <dd>{{ formatDate(announcement.effective_until) }}</dd>
               </div>
             </dl>
@@ -129,7 +127,7 @@ useHead({
               class="announcement-detail-action"
             >
               <NuxtLink v-if="isSafeInternalAnnouncementActionUrl(announcement.action_url)" :to="announcement.action_url || '/'" @click="reportSeen(announcement.id)">
-                Continue <UIcon name="i-lucide-arrow-up-right" />
+                {{ t('announcement.page.continue') }} <UIcon name="i-lucide-arrow-up-right" />
               </NuxtLink>
               <a
                 v-else-if="isSafeHttpsAnnouncementActionUrl(announcement.action_url)"
@@ -138,7 +136,7 @@ useHead({
                 rel="noopener noreferrer"
                 @click="reportSeen(announcement.id)"
               >
-                Open related page <UIcon name="i-lucide-arrow-up-right" />
+                {{ t('announcement.page.openRelated') }} <UIcon name="i-lucide-arrow-up-right" />
               </a>
             </div>
           </div>

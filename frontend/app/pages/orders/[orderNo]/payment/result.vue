@@ -4,20 +4,20 @@ import type { CustomerOrder, CustomerOrderStatus } from '~/types/customer-accoun
 import { customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
 import {
   formatAddressLine,
-  formatCustomerDate,
-  formatCustomerMoney,
   parseProductSnapshot
 } from '~/utils/customer-display'
 
 definePageMeta({ middleware: ['customer-auth'] })
 
-useHead({
-  title: 'Payment status | Pelissa',
+const { formatDate, formatMoney, t } = useStorefrontI18n()
+
+useHead(() => ({
+  title: t('paymentPage.result.seoTitle'),
   meta: [
-    { name: 'description', content: 'Confirmation for your Pelissa order payment.' },
+    { name: 'description', content: t('paymentPage.result.seoDescription') },
     { name: 'robots', content: 'noindex' }
   ]
-})
+}))
 
 type ResultState = 'loading' | 'verifying' | 'success' | 'pending' | 'failed' | 'error'
 
@@ -32,21 +32,25 @@ const checkoutSession = useOrderCheckoutSession()
 
 const order = ref<CustomerOrder | null>(null)
 const state = ref<ResultState>('loading')
-const message = ref('')
+const messageKey = ref('')
+const requestMessage = ref('')
 const attempts = ref(0)
 let verificationTimer: ReturnType<typeof setTimeout> | null = null
 
 const orderNo = computed(() => String(route.params.orderNo || '').trim())
 const stripeSessionId = computed(() => typeof route.query.session_id === 'string' ? route.query.session_id.trim() : '')
 const itemCount = computed(() => (order.value?.items || []).reduce((total, item) => total + item.quantity, 0))
+const message = computed(() => requestMessage.value || (messageKey.value ? t(`paymentPage.result.${messageKey.value}`) : ''))
 const resultTitle = computed(() => {
-  if (state.value === 'success') return 'Payment confirmed.'
-  if (state.value === 'failed') return 'Payment was not completed.'
-  if (state.value === 'pending') return 'Payment is still processing.'
-  if (state.value === 'error') return 'We could not verify payment.'
-  return 'Confirming your payment.'
+  if (state.value === 'success') return t('paymentPage.result.successTitle')
+  if (state.value === 'failed') return t('paymentPage.result.failedTitle')
+  if (state.value === 'pending') return t('paymentPage.result.pendingTitle')
+  if (state.value === 'error') return t('paymentPage.result.errorTitle')
+  return t('paymentPage.result.checkingTitle')
 })
-const resultEyebrow = computed(() => state.value === 'success' ? 'ORDER COMPLETE / 03' : 'PAYMENT STATUS / 03')
+const resultEyebrow = computed(() => state.value === 'success'
+  ? t('paymentPage.result.successEyebrow')
+  : t('paymentPage.result.statusEyebrow'))
 
 function scheduleVerification() {
   if (verificationTimer) clearTimeout(verificationTimer)
@@ -56,7 +60,7 @@ function scheduleVerification() {
 async function verifyPayment() {
   if (!orderNo.value) {
     state.value = 'error'
-    message.value = 'The order reference is missing from this payment return.'
+    messageKey.value = 'missingOrder'
     return
   }
 
@@ -71,7 +75,7 @@ async function verifyPayment() {
       && stripeSessionId.value !== payment.checkout_session_id
     ) {
       state.value = 'error'
-      message.value = 'The Stripe session does not match this order.'
+      messageKey.value = 'sessionMismatch'
       return
     }
 
@@ -79,7 +83,7 @@ async function verifyPayment() {
       order.value = await api.getOrder(orderNo.value)
       checkoutSession.clear(orderNo.value)
       state.value = 'success'
-      message.value = 'Your order is confirmed and is now being prepared.'
+      messageKey.value = 'confirmedMessage'
       return
     }
 
@@ -87,7 +91,7 @@ async function verifyPayment() {
       order.value = await api.getOrder(orderNo.value)
       checkoutSession.clear(orderNo.value)
       state.value = 'failed'
-      message.value = 'No payment was captured for this order.'
+      messageKey.value = 'failedMessage'
       return
     }
 
@@ -97,10 +101,10 @@ async function verifyPayment() {
     }
 
     state.value = 'pending'
-    message.value = 'Stripe is still finalizing the payment. Your order page will show the latest status.'
+    messageKey.value = 'pendingMessage'
   } catch (error: unknown) {
     state.value = 'error'
-    message.value = customerRequestMessage(error, 'Payment status is temporarily unavailable. Please try again.')
+    requestMessage.value = customerRequestMessage(error, t('paymentPage.result.unavailable'))
   }
 }
 
@@ -109,7 +113,8 @@ async function loadResult() {
   if (!userId) return
 
   state.value = 'loading'
-  message.value = ''
+  messageKey.value = ''
+  requestMessage.value = ''
   try {
     const orderResult = await api.getOrder(orderNo.value)
     order.value = orderResult
@@ -117,25 +122,26 @@ async function loadResult() {
     if (SUCCESS_STATUSES.has(orderResult.status) && !stripeSessionId.value) {
       checkoutSession.clear(orderNo.value)
       state.value = 'success'
-      message.value = 'Your order is confirmed and is now being prepared.'
+      messageKey.value = 'confirmedMessage'
       return
     }
     if (['CANCELLED', 'DELETED'].includes(orderResult.status)) {
       checkoutSession.clear(orderNo.value)
       state.value = 'failed'
-      message.value = 'No payment was captured for this order.'
+      messageKey.value = 'failedMessage'
       return
     }
     await verifyPayment()
   } catch (error: unknown) {
     state.value = 'error'
-    message.value = customerRequestMessage(error, 'We could not load this order confirmation.')
+    requestMessage.value = customerRequestMessage(error, t('paymentPage.result.loadFailed'))
   }
 }
 
 function retryVerification() {
   attempts.value = 0
-  message.value = ''
+  messageKey.value = ''
+  requestMessage.value = ''
   void verifyPayment()
 }
 
@@ -150,10 +156,10 @@ onBeforeUnmount(() => {
     <StoreHeader />
 
     <div class="result-progress-wrap">
-      <nav class="store-container result-progress" aria-label="Checkout progress">
-        <span><b>01</b> Cart</span><UIcon name="i-lucide-chevron-right" />
-        <span><b>02</b> Delivery</span><UIcon name="i-lucide-chevron-right" />
-        <strong><b>03</b> {{ state === 'success' ? 'Complete' : 'Payment' }}</strong>
+      <nav class="store-container result-progress" :aria-label="t('paymentPage.result.progressLabel')">
+        <span><b>01</b> {{ t('paymentPage.result.cart') }}</span><UIcon name="i-lucide-chevron-right" />
+        <span><b>02</b> {{ t('paymentPage.result.delivery') }}</span><UIcon name="i-lucide-chevron-right" />
+        <strong><b>03</b> {{ state === 'success' ? t('paymentPage.result.complete') : t('paymentPage.result.payment') }}</strong>
       </nav>
     </div>
 
@@ -167,20 +173,20 @@ onBeforeUnmount(() => {
           </span>
           <p class="store-eyebrow">{{ resultEyebrow }}</p>
           <h1>{{ resultTitle }}</h1>
-          <p class="result-message">{{ message || 'We are checking the latest status with the payment provider.' }}</p>
+          <p class="result-message">{{ message || t('paymentPage.result.checkingMessage') }}</p>
           <div v-if="order" class="result-reference">
-            <span>Order</span><strong>{{ order.order_no }}</strong>
-            <span>Total</span><strong>{{ formatCustomerMoney(order.total_amount, order.currency) }}</strong>
+            <span>{{ t('paymentPage.result.order') }}</span><strong>{{ order.order_no }}</strong>
+            <span>{{ t('paymentPage.result.total') }}</span><strong>{{ formatMoney(order.total_amount, order.currency) }}</strong>
           </div>
           <div class="result-actions">
-            <NuxtLink class="primary-action" :to="`/orders/${encodeURIComponent(orderNo)}`"><UIcon name="i-lucide-receipt-text" /> View order</NuxtLink>
-            <NuxtLink class="secondary-action" to="/collections/shop">Continue shopping <UIcon name="i-lucide-arrow-right" /></NuxtLink>
-            <button v-if="state === 'pending' || state === 'error'" type="button" @click="retryVerification"><UIcon name="i-lucide-refresh-cw" /> Check again</button>
+            <NuxtLink class="primary-action" :to="`/orders/${encodeURIComponent(orderNo)}`"><UIcon name="i-lucide-receipt-text" /> {{ t('paymentPage.result.viewOrder') }}</NuxtLink>
+            <NuxtLink class="secondary-action" to="/collections/shop">{{ t('paymentPage.result.continueShopping') }} <UIcon name="i-lucide-arrow-right" /></NuxtLink>
+            <button v-if="state === 'pending' || state === 'error'" type="button" @click="retryVerification"><UIcon name="i-lucide-refresh-cw" /> {{ t('paymentPage.result.checkAgain') }}</button>
           </div>
         </div>
         <div class="result-visual" aria-hidden="true">
           <div class="result-photo" />
-          <span>PELISSA / ORDER</span>
+          <span>{{ t('paymentPage.result.visualLabel') }}</span>
           <b>P°</b>
         </div>
       </div>
@@ -189,29 +195,29 @@ onBeforeUnmount(() => {
     <section v-if="order" class="store-container result-details">
       <div class="result-summary">
         <div class="details-heading">
-          <p>ORDER SUMMARY</p>
-          <h2>{{ itemCount }} {{ itemCount === 1 ? 'piece' : 'pieces' }}</h2>
+          <p>{{ t('paymentPage.result.summary') }}</p>
+          <h2>{{ t('paymentPage.result.pieces', itemCount) }}</h2>
         </div>
         <div class="result-items">
           <article v-for="item in order.items" :key="item.id">
             <span class="item-mark">{{ item.quantity }}</span>
             <div>
               <strong>{{ parseProductSnapshot(item.product_snapshot).name }}</strong>
-              <small>{{ parseProductSnapshot(item.product_snapshot).color || 'Pelissa piece' }}</small>
+              <small>{{ parseProductSnapshot(item.product_snapshot).color || t('paymentPage.result.pieceFallback') }}</small>
             </div>
-            <b>{{ formatCustomerMoney(item.line_total, order.currency) }}</b>
+            <b>{{ formatMoney(item.line_total, order.currency) }}</b>
           </article>
         </div>
         <div class="result-total">
-          <span>{{ state === 'success' ? 'Paid total' : 'Order total' }}</span>
-          <strong>{{ formatCustomerMoney(order.total_amount, order.currency) }}</strong>
+          <span>{{ state === 'success' ? t('paymentPage.result.paidTotal') : t('paymentPage.result.orderTotal') }}</span>
+          <strong>{{ formatMoney(order.total_amount, order.currency) }}</strong>
         </div>
       </div>
 
       <div class="result-delivery">
         <div class="details-heading">
-          <p>DELIVERY DETAILS</p>
-          <h2>What happens next</h2>
+          <p>{{ t('paymentPage.result.deliveryDetails') }}</p>
+          <h2>{{ t('paymentPage.result.nextTitle') }}</h2>
         </div>
         <div class="delivery-address">
           <span><UIcon name="i-lucide-map-pin" /></span>
@@ -232,12 +238,12 @@ onBeforeUnmount(() => {
           <li :class="{ active: state === 'success' }">
             <span><UIcon :name="state === 'success' ? 'i-lucide-check' : 'i-lucide-clock-3'" /></span>
             <div>
-              <strong>{{ state === 'success' ? 'Payment confirmed' : 'Payment pending' }}</strong>
-              <small>{{ state === 'success' ? formatCustomerDate(order.paid_at, true) : 'Waiting for Stripe confirmation.' }}</small>
+              <strong>{{ state === 'success' ? t('paymentPage.result.paymentConfirmed') : t('paymentPage.result.paymentPending') }}</strong>
+              <small>{{ state === 'success' ? formatDate(order.paid_at, 'long') : t('paymentPage.result.waitingStripe') }}</small>
             </div>
           </li>
-          <li><span><UIcon name="i-lucide-package-check" /></span><div><strong>Preparing your order</strong><small>We will email you when it ships.</small></div></li>
-          <li><span><UIcon name="i-lucide-truck" /></span><div><strong>Delivery updates</strong><small>Tracking will appear in your account.</small></div></li>
+          <li><span><UIcon name="i-lucide-package-check" /></span><div><strong>{{ t('paymentPage.result.preparing') }}</strong><small>{{ t('paymentPage.result.preparingCopy') }}</small></div></li>
+          <li><span><UIcon name="i-lucide-truck" /></span><div><strong>{{ t('paymentPage.result.deliveryUpdates') }}</strong><small>{{ t('paymentPage.result.deliveryUpdatesCopy') }}</small></div></li>
         </ol>
       </div>
     </section>

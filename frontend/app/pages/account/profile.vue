@@ -8,14 +8,16 @@ import type {
 } from '~/types/customer-account'
 import { customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
 import { customerInitials, formatAddressLine } from '~/utils/customer-display'
-import { ISO_COUNTRY_OPTIONS, isIsoCountryCode } from '~/utils/iso-countries'
+import { getIsoCountryOptions, isIsoCountryCode } from '~/utils/iso-countries'
 
 definePageMeta({ middleware: ['customer-auth'] })
 
-useHead({
-  title: 'Profile & preferences | Pelissa',
-  meta: [{ name: 'description', content: 'Update your Pelissa profile, preferences, and saved delivery addresses.' }]
-})
+const { currentLocale, formatDate, setStorefrontLocale, t } = useStorefrontI18n()
+
+useHead(() => ({
+  title: t('accountProfile.seoTitle'),
+  meta: [{ name: 'description', content: t('accountProfile.seoDescription') }]
+}))
 
 const api = useCustomerAccountApi()
 const session = useCustomerSession()
@@ -61,10 +63,11 @@ const addressForm = reactive({
 
 const displayName = computed(() => {
   const fullName = [profile.value?.first_name, profile.value?.last_name].filter(Boolean).join(' ').trim()
-  return fullName || profile.value?.username || 'Pelissa member'
+  return fullName || profile.value?.username || t('accountProfile.memberFallback')
 })
 const initials = computed(() => customerInitials(profile.value?.first_name, profile.value?.last_name, 'P'))
-const editingLabel = computed(() => editingAddressId.value ? 'Edit delivery address' : 'Add a delivery address')
+const editingLabel = computed(() => editingAddressId.value ? t('accountProfile.editAddress') : t('accountProfile.addAddress'))
+const countryOptions = computed(() => getIsoCountryOptions(currentLocale.value))
 const countryCodeModel = computed({
   get: () => addressForm.countryCode,
   set: (value: string) => {
@@ -73,8 +76,8 @@ const countryCodeModel = computed({
 })
 const filteredCountryOptions = computed(() => {
   const query = countryCodeModel.value.trim()
-  if (!query) return ISO_COUNTRY_OPTIONS
-  return ISO_COUNTRY_OPTIONS.filter(country => country.code.startsWith(query))
+  if (!query) return countryOptions.value
+  return countryOptions.value.filter(country => country.code.startsWith(query))
 })
 const countryCodeMenuUi = {
   base: 'country-code-input',
@@ -92,7 +95,7 @@ function syncProfileForm(value: CustomerProfile) {
   profileForm.lastName = value.last_name || ''
   profileForm.phone = value.phone || ''
   profileForm.birthday = value.birthday || ''
-  profileForm.locale = value.locale || 'en-US'
+  profileForm.locale = normalizeStorefrontLocale(value.locale)
   profileForm.currency = value.currency || 'USD'
   profileForm.avatar = value.avatar || ''
   profileForm.marketingConsent = Boolean(value.marketing_consent)
@@ -180,11 +183,11 @@ function buildProfileInput(): CustomerProfileUpdateInput {
 
 function validateProfile() {
   if (profileForm.phone.trim() && !addressPhonePattern.test(profileForm.phone.trim())) {
-    profileError.value = 'Use an international phone number, for example +14155550123.'
+    profileError.value = t('accountProfile.errors.phone')
     return false
   }
   if (profileForm.currency.trim().length !== 3) {
-    profileError.value = 'Currency must be a three-letter code.'
+    profileError.value = t('accountProfile.errors.currency')
     return false
   }
   return true
@@ -212,10 +215,11 @@ async function saveProfile() {
         marketing_consent: updated.marketing_consent
       }
     }
-    toast.add({ title: 'Profile saved', description: 'Your Pelissa details are up to date.', color: 'success' })
+    if (isStorefrontLocale(updated.locale)) await setStorefrontLocale(updated.locale)
+    toast.add({ title: t('accountProfile.toast.profileSaved'), description: t('accountProfile.toast.profileSavedCopy'), color: 'success' })
   } catch (error: unknown) {
-    profileError.value = customerRequestMessage(error, 'We could not save your profile.')
-    toast.add({ title: 'Profile not saved', description: profileError.value, color: 'error' })
+    profileError.value = customerRequestMessage(error, t('accountProfile.errors.saveProfile'))
+    toast.add({ title: t('accountProfile.toast.profileNotSaved'), description: profileError.value, color: 'error' })
   } finally {
     isSavingProfile.value = false
   }
@@ -242,15 +246,15 @@ function buildAddressInput(): CustomerAddressInput {
 function validateAddress() {
   const input = buildAddressInput()
   if (!input.name || !input.city || !input.address_line1) {
-    addressError.value = 'Add the recipient name, city, and street address.'
+    addressError.value = t('accountProfile.errors.addressRequired')
     return false
   }
   if (!addressPhonePattern.test(input.phone)) {
-    addressError.value = 'Phone numbers must use E.164 format, for example +14155550123.'
+    addressError.value = t('accountProfile.errors.addressPhone')
     return false
   }
   if (!isIsoCountryCode(input.country_code)) {
-    addressError.value = 'Select a valid ISO 3166-1 alpha-2 country code, for example US.'
+    addressError.value = t('accountProfile.errors.countryCode')
     return false
   }
   return true
@@ -272,10 +276,14 @@ async function saveAddress() {
     await loadAddresses()
     isSavingAddress.value = false
     closeAddressForm()
-    toast.add({ title: wasEditing ? 'Address updated' : 'Address saved', description: 'Your delivery details are ready for the next order.', color: 'success' })
+    toast.add({
+      title: wasEditing ? t('accountProfile.toast.addressUpdated') : t('accountProfile.toast.addressSaved'),
+      description: t('accountProfile.toast.addressSavedCopy'),
+      color: 'success'
+    })
   } catch (error: unknown) {
-    addressError.value = customerRequestMessage(error, 'We could not save this address.')
-    toast.add({ title: 'Address not saved', description: addressError.value, color: 'error' })
+    addressError.value = customerRequestMessage(error, t('accountProfile.errors.saveAddress'))
+    toast.add({ title: t('accountProfile.toast.addressNotSaved'), description: addressError.value, color: 'error' })
   } finally {
     isSavingAddress.value = false
   }
@@ -283,17 +291,17 @@ async function saveAddress() {
 
 async function removeAddress(address: CustomerAddress) {
   if (deletingAddressId.value) return
-  if (import.meta.client && !window.confirm(`Remove the ${address.label || 'saved'} address?`)) return
+  if (import.meta.client && !window.confirm(t('accountProfile.removeConfirm', { label: address.label || t('accountProfile.savedAddress') }))) return
 
   deletingAddressId.value = address.id
   addressError.value = ''
   try {
     await api.deleteAddress(address.id)
     addresses.value = addresses.value.filter(item => item.id !== address.id)
-    toast.add({ title: 'Address removed', description: 'The saved address has been deleted.', color: 'success' })
+    toast.add({ title: t('accountProfile.toast.addressRemoved'), description: t('accountProfile.toast.addressRemovedCopy'), color: 'success' })
   } catch (error: unknown) {
-    addressError.value = customerRequestMessage(error, 'We could not remove this address.')
-    toast.add({ title: 'Address not removed', description: addressError.value, color: 'error' })
+    addressError.value = customerRequestMessage(error, t('accountProfile.errors.removeAddress'))
+    toast.add({ title: t('accountProfile.toast.addressNotRemoved'), description: addressError.value, color: 'error' })
   } finally {
     deletingAddressId.value = null
   }
@@ -318,9 +326,10 @@ async function loadProfilePage() {
     const [profileResult, addressResult] = await Promise.all([api.getProfile(userId), api.getAddresses()])
     profile.value = profileResult
     syncProfileForm(profileResult)
+    if (isStorefrontLocale(profileResult.locale)) await setStorefrontLocale(profileResult.locale)
     addresses.value = addressResult.list || []
   } catch (error: unknown) {
-    profileError.value = customerRequestMessage(error, 'We could not load your account details.')
+    profileError.value = customerRequestMessage(error, t('accountProfile.errors.load'))
   } finally {
     isLoading.value = false
   }
@@ -332,9 +341,9 @@ onMounted(() => {
 </script>
 <template>
   <CustomerAccountShell
-    eyebrow="MEMBER DETAILS · 02"
-    title="Make it yours."
-    intro="Keep your fit preferences, contact details, and delivery addresses in one considered place."
+    :eyebrow="t('accountProfile.eyebrow')"
+    :title="t('accountProfile.title')"
+    :intro="t('accountProfile.intro')"
     :profile="profile"
   >
     <div v-if="isLoading" class="profile-loading" aria-live="polite">
@@ -349,7 +358,7 @@ onMounted(() => {
       <div v-if="profileError" class="account-notice account-notice-warning" role="status">
         <UIcon name="i-lucide-info" />
         <span>{{ profileError }}</span>
-        <button type="button" @click="loadProfilePage">Refresh</button>
+        <button type="button" @click="loadProfilePage">{{ t('accountProfile.refresh') }}</button>
       </div>
 
       <section v-if="profile" class="profile-intro-panel">
@@ -358,16 +367,16 @@ onMounted(() => {
           <span v-else>{{ initials }}</span>
         </div>
         <div>
-          <p class="store-eyebrow">YOUR PELISSA IDENTITY</p>
+          <p class="store-eyebrow">{{ t('accountProfile.identityEyebrow') }}</p>
           <h2>{{ displayName }}</h2>
-          <p>Member since {{ profile.created_at ? new Date(profile.created_at).getFullYear() : 'today' }} · {{ profile.username }}</p>
+          <p>{{ t('accountProfile.memberSince', { date: profile.created_at ? formatDate(profile.created_at) : t('accountProfile.today'), username: profile.username }) }}</p>
         </div>
         <div class="profile-intro-email">
-          <span>EMAIL</span>
+          <span>{{ t('accountProfile.email') }}</span>
           <strong>{{ profile.email }}</strong>
           <small :class="profile.email_verified ? 'is-verified' : 'is-unverified'">
             <UIcon :name="profile.email_verified ? 'i-lucide-badge-check' : 'i-lucide-circle-alert'" />
-            {{ profile.email_verified ? 'Verified email' : 'Email not verified' }}
+            {{ profile.email_verified ? t('accountProfile.verifiedEmail') : t('accountProfile.unverifiedEmail') }}
           </small>
         </div>
       </section>
@@ -375,58 +384,57 @@ onMounted(() => {
       <section class="account-panel profile-panel">
         <div class="panel-heading-row">
           <div>
-            <p class="panel-kicker">01 / PROFILE</p>
-            <h2>Personal details</h2>
-            <p class="panel-description">Your email and username identify your account. Everything else can be refined here.</p>
+            <p class="panel-kicker">{{ t('accountProfile.profileKicker') }}</p>
+            <h2>{{ t('accountProfile.personalDetails') }}</h2>
+            <p class="panel-description">{{ t('accountProfile.personalDescription') }}</p>
           </div>
-          <span class="panel-index">EDIT 01</span>
+          <span class="panel-index">{{ t('accountProfile.editIndex') }}</span>
         </div>
 
         <form class="profile-form" @submit.prevent="saveProfile">
-          <div class="form-section-label"><span>IDENTITY</span><i /></div>
+          <div class="form-section-label"><span>{{ t('accountProfile.identity') }}</span><i /></div>
           <div class="form-grid form-grid-two">
             <label class="field-label">
-              <span>First name</span>
-              <input v-model="profileForm.firstName" type="text" maxlength="50" autocomplete="given-name" placeholder="Your first name">
+              <span>{{ t('accountProfile.firstName') }}</span>
+              <input v-model="profileForm.firstName" type="text" maxlength="50" autocomplete="given-name" :placeholder="t('accountProfile.firstNamePlaceholder')">
             </label>
             <label class="field-label">
-              <span>Last name</span>
-              <input v-model="profileForm.lastName" type="text" maxlength="50" autocomplete="family-name" placeholder="Your last name">
+              <span>{{ t('accountProfile.lastName') }}</span>
+              <input v-model="profileForm.lastName" type="text" maxlength="50" autocomplete="family-name" :placeholder="t('accountProfile.lastNamePlaceholder')">
             </label>
             <label class="field-label field-span-two">
-              <span>Email <small>VERIFIED ACCOUNT EMAIL</small></span>
+              <span>{{ t('accountProfile.email') }} <small>{{ t('accountProfile.verifiedAccountEmail') }}</small></span>
               <div class="input-with-icon">
                 <input :value="profile?.email || ''" type="email" readonly aria-readonly="true">
                 <UIcon name="i-lucide-lock-keyhole" />
               </div>
             </label>
             <label class="field-label">
-              <span>Username</span>
+              <span>{{ t('accountProfile.username') }}</span>
               <input :value="profile?.username || ''" type="text" readonly aria-readonly="true">
             </label>
             <label class="field-label">
-              <span>Phone <small>INTERNATIONAL FORMAT</small></span>
+              <span>{{ t('accountProfile.phone') }} <small>{{ t('accountProfile.internationalFormat') }}</small></span>
               <input v-model="profileForm.phone" type="tel" maxlength="16" autocomplete="tel" placeholder="+14155550123">
             </label>
           </div>
 
-          <div class="form-section-label"><span>PREFERENCES</span><i /></div>
+          <div class="form-section-label"><span>{{ t('accountProfile.preferences') }}</span><i /></div>
           <div class="form-grid form-grid-three">
             <label class="field-label">
-              <span>Birthday</span>
+              <span>{{ t('accountProfile.birthday') }}</span>
               <input v-model="profileForm.birthday" type="date" autocomplete="bday">
             </label>
             <label class="field-label">
-              <span>Language</span>
+              <span>{{ t('accountProfile.language') }}</span>
               <select v-model="profileForm.locale">
-                <option value="en-US">English · US</option>
-                <option value="zh-CN">中文 · 中国</option>
-                <option value="ja-JP">日本語 · 日本</option>
-                <option value="ko-KR">한국어 · 한국</option>
+                <option v-for="option in STOREFRONT_LOCALE_OPTIONS" :key="option.code" :value="option.code">
+                  {{ option.label }}
+                </option>
               </select>
             </label>
             <label class="field-label">
-              <span>Currency</span>
+              <span>{{ t('accountProfile.currency') }}</span>
               <select v-model="profileForm.currency">
                 <option value="USD">USD · $</option>
                 <option value="CNY">CNY · ¥</option>
@@ -435,7 +443,7 @@ onMounted(() => {
               </select>
             </label>
             <label class="field-label field-span-three">
-              <span>Avatar URL <small>OPTIONAL</small></span>
+              <span>{{ t('accountProfile.avatarUrl') }} <small>{{ t('accountProfile.optional') }}</small></span>
               <input v-model="profileForm.avatar" type="url" maxlength="512" placeholder="https://…">
             </label>
           </div>
@@ -443,15 +451,15 @@ onMounted(() => {
           <label class="consent-row">
             <input v-model="profileForm.marketingConsent" type="checkbox">
             <span class="consent-check"><UIcon name="i-lucide-check" /></span>
-            <span><strong>Keep me close</strong><small>Send occasional notes about new drops, studio stories, and private offers.</small></span>
+            <span><strong>{{ t('accountProfile.marketingTitle') }}</strong><small>{{ t('accountProfile.marketingCopy') }}</small></span>
           </label>
 
           <div v-if="profileError" class="inline-error"><UIcon name="i-lucide-circle-alert" /> {{ profileError }}</div>
           <div class="form-actions">
-            <span class="form-hint">Changes are saved to your member profile.</span>
+            <span class="form-hint">{{ t('accountProfile.changesHint') }}</span>
             <button class="store-button" type="submit" :disabled="isSavingProfile">
               <UIcon :name="isSavingProfile ? 'i-lucide-loader-circle' : 'i-lucide-save'" :class="{ 'is-spinning': isSavingProfile }" />
-              {{ isSavingProfile ? 'Saving…' : 'Save details' }}
+              {{ isSavingProfile ? t('accountProfile.saving') : t('accountProfile.saveDetails') }}
             </button>
           </div>
         </form>
@@ -460,13 +468,13 @@ onMounted(() => {
       <section id="addresses" class="account-panel address-panel">
         <div class="panel-heading-row">
           <div>
-            <p class="panel-kicker">02 / DELIVERY</p>
-            <h2>Saved addresses</h2>
-            <p class="panel-description">A thoughtful last step before your next piece finds its way home.</p>
+            <p class="panel-kicker">{{ t('accountProfile.deliveryKicker') }}</p>
+            <h2>{{ t('accountProfile.savedAddressesTitle') }}</h2>
+            <p class="panel-description">{{ t('accountProfile.savedAddressesCopy') }}</p>
           </div>
           <button class="outline-button" type="button" @click="addressFormOpen ? closeAddressForm() : openNewAddress()">
             <UIcon :name="addressFormOpen ? 'i-lucide-x' : 'i-lucide-plus'" />
-            {{ addressFormOpen ? 'Close' : 'Add address' }}
+            {{ addressFormOpen ? t('accountProfile.close') : t('accountProfile.addAddressButton') }}
           </button>
         </div>
 
@@ -475,31 +483,31 @@ onMounted(() => {
         <div v-if="addressFormOpen" class="address-form-wrap">
           <div class="address-form-heading">
             <div>
-              <span class="panel-kicker">{{ editingAddressId ? 'EDITING SAVED ADDRESS' : 'NEW SAVED ADDRESS' }}</span>
+              <span class="panel-kicker">{{ editingAddressId ? t('accountProfile.editingSavedAddress') : t('accountProfile.newSavedAddress') }}</span>
               <h3>{{ editingLabel }}</h3>
             </div>
             <span class="address-form-mark">P°</span>
           </div>
           <form class="address-form" @submit.prevent="saveAddress">
             <label class="field-label">
-              <span>Label <small>OPTIONAL</small></span>
-              <input v-model="addressForm.label" type="text" maxlength="30" placeholder="Home, studio, weekend…">
+              <span>{{ t('accountProfile.label') }} <small>{{ t('accountProfile.optional') }}</small></span>
+              <input v-model="addressForm.label" type="text" maxlength="30" :placeholder="t('accountProfile.labelPlaceholder')">
             </label>
             <label class="field-label">
-              <span>Recipient name</span>
+              <span>{{ t('accountProfile.recipientName') }}</span>
               <input v-model="addressForm.name" type="text" maxlength="100" autocomplete="name" required>
             </label>
             <label class="field-label">
-              <span>Phone <small>E.164</small></span>
+              <span>{{ t('accountProfile.phone') }} <small>E.164</small></span>
               <input v-model="addressForm.phone" type="tel" maxlength="16" autocomplete="tel" placeholder="+14155550123" required>
             </label>
             <label class="field-label">
-              <span>Company <small>OPTIONAL</small></span>
+              <span>{{ t('accountProfile.company') }} <small>{{ t('accountProfile.optional') }}</small></span>
               <input v-model="addressForm.company" type="text" maxlength="100" autocomplete="organization">
             </label>
             <div class="field-label country-code-field">
               <label for="address-country-code">
-                <span>Country code</span>
+                <span>{{ t('accountProfile.countryCode') }}</span>
                 <small>ISO 3166-1</small>
               </label>
               <UInputMenu
@@ -515,7 +523,7 @@ onMounted(() => {
                 open-on-focus
                 autocomplete="country"
                 maxlength="2"
-                placeholder="Type a code"
+                :placeholder="t('accountProfile.typeCode')"
                 required
                 variant="none"
                 class="country-code-menu"
@@ -525,7 +533,7 @@ onMounted(() => {
                 </template>
                 <template #content-top>
                   <div class="country-code-menu-heading">
-                    <span>Country or region</span>
+                    <span>{{ t('accountProfile.countryRegion') }}</span>
                     <strong>{{ filteredCountryOptions.length }}</strong>
                   </div>
                 </template>
@@ -533,56 +541,56 @@ onMounted(() => {
                   <span class="country-option-code">{{ item.code }}</span>
                   <span class="country-option-copy">
                     <strong>{{ item.name }}</strong>
-                    <small>ISO 3166-1 alpha-2</small>
+                    <small>{{ t('accountProfile.isoAlpha2') }}</small>
                   </span>
                   <UIcon v-if="item.code === countryCodeModel" name="i-lucide-check" class="country-option-check" />
                 </template>
                 <template #empty>
                   <span class="country-code-empty-icon"><UIcon name="i-lucide-search-x" /></span>
-                  <strong>No matching code</strong>
-                  <small>Try another two-letter ISO country code.</small>
+                  <strong>{{ t('accountProfile.noMatchingCode') }}</strong>
+                  <small>{{ t('accountProfile.noMatchingCodeCopy') }}</small>
                 </template>
               </UInputMenu>
             </div>
             <label class="field-label">
-              <span>State / province</span>
+              <span>{{ t('accountProfile.stateProvince') }}</span>
               <input v-model="addressForm.stateOrProvince" type="text" maxlength="100" autocomplete="address-level1">
             </label>
             <label class="field-label">
-              <span>City</span>
+              <span>{{ t('accountProfile.city') }}</span>
               <input v-model="addressForm.city" type="text" maxlength="100" autocomplete="address-level2" required>
             </label>
             <label class="field-label">
-              <span>District <small>OPTIONAL</small></span>
+              <span>{{ t('accountProfile.district') }} <small>{{ t('accountProfile.optional') }}</small></span>
               <input v-model="addressForm.district" type="text" maxlength="100">
             </label>
             <label class="field-label">
-              <span>Postal code <small>OPTIONAL</small></span>
+              <span>{{ t('accountProfile.postalCode') }} <small>{{ t('accountProfile.optional') }}</small></span>
               <input v-model="addressForm.postalCode" type="text" maxlength="20" autocomplete="postal-code">
             </label>
             <label class="field-label field-span-two">
-              <span>Address line 1</span>
+              <span>{{ t('accountProfile.addressLine1') }}</span>
               <input v-model="addressForm.addressLine1" type="text" maxlength="255" autocomplete="address-line1" required>
             </label>
             <label class="field-label field-span-two">
-              <span>Address line 2 <small>OPTIONAL</small></span>
+              <span>{{ t('accountProfile.addressLine2') }} <small>{{ t('accountProfile.optional') }}</small></span>
               <input v-model="addressForm.addressLine2" type="text" maxlength="255" autocomplete="address-line2">
             </label>
             <label class="field-label field-span-two">
-              <span>Delivery instructions <small>OPTIONAL</small></span>
-              <textarea v-model="addressForm.deliveryInstructions" maxlength="500" rows="2" placeholder="A note for the courier…" />
+              <span>{{ t('accountProfile.deliveryInstructions') }} <small>{{ t('accountProfile.optional') }}</small></span>
+              <textarea v-model="addressForm.deliveryInstructions" maxlength="500" rows="2" :placeholder="t('accountProfile.deliveryInstructionsPlaceholder')" />
             </label>
             <label class="consent-row address-default-row">
               <input v-model="addressForm.isDefault" type="checkbox">
               <span class="consent-check"><UIcon name="i-lucide-check" /></span>
-              <span><strong>Make this my default</strong><small>Use this address for future deliveries.</small></span>
+              <span><strong>{{ t('accountProfile.makeDefault') }}</strong><small>{{ t('accountProfile.makeDefaultCopy') }}</small></span>
             </label>
             <div v-if="addressError" class="inline-error field-span-two"><UIcon name="i-lucide-circle-alert" /> {{ addressError }}</div>
             <div class="form-actions field-span-two">
-              <button class="text-button" type="button" :disabled="isSavingAddress" @click="closeAddressForm">Cancel</button>
+              <button class="text-button" type="button" :disabled="isSavingAddress" @click="closeAddressForm">{{ t('accountProfile.cancel') }}</button>
               <button class="store-button" type="submit" :disabled="isSavingAddress">
                 <UIcon :name="isSavingAddress ? 'i-lucide-loader-circle' : 'i-lucide-check'" :class="{ 'is-spinning': isSavingAddress }" />
-                {{ isSavingAddress ? 'Saving…' : editingAddressId ? 'Update address' : 'Save address' }}
+                {{ isSavingAddress ? t('accountProfile.saving') : editingAddressId ? t('accountProfile.updateAddress') : t('accountProfile.saveAddress') }}
               </button>
             </div>
           </form>
@@ -591,18 +599,18 @@ onMounted(() => {
         <div v-if="addresses.length" class="address-grid">
           <article v-for="address in addresses" :key="address.id" class="address-card" :class="{ 'is-default': address.is_default }">
             <div class="address-card-top">
-              <span class="address-label">{{ address.label || 'Saved address' }}</span>
-              <span v-if="address.is_default" class="default-badge"><UIcon name="i-lucide-star" /> Default</span>
+              <span class="address-label">{{ address.label || t('accountProfile.savedAddress') }}</span>
+              <span v-if="address.is_default" class="default-badge"><UIcon name="i-lucide-star" /> {{ t('accountProfile.default') }}</span>
             </div>
             <h3>{{ address.name }}</h3>
             <p>{{ address.phone }}</p>
             <p class="address-line">{{ formatAddressLine(address) }}</p>
             <p v-if="address.delivery_instructions" class="address-note"><UIcon name="i-lucide-message-circle" /> {{ address.delivery_instructions }}</p>
             <div class="address-card-actions">
-              <button class="text-button" type="button" @click="openEditAddress(address)"><UIcon name="i-lucide-pencil" /> Edit</button>
+              <button class="text-button" type="button" @click="openEditAddress(address)"><UIcon name="i-lucide-pencil" /> {{ t('accountProfile.edit') }}</button>
               <button class="text-button text-button-danger" type="button" :disabled="deletingAddressId === address.id" @click="removeAddress(address)">
                 <UIcon :name="deletingAddressId === address.id ? 'i-lucide-loader-circle' : 'i-lucide-trash-2'" :class="{ 'is-spinning': deletingAddressId === address.id }" />
-                {{ deletingAddressId === address.id ? 'Removing…' : 'Remove' }}
+                {{ deletingAddressId === address.id ? t('accountProfile.removing') : t('accountProfile.remove') }}
               </button>
             </div>
           </article>
@@ -610,10 +618,10 @@ onMounted(() => {
         <div v-else-if="!addressFormOpen" class="empty-addresses">
           <span class="empty-mark">02</span>
           <div>
-            <h3>No saved addresses yet.</h3>
-            <p>Add one now to make checkout feel as considered as the piece itself.</p>
+            <h3>{{ t('accountProfile.emptyTitle') }}</h3>
+            <p>{{ t('accountProfile.emptyCopy') }}</p>
           </div>
-          <button class="outline-button" type="button" @click="openNewAddress"><UIcon name="i-lucide-plus" /> Add your first address</button>
+          <button class="outline-button" type="button" @click="openNewAddress"><UIcon name="i-lucide-plus" /> {{ t('accountProfile.addFirstAddress') }}</button>
         </div>
       </section>
     </template>

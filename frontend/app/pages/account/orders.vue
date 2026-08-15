@@ -3,35 +3,33 @@ import { computed, onMounted, ref } from 'vue'
 import type { CustomerAddress, CustomerOrder, CustomerProfile, CustomerShippingAddress } from '~/types/customer-account'
 import { customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
 import {
-  customerStatusLabel,
   customerStatusTone,
-  formatCustomerDate,
-  formatCustomerMoney,
   orderItemCount,
   parseProductSnapshot
 } from '~/utils/customer-display'
 
 type OrderFilter = 'ALL' | 'OPEN' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED'
 
-const filterOptions: Array<{ key: OrderFilter; label: string }> = [
-  { key: 'ALL', label: 'All orders' },
-  { key: 'OPEN', label: 'In progress' },
-  { key: 'SHIPPED', label: 'On the way' },
-  { key: 'DELIVERED', label: 'Delivered' },
-  { key: 'CANCELLED', label: 'Cancelled' }
-]
-
 definePageMeta({ middleware: ['customer-auth'] })
-
-useHead({
-  title: 'Orders | Pelissa',
-  meta: [{ name: 'description', content: 'Review your Pelissa orders and follow each piece from studio to door.' }]
-})
 
 const api = useCustomerAccountApi()
 const session = useCustomerSession()
 const router = useRouter()
 const toast = useToast()
+const { formatDate, formatMoney, orderStatusLabel, t } = useStorefrontI18n()
+
+useHead(() => ({
+  title: t('accountOrders.seoTitle'),
+  meta: [{ name: 'description', content: t('accountOrders.seoDescription') }]
+}))
+
+const filterOptions = computed<Array<{ key: OrderFilter; label: string }>>(() => [
+  { key: 'ALL', label: t('accountOrders.filters.all') },
+  { key: 'OPEN', label: t('accountOrders.filters.open') },
+  { key: 'SHIPPED', label: t('accountOrders.filters.shipped') },
+  { key: 'DELIVERED', label: t('accountOrders.filters.delivered') },
+  { key: 'CANCELLED', label: t('accountOrders.filters.cancelled') }
+])
 
 const profile = ref<CustomerProfile | null>(null)
 const orders = ref<CustomerOrder[]>([])
@@ -58,11 +56,11 @@ const visibleOrders = computed(() => orders.value.filter(order => {
 }))
 
 const pageLabel = computed(() => `${page.value} / ${Math.max(totalPages.value, 1)}`)
-const resultLabel = computed(() => `${visibleOrders.value.length} ${visibleOrders.value.length === 1 ? 'order' : 'orders'} on this page`)
+const resultLabel = computed(() => t('accountOrders.results', visibleOrders.value.length))
 
 function orderAddress(order: CustomerOrder) {
   const address = order.shipping_address
-  return [address.city, address.state_or_province, address.country].filter(Boolean).join(', ') || 'Address on file'
+  return [address.city, address.state_or_province, address.country].filter(Boolean).join(', ') || t('accountOrders.addressFallback')
 }
 
 function addressMatches(left: CustomerAddress, right: CustomerShippingAddress) {
@@ -85,7 +83,7 @@ function orderUsesDefaultAddress(order: CustomerOrder) {
 
 function itemPreview(order: CustomerOrder) {
   const first = order.items[0]
-  if (!first) return { name: 'Pelissa piece', color: null as string | null, image: null as string | null }
+  if (!first) return { name: t('accountOrders.pieceFallback'), color: null as string | null, image: null as string | null }
   return parseProductSnapshot(first.product_snapshot)
 }
 
@@ -129,7 +127,7 @@ async function loadOrders(showLoading = true) {
       return
     }
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not load your orders.')
+    requestError.value = customerRequestMessage(error, t('accountOrders.loadError'))
   } finally {
     isLoading.value = false
     isRefreshing.value = false
@@ -157,7 +155,7 @@ function closeCancel() {
 
 async function cancelOrder(order: CustomerOrder) {
   if (isCancelling.value || !orderCanCancel(order)) return
-  if (import.meta.client && !window.confirm(`Cancel order ${order.order_no}?`)) return
+  if (import.meta.client && !window.confirm(t('accountOrders.cancelConfirm', { orderNo: order.order_no }))) return
 
   isCancelling.value = true
   requestError.value = ''
@@ -165,11 +163,15 @@ async function cancelOrder(order: CustomerOrder) {
     await api.cancelOrder(order.order_no, cancelReason.value.trim() || undefined)
     isCancelling.value = false
     closeCancel()
-    toast.add({ title: 'Order cancelled', description: `${order.order_no} has been cancelled and the items returned to stock.`, color: 'success' })
+    toast.add({
+      title: t('accountOrders.cancelledTitle'),
+      description: t('accountOrders.cancelledDescription', { orderNo: order.order_no }),
+      color: 'success'
+    })
     await loadOrders(false)
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'This order could not be cancelled.')
-    toast.add({ title: 'Unable to cancel order', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, t('accountOrders.cancelError'))
+    toast.add({ title: t('accountOrders.cancelErrorTitle'), description: requestError.value, color: 'error' })
   } finally {
     isCancelling.value = false
   }
@@ -186,13 +188,13 @@ async function setOrderAddressAsDefault(order: CustomerOrder) {
       .map(address => ({ ...address, is_default: false }))
     addresses.value.push(defaultAddress)
     toast.add({
-      title: 'Default address updated',
-      description: 'This delivery address will be selected first at checkout.',
+      title: t('accountOrders.defaultUpdatedTitle'),
+      description: t('accountOrders.defaultUpdatedDescription'),
       color: 'success'
     })
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not set this delivery address as your default.')
-    toast.add({ title: 'Default address not updated', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, t('accountOrders.defaultError'))
+    toast.add({ title: t('accountOrders.defaultErrorTitle'), description: requestError.value, color: 'error' })
   } finally {
     settingDefaultOrderNo.value = null
   }
@@ -208,9 +210,9 @@ onMounted(() => {
 </script>
 <template>
   <CustomerAccountShell
-    eyebrow="THE ORDER LEDGER · 03"
-    title="Every piece, remembered."
-    intro="Revisit your Pelissa orders, open the details, and follow the ones already making their way to you."
+    :eyebrow="t('accountOrders.eyebrow')"
+    :title="t('accountOrders.title')"
+    :intro="t('accountOrders.intro')"
     :profile="profile"
   >
     <div v-if="isLoading" class="orders-loading" aria-live="polite">
@@ -222,21 +224,21 @@ onMounted(() => {
       <div v-if="requestError" class="account-notice account-notice-warning" role="status">
         <UIcon name="i-lucide-info" />
         <span>{{ requestError }}</span>
-        <button type="button" @click="loadOrders(false)">Refresh</button>
+        <button type="button" @click="loadOrders(false)">{{ t('accountOrders.refresh') }}</button>
       </div>
 
       <section class="orders-toolbar">
         <div>
-          <p class="store-eyebrow">YOUR HISTORY</p>
+          <p class="store-eyebrow">{{ t('accountOrders.history') }}</p>
           <h2>{{ resultLabel }}</h2>
         </div>
         <button class="refresh-button" type="button" :disabled="isRefreshing" @click="loadOrders(false)">
           <UIcon :name="isRefreshing ? 'i-lucide-loader-circle' : 'i-lucide-refresh-cw'" :class="{ 'is-spinning': isRefreshing }" />
-          {{ isRefreshing ? 'Refreshing…' : 'Refresh' }}
+          {{ isRefreshing ? t('accountOrders.refreshing') : t('accountOrders.refresh') }}
         </button>
       </section>
 
-      <nav class="order-filters" aria-label="Filter orders">
+      <nav class="order-filters" :aria-label="t('accountOrders.filters.label')">
         <button
           v-for="filter in filterOptions"
           :key="filter.key"
@@ -251,27 +253,27 @@ onMounted(() => {
       <div v-if="!visibleOrders.length" class="orders-empty">
         <span class="empty-order-number">03</span>
         <div>
-          <p class="panel-kicker">A LITTLE SPACE FOR WHAT'S NEXT</p>
-          <h2>{{ orders.length ? 'Nothing in this edit yet.' : 'Your first order is waiting.' }}</h2>
-          <p>{{ orders.length ? 'Try another filter or return to the collection for a fresh start.' : 'When something feels like you, it will appear here with every detail close at hand.' }}</p>
-          <NuxtLink class="store-button" to="/collections/shop"><UIcon name="i-lucide-arrow-up-right" /> Explore the collection</NuxtLink>
+          <p class="panel-kicker">{{ t('accountOrders.emptyEyebrow') }}</p>
+          <h2>{{ orders.length ? t('accountOrders.emptyFilteredTitle') : t('accountOrders.emptyTitle') }}</h2>
+          <p>{{ orders.length ? t('accountOrders.emptyFilteredCopy') : t('accountOrders.emptyCopy') }}</p>
+          <NuxtLink class="store-button" to="/collections/shop"><UIcon name="i-lucide-arrow-up-right" /> {{ t('accountOrders.explore') }}</NuxtLink>
         </div>
       </div>
 
-      <section v-else class="order-list" aria-label="Order list">
+      <section v-else class="order-list" :aria-label="t('accountOrders.orderList')">
         <article v-for="(order, index) in visibleOrders" :key="order.order_no" class="order-card" :class="{ expanded: expandedOrderNo === order.order_no }">
           <header class="order-card-header">
             <div class="order-card-number">{{ String((page - 1) * pageSize + index + 1).padStart(2, '0') }}</div>
             <div class="order-card-heading">
-              <span class="order-card-eyebrow">ORDER {{ order.order_no }}</span>
-              <h3>{{ formatCustomerDate(order.created_at) }}</h3>
-              <p>{{ orderItemCount(order.items) }} {{ orderItemCount(order.items) === 1 ? 'piece' : 'pieces' }} · {{ orderAddress(order) }}</p>
+              <span class="order-card-eyebrow">{{ t('accountOrders.order', { orderNo: order.order_no }) }}</span>
+              <h3>{{ formatDate(order.created_at) }}</h3>
+              <p>{{ t('accountOrders.pieces', orderItemCount(order.items)) }} · {{ orderAddress(order) }}</p>
             </div>
             <div class="order-card-total">
-              <span class="status-pill" :class="`tone-${customerStatusTone(order.status)}`">{{ customerStatusLabel(order.status) }}</span>
-              <strong>{{ formatCustomerMoney(order.total_amount, order.currency) }}</strong>
+              <span class="status-pill" :class="`tone-${customerStatusTone(order.status)}`">{{ orderStatusLabel(order.status) }}</span>
+              <strong>{{ formatMoney(order.total_amount, order.currency) }}</strong>
             </div>
-            <button class="order-expand-button" type="button" :aria-expanded="expandedOrderNo === order.order_no" :aria-label="`${expandedOrderNo === order.order_no ? 'Close' : 'Open'} order ${order.order_no}`" @click="toggleOrder(order.order_no)">
+            <button class="order-expand-button" type="button" :aria-expanded="expandedOrderNo === order.order_no" :aria-label="expandedOrderNo === order.order_no ? t('accountOrders.closeOrder', { orderNo: order.order_no }) : t('accountOrders.openOrder', { orderNo: order.order_no })" @click="toggleOrder(order.order_no)">
               <UIcon :name="expandedOrderNo === order.order_no ? 'i-lucide-minus' : 'i-lucide-plus'" />
             </button>
           </header>
@@ -284,20 +286,20 @@ onMounted(() => {
             <div class="order-preview-copy">
               <strong>{{ itemPreview(order).name }}</strong>
               <span v-if="itemPreview(order).color">{{ itemPreview(order).color }}</span>
-              <span v-if="order.items.length > 1">+ {{ order.items.length - 1 }} more {{ order.items.length === 2 ? 'piece' : 'pieces' }}</span>
+              <span v-if="order.items.length > 1">{{ t('accountOrders.morePieces', order.items.length - 1) }}</span>
             </div>
             <div class="order-preview-meta">
               <span>{{ order.currency }}</span>
-              <span v-if="order.shipped_at">Shipped {{ formatCustomerDate(order.shipped_at) }}</span>
-              <span v-else-if="order.paid_at">Paid {{ formatCustomerDate(order.paid_at) }}</span>
-              <span v-else>Placed {{ formatCustomerDate(order.created_at) }}</span>
+              <span v-if="order.shipped_at">{{ t('accountOrders.shipped', { date: formatDate(order.shipped_at) }) }}</span>
+              <span v-else-if="order.paid_at">{{ t('accountOrders.paid', { date: formatDate(order.paid_at) }) }}</span>
+              <span v-else>{{ t('accountOrders.placed', { date: formatDate(order.created_at) }) }}</span>
             </div>
           </div>
 
           <div v-if="expandedOrderNo === order.order_no" class="order-details">
             <div class="details-columns">
               <div class="order-detail-section">
-                <p class="panel-kicker">ITEMS IN THIS ORDER</p>
+                <p class="panel-kicker">{{ t('accountOrders.itemsSection') }}</p>
                 <div class="order-item-list">
                   <div v-for="item in order.items" :key="item.id" class="order-item-row">
                     <div class="order-item-image">
@@ -307,20 +309,20 @@ onMounted(() => {
                     <div class="order-item-copy">
                       <strong>{{ parseProductSnapshot(item.product_snapshot).name }}</strong>
                       <span v-if="parseProductSnapshot(item.product_snapshot).color">{{ parseProductSnapshot(item.product_snapshot).color }}</span>
-                      <small>Qty {{ item.quantity }}</small>
+                      <small>{{ t('accountOrders.quantity', { count: item.quantity }) }}</small>
                     </div>
-                    <strong class="order-item-price">{{ formatCustomerMoney(item.line_total, order.currency) }}</strong>
+                    <strong class="order-item-price">{{ formatMoney(item.line_total, order.currency) }}</strong>
                   </div>
                 </div>
               </div>
 
               <div class="order-detail-section order-address-detail">
-                <p class="panel-kicker">DELIVERING TO</p>
+                <p class="panel-kicker">{{ t('accountOrders.deliveringTo') }}</p>
                 <strong>{{ order.shipping_address.name }}</strong>
                 <span>{{ order.shipping_address.phone }}</span>
                 <p>{{ [order.shipping_address.address1, order.shipping_address.address2, order.shipping_address.city, order.shipping_address.state_or_province, order.shipping_address.postal_code, order.shipping_address.country].filter(Boolean).join(', ') }}</p>
                 <span v-if="order.client_message" class="order-message"><UIcon name="i-lucide-message-circle" /> {{ order.client_message }}</span>
-                <span v-if="orderUsesDefaultAddress(order)" class="default-address-status"><UIcon name="i-lucide-star" /> Default address</span>
+                <span v-if="orderUsesDefaultAddress(order)" class="default-address-status"><UIcon name="i-lucide-star" /> {{ t('accountOrders.defaultAddress') }}</span>
                 <button
                   v-else
                   class="set-default-address-button"
@@ -329,40 +331,40 @@ onMounted(() => {
                   @click="setOrderAddressAsDefault(order)"
                 >
                   <UIcon :name="settingDefaultOrderNo === order.order_no ? 'i-lucide-loader-circle' : 'i-lucide-star'" :class="{ 'is-spinning': settingDefaultOrderNo === order.order_no }" />
-                  {{ settingDefaultOrderNo === order.order_no ? 'Updating…' : 'Set as default address' }}
+                  {{ settingDefaultOrderNo === order.order_no ? t('accountOrders.updating') : t('accountOrders.setDefault') }}
                 </button>
               </div>
 
               <div class="order-detail-section order-total-detail">
-                <p class="panel-kicker">ORDER TOTAL</p>
-                <div><span>Items</span><strong>{{ formatCustomerMoney(order.items_subtotal, order.currency) }}</strong></div>
-                <div><span>Shipping</span><strong>{{ formatCustomerMoney(order.shipping_fee, order.currency) }}</strong></div>
-                <div v-if="Number(order.discount_amount) > 0"><span>Discount</span><strong>−{{ formatCustomerMoney(order.discount_amount, order.currency) }}</strong></div>
-                <div><span>Tax</span><strong>{{ formatCustomerMoney(order.tax_amount, order.currency) }}</strong></div>
-                <div class="order-total-line"><span>Total</span><strong>{{ formatCustomerMoney(order.total_amount, order.currency) }}</strong></div>
+                <p class="panel-kicker">{{ t('accountOrders.totalSection') }}</p>
+                <div><span>{{ t('accountOrders.items') }}</span><strong>{{ formatMoney(order.items_subtotal, order.currency) }}</strong></div>
+                <div><span>{{ t('accountOrders.shipping') }}</span><strong>{{ formatMoney(order.shipping_fee, order.currency) }}</strong></div>
+                <div v-if="Number(order.discount_amount) > 0"><span>{{ t('accountOrders.discount') }}</span><strong>−{{ formatMoney(order.discount_amount, order.currency) }}</strong></div>
+                <div><span>{{ t('accountOrders.tax') }}</span><strong>{{ formatMoney(order.tax_amount, order.currency) }}</strong></div>
+                <div class="order-total-line"><span>{{ t('accountOrders.total') }}</span><strong>{{ formatMoney(order.total_amount, order.currency) }}</strong></div>
               </div>
             </div>
 
             <div class="order-detail-actions">
               <NuxtLink class="outline-button" :to="`/orders/${encodeURIComponent(order.order_no)}`">
-                <UIcon name="i-lucide-receipt-text" /> View order details
+                <UIcon name="i-lucide-receipt-text" /> {{ t('accountOrders.viewDetails') }}
               </NuxtLink>
               <button v-if="['SHIPPED', 'DELIVERED', 'COMPLETED'].includes(order.status)" class="outline-button" type="button" @click="viewLogistics(order)">
-                <UIcon name="i-lucide-truck" /> Track delivery
+                <UIcon name="i-lucide-truck" /> {{ t('accountOrders.track') }}
               </button>
               <button v-if="orderCanCancel(order)" class="text-button text-button-danger" type="button" @click="cancelTarget === order.order_no ? closeCancel() : openCancel(order)">
-                <UIcon name="i-lucide-circle-x" /> {{ cancelTarget === order.order_no ? 'Close cancellation' : 'Cancel order' }}
+                <UIcon name="i-lucide-circle-x" /> {{ cancelTarget === order.order_no ? t('accountOrders.closeCancellation') : t('accountOrders.cancel') }}
               </button>
             </div>
 
             <form v-if="cancelTarget === order.order_no" class="cancel-form" @submit.prevent="cancelOrder(order)">
               <label class="field-label">
-                <span>Reason <small>OPTIONAL</small></span>
-                <textarea v-model="cancelReason" maxlength="200" rows="2" placeholder="Tell us why you are changing your mind…" />
+                <span>{{ t('accountOrders.reason') }} <small>{{ t('accountOrders.optional') }}</small></span>
+                <textarea v-model="cancelReason" maxlength="200" rows="2" :placeholder="t('accountOrders.reasonPlaceholder')" />
               </label>
               <button class="danger-button" type="submit" :disabled="isCancelling">
                 <UIcon :name="isCancelling ? 'i-lucide-loader-circle' : 'i-lucide-trash-2'" :class="{ 'is-spinning': isCancelling }" />
-                {{ isCancelling ? 'Cancelling…' : 'Confirm cancellation' }}
+                {{ isCancelling ? t('accountOrders.cancelling') : t('accountOrders.confirmCancellation') }}
               </button>
             </form>
           </div>
@@ -370,9 +372,9 @@ onMounted(() => {
       </section>
 
       <footer v-if="totalPages > 1" class="orders-pagination">
-        <button type="button" :disabled="page <= 1 || isLoading" @click="changePage(page - 1)"><UIcon name="i-lucide-arrow-left" /> Previous</button>
-        <span>PAGE {{ pageLabel }}</span>
-        <button type="button" :disabled="page >= totalPages || isLoading" @click="changePage(page + 1)">Next <UIcon name="i-lucide-arrow-right" /></button>
+        <button type="button" :disabled="page <= 1 || isLoading" @click="changePage(page - 1)"><UIcon name="i-lucide-arrow-left" /> {{ t('accountOrders.previous') }}</button>
+        <span>{{ t('accountOrders.page', { page: pageLabel }) }}</span>
+        <button type="button" :disabled="page >= totalPages || isLoading" @click="changePage(page + 1)">{{ t('accountOrders.next') }} <UIcon name="i-lucide-arrow-right" /></button>
       </footer>
     </template>
   </CustomerAccountShell>

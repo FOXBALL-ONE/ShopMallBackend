@@ -220,6 +220,7 @@ export const useHttp = (baseURL?: string) => {
     });
     const toast = useToast();
     const router = useRouter();
+    const { currentLocale } = useStorefrontI18n();
     const configuredApiBase = useRuntimeConfig().public.apiBase;
     const authApiBase = typeof configuredApiBase === "string" && configuredApiBase
         ? configuredApiBase
@@ -471,6 +472,7 @@ export const useHttp = (baseURL?: string) => {
 
         const send = async () => {
             const requestHeaders = new Headers(fetchOptions.headers as HeadersInit | undefined);
+            requestHeaders.set("Accept-Language", currentLocale.value);
             const authorization = normalizeAuthorization(authToken.value);
             if (authorization && (replayWithRefreshedToken || !requestHeaders.has("Authorization"))) {
                 requestHeaders.set("Authorization", authorization);

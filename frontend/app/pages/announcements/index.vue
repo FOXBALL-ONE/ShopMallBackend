@@ -8,6 +8,7 @@ import {
 
 const PAGE_SIZE = 12
 const announcementApi = useAnnouncementApi()
+const { formatDate: formatLocalizedDate, t } = useStorefrontI18n()
 const currentAnnouncements = ref<CustomerAnnouncementSummary[]>([])
 const historyItems = ref<CustomerAnnouncementHistoryItem[]>([])
 const page = ref(0)
@@ -28,14 +29,11 @@ const yearOptions = computed(() => {
 })
 
 function typeLabel(type: CustomerAnnouncementType) {
-  return CUSTOMER_ANNOUNCEMENT_TYPE_OPTIONS.find(option => option.value === type)?.label ?? type
+  return t(`announcement.types.${type.toLowerCase()}`)
 }
 
 function formatDate(value: string | null) {
-  if (!value) return 'Date unavailable'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(date)
+  return value ? formatLocalizedDate(value, 'long') : t('announcement.page.dateUnavailable')
 }
 
 async function loadCurrentAnnouncements() {
@@ -69,7 +67,7 @@ async function loadHistory() {
     historyItems.value = []
     totalPages.value = 0
     totalElements.value = 0
-    errorMessage.value = 'Notices could not be loaded. Please try again.'
+    errorMessage.value = t('announcement.page.loadFailed')
   } finally {
     isHistoryLoading.value = false
   }
@@ -100,12 +98,12 @@ onMounted(() => {
   void Promise.all([loadCurrentAnnouncements(), loadHistory()])
 })
 
-useHead({
-  title: 'Notices | PELISSA°',
+useHead(() => ({
+  title: t('announcement.page.seoTitle'),
   meta: [
-    { name: 'description', content: 'Read current and historical ShopMall website notices.' },
+    { name: 'description', content: t('announcement.page.seoDescription') },
   ],
-})
+}))
 </script>
 
 <template>
@@ -114,23 +112,23 @@ useHead({
 
     <header class="announcement-hero">
       <div class="store-container">
-        <p>SHOPMALL UPDATES</p>
-        <h1>Notices &amp;<br><em>announcements.</em></h1>
-        <span>Service updates, important information and the latest news from ShopMall.</span>
+        <p>{{ t('announcement.page.heroEyebrow') }}</p>
+        <h1>{{ t('announcement.page.heroTitleStart') }}<br><em>{{ t('announcement.page.heroTitleEmphasis') }}</em></h1>
+        <span>{{ t('announcement.page.heroCopy') }}</span>
       </div>
     </header>
 
     <section class="store-container announcement-current" aria-labelledby="current-announcements-heading">
       <div class="announcement-section-heading">
         <div>
-          <p>HAPPENING NOW</p>
-          <h2 id="current-announcements-heading">Current notices</h2>
+          <p>{{ t('announcement.page.currentEyebrow') }}</p>
+          <h2 id="current-announcements-heading">{{ t('announcement.page.currentTitle') }}</h2>
         </div>
-        <span>{{ currentAnnouncements.length }} active</span>
+        <span>{{ t('announcement.page.active', { count: currentAnnouncements.length }) }}</span>
       </div>
 
       <div v-if="isCurrentLoading" class="announcement-state" aria-live="polite">
-        <UIcon name="i-lucide-loader-circle" class="is-spinning" /> Loading current notices…
+        <UIcon name="i-lucide-loader-circle" class="is-spinning" /> {{ t('announcement.page.loadingCurrent') }}
       </div>
       <div v-else-if="currentAnnouncements.length" class="announcement-current-grid">
         <NuxtLink
@@ -146,11 +144,11 @@ useHead({
           </div>
           <h3>{{ announcement.title }}</h3>
           <p>{{ announcement.summary }}</p>
-          <span class="announcement-card-link">Read notice <UIcon name="i-lucide-arrow-up-right" /></span>
+          <span class="announcement-card-link">{{ t('announcement.page.readNotice') }} <UIcon name="i-lucide-arrow-up-right" /></span>
         </NuxtLink>
       </div>
       <div v-else class="announcement-state">
-        <UIcon name="i-lucide-circle-check-big" /> There are no active notices right now.
+        <UIcon name="i-lucide-circle-check-big" /> {{ t('announcement.page.noCurrent') }}
       </div>
     </section>
 
@@ -158,47 +156,47 @@ useHead({
       <div class="store-container">
         <div class="announcement-section-heading">
           <div>
-            <p>THE ARCHIVE</p>
-            <h2 id="history-announcements-heading">Past notices</h2>
+            <p>{{ t('announcement.page.archiveEyebrow') }}</p>
+            <h2 id="history-announcements-heading">{{ t('announcement.page.archiveTitle') }}</h2>
           </div>
-          <span>{{ totalElements }} records</span>
+          <span>{{ t('announcement.page.records', totalElements) }}</span>
         </div>
 
         <form class="announcement-filters" @submit.prevent="applyFilters">
           <label class="announcement-filter-keyword">
-            <span>Search notices</span>
+            <span>{{ t('announcement.page.searchLabel') }}</span>
             <span class="announcement-input-wrap">
               <UIcon name="i-lucide-search" />
-              <input v-model="filters.keyword" type="search" maxlength="120" placeholder="Title or summary">
+              <input v-model="filters.keyword" type="search" maxlength="120" :placeholder="t('announcement.page.searchPlaceholder')">
             </span>
           </label>
           <label>
-            <span>Type</span>
+            <span>{{ t('announcement.page.type') }}</span>
             <select v-model="filters.type" @change="applyFilters">
-              <option value="">All types</option>
+              <option value="">{{ t('announcement.page.allTypes') }}</option>
               <option v-for="option in CUSTOMER_ANNOUNCEMENT_TYPE_OPTIONS" :key="option.value" :value="option.value">
-                {{ option.label }}
+                {{ typeLabel(option.value) }}
               </option>
             </select>
           </label>
           <label>
-            <span>Year</span>
+            <span>{{ t('announcement.page.year') }}</span>
             <select v-model="filters.year" @change="applyFilters">
-              <option value="">All years</option>
+              <option value="">{{ t('announcement.page.allYears') }}</option>
               <option v-for="year in yearOptions" :key="year" :value="year">{{ year }}</option>
             </select>
           </label>
-          <button type="submit">Search</button>
-          <button class="announcement-reset" type="button" @click="resetFilters">Reset</button>
+          <button type="submit">{{ t('announcement.page.search') }}</button>
+          <button class="announcement-reset" type="button" @click="resetFilters">{{ t('announcement.page.reset') }}</button>
         </form>
 
         <div v-if="isHistoryLoading" class="announcement-state announcement-state--history" aria-live="polite">
-          <UIcon name="i-lucide-loader-circle" class="is-spinning" /> Loading notice history…
+          <UIcon name="i-lucide-loader-circle" class="is-spinning" /> {{ t('announcement.page.loadingHistory') }}
         </div>
         <div v-else-if="errorMessage" class="announcement-state announcement-state--history" role="alert">
           <UIcon name="i-lucide-circle-alert" />
           <span>{{ errorMessage }}</span>
-          <button type="button" @click="loadHistory">Try again</button>
+          <button type="button" @click="loadHistory">{{ t('common.actions.retry') }}</button>
         </div>
         <div v-else-if="historyItems.length" class="announcement-history-list">
           <article v-for="announcement in historyItems" :key="announcement.id" class="announcement-history-card">
@@ -209,27 +207,27 @@ useHead({
             <div class="announcement-history-card__copy">
               <div class="announcement-card-meta">
                 <span>{{ typeLabel(announcement.type) }}</span>
-                <span v-if="announcement.is_read">Read</span>
+                <span v-if="announcement.is_read">{{ t('announcement.page.read') }}</span>
               </div>
               <h3>{{ announcement.title }}</h3>
               <p>{{ announcement.summary }}</p>
             </div>
-            <NuxtLink :to="`/announcements/${announcement.id}`" :aria-label="`Read ${announcement.title}`">
-              <span>Read</span><UIcon name="i-lucide-arrow-right" />
+            <NuxtLink :to="`/announcements/${announcement.id}`" :aria-label="t('announcement.page.readAria', { title: announcement.title })">
+              <span>{{ t('announcement.page.readNotice') }}</span><UIcon name="i-lucide-arrow-right" />
             </NuxtLink>
           </article>
         </div>
         <div v-else class="announcement-state announcement-state--history">
-          <UIcon name="i-lucide-inbox" /> No historical notices match these filters.
+          <UIcon name="i-lucide-inbox" /> {{ t('announcement.page.noHistory') }}
         </div>
 
-        <nav v-if="totalPages > 1" class="announcement-pagination" aria-label="Notice history pagination">
+        <nav v-if="totalPages > 1" class="announcement-pagination" :aria-label="t('announcement.page.pagination')">
           <button type="button" :disabled="page === 0" @click="changePage(page - 1)">
-            <UIcon name="i-lucide-arrow-left" /> Previous
+            <UIcon name="i-lucide-arrow-left" /> {{ t('announcement.page.previous') }}
           </button>
-          <span>Page {{ page + 1 }} of {{ totalPages }}</span>
+          <span>{{ t('announcement.page.page', { current: page + 1, total: totalPages }) }}</span>
           <button type="button" :disabled="page >= totalPages - 1" @click="changePage(page + 1)">
-            Next <UIcon name="i-lucide-arrow-right" />
+            {{ t('announcement.page.next') }} <UIcon name="i-lucide-arrow-right" />
           </button>
         </nav>
       </div>

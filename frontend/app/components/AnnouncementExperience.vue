@@ -14,6 +14,7 @@ const announcementCenter = useAnnouncementCenter()
 const announcementClientState = useAnnouncementClientState()
 const customerSession = useCustomerSession()
 const route = useRoute()
+const { formatDate, t } = useStorefrontI18n()
 const bannerAnnouncement = announcementCenter.leadingAnnouncement
 const currentAnnouncementCount = announcementCenter.currentCount
 const modalAnnouncement = ref<CustomerAutoShowAnnouncement | null>(null)
@@ -22,20 +23,13 @@ const modalElement = ref<HTMLElement | null>(null)
 let previouslyFocusedElement: HTMLElement | null = null
 
 function typeLabel(type: CustomerAnnouncementType) {
-  return {
-    GENERAL: 'General notice',
-    IMPORTANT: 'Important notice',
-    MAINTENANCE: 'Maintenance',
-    PROMOTION: 'Promotion',
+  const key = {
+    GENERAL: 'announcement.types.general',
+    IMPORTANT: 'announcement.types.important',
+    MAINTENANCE: 'announcement.types.maintenance',
+    PROMOTION: 'announcement.types.promotion',
   }[type]
-}
-
-function formatDate(value: string | null) {
-  if (!value) return ''
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+  return t(key)
 }
 
 function isLocallyEligible(announcement: CustomerAutoShowAnnouncement, userId: number | null) {
@@ -211,7 +205,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <aside v-if="bannerAnnouncement" class="customer-announcement-banner" aria-label="Website announcement">
+  <aside v-if="bannerAnnouncement" class="customer-announcement-banner" :aria-label="t('announcement.website')">
     <div class="customer-announcement-banner__content">
       <span class="customer-announcement-banner__type">{{ typeLabel(bannerAnnouncement.type) }}</span>
       <NuxtLink :to="`/announcements/${bannerAnnouncement.id}`" class="customer-announcement-banner__title">
@@ -221,7 +215,7 @@ onMounted(() => {
         {{ bannerAnnouncement.summary }}
       </span>
       <NuxtLink class="customer-announcement-banner__more" to="/announcements">
-        All notices ({{ currentAnnouncementCount >= 50 ? '50+' : currentAnnouncementCount }})
+        {{ t('announcement.allNotices', { count: currentAnnouncementCount >= 50 ? '50+' : currentAnnouncementCount }) }}
         <UIcon name="i-lucide-arrow-up-right" />
       </NuxtLink>
     </div>
@@ -243,7 +237,7 @@ onMounted(() => {
         :aria-labelledby="`announcement-title-${modalAnnouncement.id}`"
         @keydown="handleModalKeydown"
       >
-        <button class="announcement-modal__close" type="button" aria-label="Close announcement" @click="dismissModal">
+        <button class="announcement-modal__close" type="button" :aria-label="t('announcement.close')" @click="dismissModal">
           <UIcon name="i-lucide-x" />
         </button>
         <p class="announcement-modal__eyebrow">
@@ -253,21 +247,23 @@ onMounted(() => {
         <h2 :id="`announcement-title-${modalAnnouncement.id}`">{{ modalAnnouncement.title }}</h2>
         <p v-if="modalAnnouncement.summary" class="announcement-modal__summary">{{ modalAnnouncement.summary }}</p>
         <div class="announcement-modal__content">{{ modalAnnouncement.content }}</div>
-        <p class="announcement-modal__date">Published {{ formatDate(modalAnnouncement.published_at ?? modalAnnouncement.effective_from) }}</p>
+        <p class="announcement-modal__date">
+          {{ t('announcement.published', { date: formatDate(modalAnnouncement.published_at ?? modalAnnouncement.effective_from) }) }}
+        </p>
         <div class="announcement-modal__actions">
-          <button class="announcement-modal__secondary" type="button" @click="viewDetails">View details</button>
+          <button class="announcement-modal__secondary" type="button" @click="viewDetails">{{ t('common.actions.viewDetails') }}</button>
           <button
             v-if="modalAnnouncement.type === 'IMPORTANT'"
             class="announcement-modal__secondary"
             type="button"
             @click="acknowledgeModal"
           >
-            I understand
+            {{ t('announcement.understand') }}
           </button>
           <button v-if="modalAnnouncement.action_url" class="announcement-modal__primary" type="button" @click="openAction">
-            Continue <UIcon name="i-lucide-arrow-up-right" />
+            {{ t('common.actions.continue') }} <UIcon name="i-lucide-arrow-up-right" />
           </button>
-          <button v-else class="announcement-modal__primary" type="button" @click="dismissModal">Close</button>
+          <button v-else class="announcement-modal__primary" type="button" @click="dismissModal">{{ t('common.actions.close') }}</button>
         </div>
       </section>
     </div>

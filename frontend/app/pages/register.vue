@@ -9,13 +9,15 @@ interface ErrorShape {
   message?: string
 }
 
-useHead({
-  title: 'Join the circle | Pelissa',
+const { t } = useStorefrontI18n()
+
+useHead(() => ({
+  title: t('auth.seo.registerTitle'),
   meta: [{
     name: 'description',
-    content: 'Create your Pelissa account and start a more personal shopping experience.'
+    content: t('auth.seo.registerDescription')
   }]
-})
+}))
 
 const route = useRoute()
 const router = useRouter()
@@ -52,9 +54,9 @@ const redirectTarget = computed(() => {
 })
 
 const codeButtonLabel = computed(() => {
-  if (isSendingCode.value) return 'Sending...'
-  if (codeCooldown.value > 0) return `Resend in ${codeCooldown.value}s`
-  return verificationSent.value ? 'Send again' : 'Send code'
+  if (isSendingCode.value) return t('auth.register.sending')
+  if (codeCooldown.value > 0) return t('auth.register.resendIn', { seconds: codeCooldown.value })
+  return verificationSent.value ? t('auth.register.sendAgain') : t('auth.register.sendCode')
 })
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -67,7 +69,7 @@ function getErrorMessage(error: unknown): string {
     ?? value.response?._data?.message
     ?? value.statusMessage
     ?? value.message
-    ?? 'Something went wrong. Please try again.'
+    ?? t('auth.genericError')
 }
 
 function showRequestError(title: string, error: unknown) {
@@ -101,7 +103,13 @@ function evaluateStrength(password: string): number {
 }
 
 const strengthLabel = computed(() => {
-  const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong']
+  const labels = [
+    t('auth.register.strength.tooShort'),
+    t('auth.register.strength.weak'),
+    t('auth.register.strength.fair'),
+    t('auth.register.strength.good'),
+    t('auth.register.strength.strong')
+  ]
   return labels[passwordStrength.value] ?? ''
 })
 
@@ -114,7 +122,7 @@ async function sendVerificationCode() {
   formError.value = ''
 
   if (!emailPattern.test(email)) {
-    formError.value = 'Enter a valid email address before requesting a code.'
+    formError.value = t('auth.register.validation.validEmailForCode')
     return
   }
   if (isSendingCode.value || codeCooldown.value > 0) return
@@ -125,12 +133,12 @@ async function sendVerificationCode() {
     verificationSent.value = true
     startCodeCooldown()
     toast.add({
-      title: 'Verification code sent',
-      description: message || 'Check your inbox. The code is valid for five minutes.',
+      title: t('auth.register.codeSentTitle'),
+      description: message || t('auth.register.codeSentDescription'),
       color: 'success'
     })
   } catch (error: unknown) {
-    showRequestError('Unable to send the code', error)
+    showRequestError(t('auth.register.codeSendFailed'), error)
   } finally {
     isSendingCode.value = false
   }
@@ -143,13 +151,13 @@ async function submitRegistration() {
   const firstName = registerForm.firstName.trim()
   const lastName = registerForm.lastName.trim()
 
-  if (!emailPattern.test(email)) formError.value = 'Enter a valid email address.'
-  else if (username.length < 3 || username.length > 50) formError.value = 'Username must be between 3 and 50 characters.'
-  else if (registerForm.password.length < 8 || registerForm.password.length > 72) formError.value = 'Password must be between 8 and 72 characters.'
-  else if (registerForm.password !== registerForm.confirmPassword) formError.value = 'The passwords do not match.'
-  else if (!/^\d{6}$/.test(registerForm.verificationCode.trim())) formError.value = 'Enter the 6-digit verification code from your email.'
-  else if (firstName.length > 50 || lastName.length > 50) formError.value = 'First and last names can contain up to 50 characters.'
-  else if (!registerForm.acceptedTerms) formError.value = 'Please accept the Terms of Use and Privacy Policy.'
+  if (!emailPattern.test(email)) formError.value = t('auth.register.validation.validEmail')
+  else if (username.length < 3 || username.length > 50) formError.value = t('auth.register.validation.usernameLength')
+  else if (registerForm.password.length < 8 || registerForm.password.length > 72) formError.value = t('auth.register.validation.passwordLength')
+  else if (registerForm.password !== registerForm.confirmPassword) formError.value = t('auth.register.validation.passwordMismatch')
+  else if (!/^\d{6}$/.test(registerForm.verificationCode.trim())) formError.value = t('auth.register.validation.code')
+  else if (firstName.length > 50 || lastName.length > 50) formError.value = t('auth.register.validation.nameLength')
+  else if (!registerForm.acceptedTerms) formError.value = t('auth.register.validation.terms')
   if (formError.value) return
 
   isSubmitting.value = true
@@ -167,18 +175,22 @@ async function submitRegistration() {
       const session = await authApi.login(username, registerForm.password)
       const displayName = session.user_info.first_name.trim() || session.user_info.username
       toast.add({
-        title: `Welcome to PELISSA, ${displayName}`,
-        description: 'Your account is verified and your secure session has started.',
+        title: t('auth.register.welcome', { name: displayName }),
+        description: t('auth.register.sessionStarted'),
         color: 'success'
       })
       await router.replace(redirectTarget.value)
     } catch (error: unknown) {
-      formError.value = `Your account was created, but automatic sign in failed. ${getErrorMessage(error)}`
-      toast.add({ title: 'Account created', description: 'Please sign in with your new credentials.', color: 'warning' })
+      formError.value = t('auth.register.automaticSignInFailed', { message: getErrorMessage(error) })
+      toast.add({
+        title: t('auth.register.accountCreated'),
+        description: t('auth.register.accountCreatedDescription'),
+        color: 'warning'
+      })
       await router.replace({ path: '/login', query: { redirect: redirectTarget.value } })
     }
   } catch (error: unknown) {
-    showRequestError('Account creation failed', error)
+    showRequestError(t('auth.register.creationFailed'), error)
   } finally {
     isSubmitting.value = false
   }
@@ -192,45 +204,43 @@ onBeforeUnmount(() => {
 <template>
   <main class="auth-page">
     <header class="auth-header">
-      <NuxtLink class="back-link" to="/" aria-label="Return to the Pelissa home page">
+      <NuxtLink class="back-link" to="/" :aria-label="t('auth.navigation.home')">
         <UIcon name="i-lucide-arrow-left" />
-        <span>Shop</span>
+        <span>{{ t('auth.navigation.shop') }}</span>
       </NuxtLink>
 
-      <NuxtLink class="brand" to="/" aria-label="Pelissa home">
+      <NuxtLink class="brand" to="/" :aria-label="t('auth.navigation.pelissaHome')">
         <span>PELISSA</span><i>°</i>
       </NuxtLink>
 
-      <NuxtLink class="secure-note" to="/login" aria-label="Sign in to your Pelissa account">
+      <NuxtLink class="secure-note" to="/login" :aria-label="t('auth.navigation.signInLabel')">
         <UIcon name="i-lucide-log-in" />
-        <span>Sign in</span>
+        <span>{{ t('auth.navigation.signIn') }}</span>
       </NuxtLink>
     </header>
 
     <section class="auth-layout">
-      <aside class="story-panel" aria-label="The Pelissa membership story">
+      <aside class="story-panel" :aria-label="t('auth.story.label')">
         <div class="story-shade" />
         <div class="story-number">R / 02</div>
 
         <div class="story-content">
-          <p class="eyebrow">JOIN THE CIRCLE</p>
-          <h1>A more<br><em>personal edit.</em></h1>
-          <p class="story-copy">
-            Create your Pelissa account in moments. Verify your email, and we will open the door to wishlists, faster checkout, and first access to the collections you love.
-          </p>
+          <p class="eyebrow">{{ t('auth.story.join') }}</p>
+          <h1>{{ t('auth.story.registerTitleStart') }}<br><em>{{ t('auth.story.registerTitleEmphasis') }}</em></h1>
+          <p class="story-copy">{{ t('auth.story.registerCopy') }}</p>
 
           <div class="story-benefits">
             <div>
               <span>01</span>
-              <p><strong>Your edit</strong>Wishlist and personal recommendations</p>
+              <p><strong>{{ t('auth.story.editTitle') }}</strong>{{ t('auth.story.editCopy') }}</p>
             </div>
             <div>
               <span>02</span>
-              <p><strong>Easy returns</strong>Orders and returns in one quiet place</p>
+              <p><strong>{{ t('auth.story.returnsTitle') }}</strong>{{ t('auth.story.returnsCopy') }}</p>
             </div>
             <div>
               <span>03</span>
-              <p><strong>First access</strong>New collections, before everyone else</p>
+              <p><strong>{{ t('auth.story.accessTitle') }}</strong>{{ t('auth.story.accessCopy') }}</p>
             </div>
           </div>
         </div>
@@ -239,9 +249,9 @@ onBeforeUnmount(() => {
       <div class="form-panel">
         <div class="form-frame">
           <div class="form-heading compact">
-            <p class="eyebrow">A LITTLE MORE PERSONAL</p>
-            <h2>Become<br><em>a member.</em></h2>
-            <p>Verify your email with a six-digit code and we will sign you in straight away.</p>
+            <p class="eyebrow">{{ t('auth.register.eyebrow') }}</p>
+            <h2>{{ t('auth.register.titleStart') }}<br><em>{{ t('auth.register.titleEmphasis') }}</em></h2>
+            <p>{{ t('auth.register.intro') }}</p>
           </div>
 
           <form class="auth-form register-form" @submit.prevent="submitRegistration">
@@ -252,7 +262,7 @@ onBeforeUnmount(() => {
 
             <div class="field-row">
               <label class="field">
-                <span>First name <small>Optional</small></span>
+                <span>{{ t('auth.register.firstName') }} <small>{{ t('auth.register.optional') }}</small></span>
                 <div class="field-control">
                   <input
                     v-model="registerForm.firstName"
@@ -267,7 +277,7 @@ onBeforeUnmount(() => {
               </label>
 
               <label class="field">
-                <span>Last name <small>Optional</small></span>
+                <span>{{ t('auth.register.lastName') }} <small>{{ t('auth.register.optional') }}</small></span>
                 <div class="field-control">
                   <input
                     v-model="registerForm.lastName"
@@ -283,7 +293,7 @@ onBeforeUnmount(() => {
             </div>
 
             <label class="field">
-              <span>Email address</span>
+              <span>{{ t('auth.register.email') }}</span>
               <div class="field-control">
                 <UIcon name="i-lucide-mail" />
                 <input
@@ -299,7 +309,7 @@ onBeforeUnmount(() => {
             </label>
 
             <label class="field">
-              <span>Username</span>
+              <span>{{ t('auth.register.username') }}</span>
               <div class="field-control">
                 <UIcon name="i-lucide-at-sign" />
                 <input
@@ -309,7 +319,7 @@ onBeforeUnmount(() => {
                   autocomplete="username"
                   minlength="3"
                   maxlength="50"
-                  placeholder="Choose a username"
+                  :placeholder="t('auth.register.usernamePlaceholder')"
                   :disabled="isSubmitting"
                   required
                 >
@@ -318,7 +328,7 @@ onBeforeUnmount(() => {
 
             <div class="field-row">
               <label class="field">
-                <span>Password</span>
+                <span>{{ t('auth.register.password') }}</span>
                 <div class="field-control">
                   <input
                     v-model="registerForm.password"
@@ -327,20 +337,20 @@ onBeforeUnmount(() => {
                     autocomplete="new-password"
                     minlength="8"
                     maxlength="72"
-                    placeholder="8–72 characters"
+                    :placeholder="t('auth.register.passwordPlaceholder')"
                     :disabled="isSubmitting"
                     required
                   >
                   <button
                     class="password-toggle"
                     type="button"
-                    :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                    :aria-label="showPassword ? t('auth.password.hide') : t('auth.password.show')"
                     @click="showPassword = !showPassword"
                   >
                     <UIcon :name="showPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'" />
                   </button>
                 </div>
-                <div v-if="registerForm.password" class="strength-meter" :aria-label="`Password strength: ${strengthLabel}`">
+                <div v-if="registerForm.password" class="strength-meter" :aria-label="t('auth.register.strength.label', { strength: strengthLabel })">
                   <span
                     v-for="index in 4"
                     :key="index"
@@ -351,7 +361,7 @@ onBeforeUnmount(() => {
               </label>
 
               <label class="field">
-                <span>Confirm password</span>
+                <span>{{ t('auth.register.confirmPassword') }}</span>
                 <div class="field-control">
                   <input
                     v-model="registerForm.confirmPassword"
@@ -360,14 +370,14 @@ onBeforeUnmount(() => {
                     autocomplete="new-password"
                     minlength="8"
                     maxlength="72"
-                    placeholder="Repeat password"
+                    :placeholder="t('auth.register.confirmPasswordPlaceholder')"
                     :disabled="isSubmitting"
                     required
                   >
                   <button
                     class="password-toggle"
                     type="button"
-                    :aria-label="showConfirmPassword ? 'Hide password' : 'Show password'"
+                    :aria-label="showConfirmPassword ? t('auth.password.hide') : t('auth.password.show')"
                     @click="showConfirmPassword = !showConfirmPassword"
                   >
                     <UIcon :name="showConfirmPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'" />
@@ -377,7 +387,7 @@ onBeforeUnmount(() => {
             </div>
 
             <label class="field">
-              <span>Email verification code</span>
+              <span>{{ t('auth.register.verificationCode') }}</span>
               <div class="field-control code-control">
                 <UIcon name="i-lucide-badge-check" />
                 <input
@@ -388,7 +398,7 @@ onBeforeUnmount(() => {
                   inputmode="numeric"
                   maxlength="6"
                   pattern="[0-9]{6}"
-                  placeholder="6-digit code"
+                  :placeholder="t('auth.register.verificationCodePlaceholder')"
                   :disabled="isSubmitting"
                   required
                 >
@@ -401,36 +411,36 @@ onBeforeUnmount(() => {
                   {{ codeButtonLabel }}
                 </button>
               </div>
-              <small class="field-hint">The code expires after 5 minutes and can be requested once per minute.</small>
+              <small class="field-hint">{{ t('auth.register.codeHint') }}</small>
             </label>
 
             <label class="choice-row required-choice">
               <input v-model="registerForm.acceptedTerms" type="checkbox" :disabled="isSubmitting">
               <span class="choice-box"><UIcon name="i-lucide-check" /></span>
-              <span>I agree to the Terms of Use and Privacy Policy.</span>
+              <span>{{ t('auth.register.terms') }}</span>
             </label>
 
             <label class="choice-row">
               <input v-model="registerForm.marketingConsent" type="checkbox" :disabled="isSubmitting">
               <span class="choice-box"><UIcon name="i-lucide-check" /></span>
-              <span>Send me thoughtful notes about new collections and private offers. <small>Optional</small></span>
+              <span>{{ t('auth.register.marketing') }} <small>{{ t('auth.register.optional') }}</small></span>
             </label>
 
             <button class="submit-button" type="submit" :disabled="isSubmitting">
               <span v-if="isSubmitting" class="spinner" aria-hidden="true" />
-              <span>{{ isSubmitting ? 'Creating your account...' : 'Create my account' }}</span>
+              <span>{{ isSubmitting ? t('auth.register.submitting') : t('auth.register.submit') }}</span>
               <UIcon v-if="!isSubmitting" name="i-lucide-arrow-up-right" />
             </button>
 
             <p class="mode-prompt">
-              Already part of Pelissa?
-              <NuxtLink :to="{ path: '/login', query: route.query.redirect ? { redirect: redirectTarget } : {} }">Sign in</NuxtLink>
+              {{ t('auth.register.existingMember') }}
+              <NuxtLink :to="{ path: '/login', query: route.query.redirect ? { redirect: redirectTarget } : {} }">{{ t('auth.mode.signIn') }}</NuxtLink>
             </p>
           </form>
 
           <div class="form-footer">
-            <span><UIcon name="i-lucide-lock-keyhole" /> Encrypted sign in</span>
-            <span>Need help? support@pelissa.com</span>
+            <span><UIcon name="i-lucide-lock-keyhole" /> {{ t('auth.footer.encrypted') }}</span>
+            <span>{{ t('auth.footer.help') }}</span>
           </div>
         </div>
       </div>

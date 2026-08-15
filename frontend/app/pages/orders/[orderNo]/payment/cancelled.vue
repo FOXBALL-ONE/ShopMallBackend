@@ -5,21 +5,23 @@ import { customerRequestMessage, useCustomerAccountApi } from '~/composables/use
 
 definePageMeta({ middleware: ['customer-auth'] })
 
-useHead({
-  title: 'Payment paused | Pelissa',
-  meta: [{ name: 'robots', content: 'noindex' }]
-})
-
 const route = useRoute()
 const api = useCustomerAccountApi()
 const session = useCustomerSession()
 const checkoutSession = useOrderCheckoutSession()
+const { t } = useStorefrontI18n()
+
+useHead(() => ({
+  title: t('paymentPage.cancelled.seoTitle'),
+  meta: [{ name: 'robots', content: 'noindex' }]
+}))
 
 const SUCCESS_STATUSES = new Set<CustomerOrderStatus>(['PAID', 'SHIPPED', 'DELIVERED', 'COMPLETED'])
 const orderNo = computed(() => String(route.params.orderNo || '').trim())
 const payment = ref<CustomerOrderPayment | null>(null)
 const state = ref<'loading' | 'pending' | 'closed' | 'error'>('loading')
-const message = ref('Checking the latest order status.')
+const messageKey = ref('checkingMessage')
+const requestMessage = ref('')
 const canResume = ref(false)
 const now = ref(Date.now())
 let clockTimer: ReturnType<typeof setInterval> | null = null
@@ -36,17 +38,18 @@ const remainingLabel = computed(() => {
 })
 
 const paymentWindowOpen = computed(() => state.value === 'pending' && remainingSeconds.value > 0)
+const localizedMessage = computed(() => requestMessage.value || t(`paymentPage.cancelled.${messageKey.value}`))
 const displayMessage = computed(() => paymentWindowOpen.value
-  ? message.value
+  ? localizedMessage.value
   : state.value === 'pending'
-    ? 'The payment window has closed. View your orders for the latest status.'
-    : message.value)
+    ? t('paymentPage.cancelled.closedMessage')
+    : localizedMessage.value)
 
 const pageTitle = computed(() => {
-  if (state.value === 'closed' || (state.value === 'pending' && !paymentWindowOpen.value)) return 'This order can no longer be paid.'
-  if (state.value === 'error') return 'We could not check this order.'
-  if (state.value === 'loading') return 'Checking your order.'
-  return 'Payment was not completed.'
+  if (state.value === 'closed' || (state.value === 'pending' && !paymentWindowOpen.value)) return t('paymentPage.cancelled.closedTitle')
+  if (state.value === 'error') return t('paymentPage.cancelled.errorTitle')
+  if (state.value === 'loading') return t('paymentPage.cancelled.checkingTitle')
+  return t('paymentPage.cancelled.title')
 })
 
 async function loadPayment() {
@@ -54,7 +57,7 @@ async function loadPayment() {
   if (!userId) return
   if (!orderNo.value) {
     state.value = 'error'
-    message.value = 'The order reference is missing.'
+    messageKey.value = 'missingOrder'
     return
   }
 
@@ -72,19 +75,17 @@ async function loadPayment() {
     if (result.status !== 'PENDING_PAYMENT' || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
       checkoutSession.clear(orderNo.value)
       state.value = 'closed'
-      message.value = 'No payment was captured. View your orders for the latest status.'
+      messageKey.value = 'noPayment'
       return
     }
 
     const context = checkoutSession.read()
     canResume.value = context?.orderNo === orderNo.value
     state.value = 'pending'
-    message.value = canResume.value
-      ? 'Your order is still reserved. Continue with Stripe before the payment window closes.'
-      : 'Your order is reserved, but this browser session no longer has the payment key. It will cancel automatically when the payment window closes.'
+    messageKey.value = canResume.value ? 'resumable' : 'noKey'
   } catch (error: unknown) {
     state.value = 'error'
-    message.value = customerRequestMessage(error, 'Payment status is temporarily unavailable. Please try again from your orders.')
+    requestMessage.value = customerRequestMessage(error, t('paymentPage.cancelled.unavailable'))
   }
 }
 
@@ -107,17 +108,17 @@ onBeforeUnmount(() => {
           <span class="cancelled-icon">
             <UIcon :name="state === 'loading' ? 'i-lucide-loader-circle' : state === 'pending' ? 'i-lucide-credit-card' : 'i-lucide-circle-alert'" :class="{ spinning: state === 'loading' }" />
           </span>
-          <p class="store-eyebrow">PAYMENT PAUSED / 03</p>
+          <p class="store-eyebrow">{{ t('paymentPage.cancelled.eyebrow') }}</p>
           <h1>{{ pageTitle }}</h1>
           <p>{{ displayMessage }}</p>
-          <div class="cancelled-reference"><span>Order</span><strong>{{ orderNo }}</strong></div>
-          <p v-if="paymentWindowOpen" class="cancelled-deadline">Payment window: {{ remainingLabel }}</p>
+          <div class="cancelled-reference"><span>{{ t('paymentPage.cancelled.order') }}</span><strong>{{ orderNo }}</strong></div>
+          <p v-if="paymentWindowOpen" class="cancelled-deadline">{{ t('paymentPage.cancelled.paymentWindow', { time: remainingLabel }) }}</p>
           <div class="cancelled-actions">
-            <NuxtLink v-if="paymentWindowOpen && canResume" class="primary-action" to="/checkout"><UIcon name="i-lucide-lock-keyhole" /> Return to checkout</NuxtLink>
-            <NuxtLink class="secondary-action" :to="`/orders/${encodeURIComponent(orderNo)}`">View order <UIcon name="i-lucide-arrow-right" /></NuxtLink>
+            <NuxtLink v-if="paymentWindowOpen && canResume" class="primary-action" to="/checkout"><UIcon name="i-lucide-lock-keyhole" /> {{ t('paymentPage.cancelled.returnCheckout') }}</NuxtLink>
+            <NuxtLink class="secondary-action" :to="`/orders/${encodeURIComponent(orderNo)}`">{{ t('paymentPage.cancelled.viewOrder') }} <UIcon name="i-lucide-arrow-right" /></NuxtLink>
           </div>
         </div>
-        <div class="cancelled-visual" aria-hidden="true"><span>YOUR ORDER IS HELD</span><b>P°</b></div>
+        <div class="cancelled-visual" aria-hidden="true"><span>{{ t('paymentPage.cancelled.held') }}</span><b>P°</b></div>
       </div>
     </section>
     <StoreFooter />

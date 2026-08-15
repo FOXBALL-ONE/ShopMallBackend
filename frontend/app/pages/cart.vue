@@ -2,19 +2,19 @@
 import { computed, onMounted, ref } from 'vue'
 import type { CustomerCartItem, CustomerProfile } from '~/types/customer-account'
 import { customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
-import { formatCustomerMoney } from '~/utils/customer-display'
 
 definePageMeta({ middleware: ['customer-auth'] })
-
-useHead({
-  title: 'Shopping cart | Pelissa',
-  meta: [{ name: 'description', content: 'Review the pieces in your Pelissa shopping cart.' }]
-})
 
 const api = useCustomerAccountApi()
 const session = useCustomerSession()
 const customerCart = useCustomerCart()
 const toast = useToast()
+const { formatMoney, t } = useStorefrontI18n()
+
+useHead(() => ({
+  title: t('cartPage.seoTitle'),
+  meta: [{ name: 'description', content: t('cartPage.seoDescription') }]
+}))
 
 const profile = ref<CustomerProfile | null>(null)
 const cart = customerCart.cart
@@ -27,8 +27,11 @@ const requestError = ref('')
 const currency = 'USD'
 const cartItems = computed(() => cart.value?.items || [])
 const unavailableItems = computed(() => cartItems.value.filter(item => !isPurchasable(item)))
-const cartLabel = computed(() => `${cart.value?.total_quantity || 0} ${cart.value?.total_quantity === 1 ? 'piece' : 'pieces'}`)
-const subtotalLabel = computed(() => formatCustomerMoney(cart.value?.subtotal, currency))
+const cartLabel = computed(() => {
+  const count = cart.value?.total_quantity || 0
+  return t('cartPage.pieces', count)
+})
+const subtotalLabel = computed(() => formatMoney(cart.value?.subtotal, currency))
 
 function isPurchasable(item: CustomerCartItem) {
   return Boolean(item.purchasable && item.stock > 0 && item.quantity <= item.stock)
@@ -52,8 +55,8 @@ async function updateQuantity(item: CustomerCartItem, quantity: number) {
   try {
     await customerCart.updateItem(item.id, nextQuantity)
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not update this item in your cart.')
-    toast.add({ title: 'Cart not updated', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, t('cartPage.errors.update'))
+    toast.add({ title: t('cartPage.errors.updateTitle'), description: requestError.value, color: 'error' })
   } finally {
     busyItemId.value = null
   }
@@ -65,10 +68,14 @@ async function removeItem(item: CustomerCartItem) {
   requestError.value = ''
   try {
     await customerCart.removeItem(item.id)
-    toast.add({ title: 'Removed from cart', description: `${item.name} is no longer in your shopping cart.`, color: 'success' })
+    toast.add({
+      title: t('cartPage.notices.removedTitle'),
+      description: t('cartPage.notices.removedDescription', { name: item.name }),
+      color: 'success'
+    })
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not remove this piece.')
-    toast.add({ title: 'Piece not removed', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, t('cartPage.errors.remove'))
+    toast.add({ title: t('cartPage.errors.removeTitle'), description: requestError.value, color: 'error' })
   } finally {
     busyItemId.value = null
   }
@@ -76,16 +83,20 @@ async function removeItem(item: CustomerCartItem) {
 
 async function clearCart() {
   if (isClearing.value || !cartItems.value.length) return
-  if (import.meta.client && !window.confirm('Clear every item from your shopping cart?')) return
+  if (import.meta.client && !window.confirm(t('cartPage.clearConfirm'))) return
 
   isClearing.value = true
   requestError.value = ''
   try {
     await customerCart.clear()
-    toast.add({ title: 'Cart cleared', description: 'Your shopping cart is now empty.', color: 'success' })
+    toast.add({
+      title: t('cartPage.notices.clearedTitle'),
+      description: t('cartPage.notices.clearedDescription'),
+      color: 'success'
+    })
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not clear your cart.')
-    toast.add({ title: 'Cart not cleared', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, t('cartPage.errors.clear'))
+    toast.add({ title: t('cartPage.errors.clearTitle'), description: requestError.value, color: 'error' })
   } finally {
     isClearing.value = false
   }
@@ -108,7 +119,7 @@ async function loadCart(showLoading = true) {
     ])
     profile.value = profileResult
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not load your shopping cart.')
+    requestError.value = customerRequestMessage(error, t('cartPage.errors.load'))
   } finally {
     isLoading.value = false
     isRefreshing.value = false
@@ -121,9 +132,9 @@ onMounted(() => {
 </script>
 <template>
   <CustomerAccountShell
-    eyebrow="THE CART · 04"
-    title="The pieces you kept."
-    intro="A softer pause before checkout. Revisit your edit, adjust the details, and make room for what feels right."
+    :eyebrow="t('cartPage.eyebrow')"
+    :title="t('cartPage.title')"
+    :intro="t('cartPage.intro')"
     :profile="profile"
   >
     <div v-if="isLoading" class="cart-loading" aria-live="polite">
@@ -135,22 +146,22 @@ onMounted(() => {
       <div v-if="requestError" class="account-notice account-notice-warning" role="status">
         <UIcon name="i-lucide-info" />
         <span>{{ requestError }}</span>
-        <button type="button" @click="loadCart(false)">Refresh</button>
+        <button type="button" @click="loadCart(false)">{{ t('cartPage.refresh') }}</button>
       </div>
 
       <section v-if="cartItems.length" class="cart-toolbar">
         <div>
-          <p class="store-eyebrow">YOUR CURRENT EDIT</p>
+          <p class="store-eyebrow">{{ t('cartPage.currentEdit') }}</p>
           <h2>{{ cartLabel }}</h2>
         </div>
         <div class="cart-toolbar-actions">
           <button class="refresh-button" type="button" :disabled="isRefreshing" @click="loadCart(false)">
             <UIcon :name="isRefreshing ? 'i-lucide-loader-circle' : 'i-lucide-refresh-cw'" :class="{ 'is-spinning': isRefreshing }" />
-            {{ isRefreshing ? 'Refreshing…' : 'Refresh' }}
+            {{ isRefreshing ? t('cartPage.refreshing') : t('cartPage.refresh') }}
           </button>
           <button class="text-button text-button-danger" type="button" :disabled="isClearing" @click="clearCart">
             <UIcon :name="isClearing ? 'i-lucide-loader-circle' : 'i-lucide-trash-2'" :class="{ 'is-spinning': isClearing }" />
-            {{ isClearing ? 'Clearing…' : 'Clear cart' }}
+            {{ isClearing ? t('cartPage.clearing') : t('cartPage.clear') }}
           </button>
         </div>
       </section>
@@ -159,10 +170,10 @@ onMounted(() => {
         <section class="cart-items-panel">
           <div class="cart-panel-heading">
             <div>
-              <p class="panel-kicker">01 / YOUR PIECES</p>
-              <h2>Held for you</h2>
+              <p class="panel-kicker">{{ t('cartPage.piecesSection') }}</p>
+              <h2>{{ t('cartPage.heldForYou') }}</h2>
             </div>
-            <span>{{ cartItems.length }} {{ cartItems.length === 1 ? 'line item' : 'line items' }}</span>
+            <span>{{ t('cartPage.lineItems', cartItems.length) }}</span>
           </div>
 
           <div class="cart-item-list">
@@ -172,24 +183,24 @@ onMounted(() => {
                 <span v-else>P°</span>
               </NuxtLink>
               <div class="cart-item-copy">
-                <span class="cart-item-type">{{ item.product_type || 'PELISSA PIECE' }}</span>
+                <span class="cart-item-type">{{ item.product_type || t('cartPage.productFallback') }}</span>
                 <NuxtLink :to="`/product/${item.product_id}`">
                   <h3>{{ item.name }}</h3>
                 </NuxtLink>
-                <p>{{ itemVariant(item) || 'Made for your edit' }}</p>
-                <span v-if="!isPurchasable(item)" class="unavailable-note"><UIcon name="i-lucide-circle-alert" /> {{ item.stock <= 0 ? 'Out of stock' : 'No longer available in this selection' }}</span>
-                <span v-else-if="item.stock <= 3" class="stock-note">Only {{ item.stock }} left</span>
+                <p>{{ itemVariant(item) || t('cartPage.editFallback') }}</p>
+                <span v-if="!isPurchasable(item)" class="unavailable-note"><UIcon name="i-lucide-circle-alert" /> {{ item.stock <= 0 ? t('cartPage.outOfStock') : t('cartPage.unavailableSelection') }}</span>
+                <span v-else-if="item.stock <= 3" class="stock-note">{{ t('cartPage.lowStock', { count: item.stock }) }}</span>
               </div>
               <div class="cart-item-price">
-                <span>{{ formatCustomerMoney(item.unit_price, currency) }} each</span>
-                <strong>{{ formatCustomerMoney(item.line_total, currency) }}</strong>
+                <span>{{ t('cartPage.each', { price: formatMoney(item.unit_price, currency) }) }}</span>
+                <strong>{{ formatMoney(item.line_total, currency) }}</strong>
               </div>
               <div class="quantity-control" :class="{ disabled: !isPurchasable(item) || busyItemId === item.id }">
-                <button type="button" :disabled="!isPurchasable(item) || busyItemId === item.id || item.quantity <= 1" aria-label="Decrease quantity" @click="updateQuantity(item, item.quantity - 1)"><UIcon name="i-lucide-minus" /></button>
+                <button type="button" :disabled="!isPurchasable(item) || busyItemId === item.id || item.quantity <= 1" :aria-label="t('cartPage.decrease')" @click="updateQuantity(item, item.quantity - 1)"><UIcon name="i-lucide-minus" /></button>
                 <span>{{ busyItemId === item.id ? '…' : item.quantity }}</span>
-                <button type="button" :disabled="!isPurchasable(item) || busyItemId === item.id || item.quantity >= maxQuantity(item)" aria-label="Increase quantity" @click="updateQuantity(item, item.quantity + 1)"><UIcon name="i-lucide-plus" /></button>
+                <button type="button" :disabled="!isPurchasable(item) || busyItemId === item.id || item.quantity >= maxQuantity(item)" :aria-label="t('cartPage.increase')" @click="updateQuantity(item, item.quantity + 1)"><UIcon name="i-lucide-plus" /></button>
               </div>
-              <button class="cart-remove" type="button" :disabled="busyItemId === item.id" aria-label="Remove item" @click="removeItem(item)">
+              <button class="cart-remove" type="button" :disabled="busyItemId === item.id" :aria-label="t('cartPage.remove')" @click="removeItem(item)">
                 <UIcon :name="busyItemId === item.id ? 'i-lucide-loader-circle' : 'i-lucide-x'" :class="{ 'is-spinning': busyItemId === item.id }" />
               </button>
             </article>
@@ -197,35 +208,35 @@ onMounted(() => {
 
           <div v-if="unavailableItems.length" class="cart-warning">
             <UIcon name="i-lucide-info" />
-            <span>{{ unavailableItems.length }} {{ unavailableItems.length === 1 ? 'piece is' : 'pieces are' }} currently unavailable. Remove {{ unavailableItems.length === 1 ? 'it' : 'them' }} before placing an order.</span>
+            <span>{{ t('cartPage.unavailableWarning', unavailableItems.length) }}</span>
           </div>
 
-          <NuxtLink class="continue-shopping" to="/collections/shop"><UIcon name="i-lucide-arrow-left" /> Continue shopping</NuxtLink>
+          <NuxtLink class="continue-shopping" to="/collections/shop"><UIcon name="i-lucide-arrow-left" /> {{ t('cartPage.continueShopping') }}</NuxtLink>
         </section>
 
         <aside class="cart-summary-panel">
           <div class="summary-art" aria-hidden="true">
             <div class="summary-art-image" />
-            <span>THE FINAL TOUCH</span>
+            <span>{{ t('cartPage.finalTouch') }}</span>
           </div>
           <div class="cart-summary-content">
-            <p class="panel-kicker">02 / SUMMARY</p>
-            <h2>Almost yours.</h2>
+            <p class="panel-kicker">{{ t('cartPage.summarySection') }}</p>
+            <h2>{{ t('cartPage.almostYours') }}</h2>
             <div class="summary-lines">
-              <div><span>Pieces</span><strong>{{ cart?.total_quantity || 0 }}</strong></div>
-              <div><span>Subtotal</span><strong>{{ subtotalLabel }}</strong></div>
-              <div><span>Shipping</span><strong>Calculated next</strong></div>
+              <div><span>{{ t('cartPage.piecesLabel') }}</span><strong>{{ cart?.total_quantity || 0 }}</strong></div>
+              <div><span>{{ t('cartPage.subtotal') }}</span><strong>{{ subtotalLabel }}</strong></div>
+              <div><span>{{ t('cartPage.shipping') }}</span><strong>{{ t('cartPage.shippingNext') }}</strong></div>
             </div>
-            <div class="summary-total"><span>Estimated total</span><strong>{{ subtotalLabel }}</strong></div>
+            <div class="summary-total"><span>{{ t('cartPage.estimatedTotal') }}</span><strong>{{ subtotalLabel }}</strong></div>
             <NuxtLink
               class="store-button summary-button"
               :class="{ disabled: unavailableItems.length > 0 }"
               :to="unavailableItems.length ? '/cart' : '/checkout'"
               :aria-disabled="unavailableItems.length > 0"
             >
-              <UIcon name="i-lucide-lock-keyhole" /> Secure checkout
+              <UIcon name="i-lucide-lock-keyhole" /> {{ t('cartPage.secureCheckout') }}
             </NuxtLink>
-            <p class="summary-note"><UIcon name="i-lucide-sparkles" /> Complimentary shipping on orders over $79.</p>
+            <p class="summary-note"><UIcon name="i-lucide-sparkles" /> {{ t('cartPage.shippingOffer') }}</p>
           </div>
         </aside>
       </div>
@@ -233,12 +244,12 @@ onMounted(() => {
       <section v-else class="cart-empty">
         <div class="cart-empty-art" aria-hidden="true"><span>P°</span></div>
         <div>
-          <p class="panel-kicker">A LITTLE SPACE FOR SOMETHING NEW</p>
-          <h2>Your cart is beautifully empty.</h2>
-          <p>When a piece catches your eye, save it here. Your edit will be waiting when you are ready.</p>
+          <p class="panel-kicker">{{ t('cartPage.emptyEyebrow') }}</p>
+          <h2>{{ t('cartPage.emptyTitle') }}</h2>
+          <p>{{ t('cartPage.emptyCopy') }}</p>
           <div class="cart-empty-actions">
-            <NuxtLink class="store-button" to="/collections/shop"><UIcon name="i-lucide-arrow-up-right" /> Start shopping</NuxtLink>
-            <NuxtLink class="outline-button" to="/account/profile#addresses"><UIcon name="i-lucide-map-pin" /> Add delivery details</NuxtLink>
+            <NuxtLink class="store-button" to="/collections/shop"><UIcon name="i-lucide-arrow-up-right" /> {{ t('common.actions.startShopping') }}</NuxtLink>
+            <NuxtLink class="outline-button" to="/account/profile#addresses"><UIcon name="i-lucide-map-pin" /> {{ t('cartPage.addDelivery') }}</NuxtLink>
           </div>
         </div>
       </section>

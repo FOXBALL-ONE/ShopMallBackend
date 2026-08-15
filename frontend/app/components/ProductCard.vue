@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { CatalogProduct } from '~/data/catalog'
-import { formatPrice } from '~/data/catalog'
 
 const props = withDefaults(defineProps<{
   product: CatalogProduct
@@ -10,19 +9,29 @@ const props = withDefaults(defineProps<{
   eager: false
 })
 
+const { formatMoney, t } = useStorefrontI18n()
 const isFavorite = ref(false)
 const primaryImage = computed(() => props.product.images[0] || '/lingerie/hero-corset.jpg')
 const alternateImage = computed(() => props.product.images[1] || primaryImage.value)
+const primaryImageAlt = computed(() =>
+  props.product.image_details?.find(image => image.is_primary)?.alt_text || props.product.name
+)
+const displayColor = computed(() => props.product.color
+  .split(/\s*\/\s*/)
+  .map(value => value.trim().toLocaleLowerCase().replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toLocaleUpperCase()))
+  .filter(Boolean)
+  .join(' / ')
+)
 </script>
 
 <template>
   <article class="catalog-product-card">
     <div class="catalog-product-media">
-      <NuxtLink :to="`/product/${product.id}`" :aria-label="`View ${product.name}`">
+      <NuxtLink :to="`/product/${product.id}`" :aria-label="t('productCard.viewProduct', { name: product.name })">
         <img
           class="catalog-product-image catalog-primary-image"
           :src="primaryImage"
-          :alt="product.name"
+          :alt="primaryImageAlt"
           :loading="eager ? 'eager' : 'lazy'"
           :style="{ objectPosition: product.image_positions?.[0] || 'center' }"
         >
@@ -34,14 +43,14 @@ const alternateImage = computed(() => props.product.images[1] || primaryImage.va
           :style="{ objectPosition: product.image_positions?.[1] || 'center' }"
         >
         <span v-if="product.badge" class="catalog-product-badge" :class="{ sale: product.is_sale }">{{ product.badge }}</span>
-        <span class="catalog-quick-add">View details <UIcon name="i-lucide-arrow-up-right" /></span>
+        <span class="catalog-quick-add">{{ t('productCard.viewDetails') }} <UIcon name="i-lucide-arrow-up-right" /></span>
       </NuxtLink>
 
       <button
         class="catalog-favorite"
         :class="{ active: isFavorite }"
         type="button"
-        :aria-label="`${isFavorite ? 'Remove' : 'Add'} ${product.name} ${isFavorite ? 'from' : 'to'} favorites`"
+        :aria-label="t(isFavorite ? 'productCard.removeFavorite' : 'productCard.addFavorite', { name: product.name })"
         @click="isFavorite = !isFavorite"
       >
         <UIcon :name="isFavorite ? 'i-lucide-heart' : 'i-lucide-heart'" />
@@ -52,13 +61,13 @@ const alternateImage = computed(() => props.product.images[1] || primaryImage.va
       <div class="catalog-product-heading">
         <div>
           <h3>{{ product.name }}</h3>
-          <p>{{ product.color }}</p>
+          <p>{{ displayColor }}</p>
         </div>
         <span v-if="product.score > 0" class="catalog-rating"><UIcon name="i-lucide-star" /> {{ product.score.toFixed(1) }}</span>
       </div>
       <div class="catalog-price-row">
-        <strong :class="{ sale: product.is_sale }">{{ formatPrice(product.price) }}</strong>
-        <del v-if="product.compare_at_price">{{ formatPrice(product.compare_at_price) }}</del>
+        <strong :class="{ sale: product.is_sale }">{{ formatMoney(product.price) }}</strong>
+        <del v-if="product.compare_at_price">{{ formatMoney(product.compare_at_price) }}</del>
       </div>
     </NuxtLink>
   </article>

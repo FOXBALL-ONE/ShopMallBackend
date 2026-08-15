@@ -1,5 +1,7 @@
 <script setup lang="ts">
-const { data: catalogCategories } = await useCatalogCategories()
+const {t, catalogCategoryName} = useStorefrontI18n()
+const {data: catalogCategories} = await useCatalogCategories()
+const currentYear = new Date().getFullYear()
 </script>
 
 <template>
@@ -7,46 +9,52 @@ const { data: catalogCategories } = await useCatalogCategories()
     <div class="store-container store-footer-grid">
       <div class="store-footer-brand">
         <NuxtLink class="store-footer-logo" to="/">PELISSA<i>°</i></NuxtLink>
-        <p>Modern intimates for every version of you.</p>
+        <p>{{ t('footer.tagline') }}</p>
         <div class="store-social-links">
-          <a href="#" aria-label="Instagram"><UIcon name="i-lucide-instagram" /></a>
-          <a href="#" aria-label="TikTok"><UIcon name="i-lucide-music-2" /></a>
-          <a href="#" aria-label="Pinterest"><UIcon name="i-lucide-pin" /></a>
+          <a href="#" :aria-label="t('footer.instagram')">
+            <UIcon name="i-lucide-instagram"/>
+          </a>
+          <a href="#" :aria-label="t('footer.tiktok')">
+            <UIcon name="i-lucide-music-2"/>
+          </a>
+          <a href="#" :aria-label="t('footer.pinterest')">
+            <UIcon name="i-lucide-pin"/>
+          </a>
         </div>
       </div>
 
       <div class="store-footer-column">
-        <strong>Shop</strong>
+        <strong>{{ t('footer.shop') }}</strong>
         <NuxtLink v-for="category in catalogCategories" :key="category.id" :to="`/collections/${category.code}`">
-          {{ category.name }}
+          {{ catalogCategoryName(category.code, category.name) }}
         </NuxtLink>
-        <NuxtLink to="/collections/shop">All products</NuxtLink>
+        <NuxtLink to="/collections/shop">{{ t('footer.allProducts') }}</NuxtLink>
       </div>
 
       <div class="store-footer-column">
-        <strong>Explore</strong>
-        <NuxtLink to="/collections/shop">The full collection</NuxtLink>
-        <NuxtLink to="/search">Search</NuxtLink>
-        <NuxtLink to="/announcements">Notices</NuxtLink>
-        <NuxtLink to="/product/1">Fit &amp; details</NuxtLink>
-        <NuxtLink to="/account">My account</NuxtLink>
+        <strong>{{ t('footer.explore') }}</strong>
+        <NuxtLink to="/collections/shop">{{ t('footer.fullCollection') }}</NuxtLink>
+        <NuxtLink to="/search">{{ t('footer.search') }}</NuxtLink>
+        <NuxtLink to="/announcements">{{ t('footer.notices') }}</NuxtLink>
+        <NuxtLink to="/product/1">{{ t('footer.fitDetails') }}</NuxtLink>
+        <NuxtLink to="/account">{{ t('footer.account') }}</NuxtLink>
       </div>
 
       <div class="store-footer-column">
-        <strong>Help</strong>
-        <a href="#">Shipping &amp; returns</a>
-        <NuxtLink to="/account/logistics">Track an order</NuxtLink>
-        <a href="#">Contact us</a>
-        <a href="#">FAQs</a>
+        <strong>{{ t('footer.help') }}</strong>
+        <a href="#">{{ t('footer.shippingReturns') }}</a>
+        <NuxtLink to="/account/logistics">{{ t('footer.trackOrder') }}</NuxtLink>
+        <a href="#">{{ t('footer.contact') }}</a>
+        <a href="#">{{ t('footer.faqs') }}</a>
       </div>
     </div>
 
     <div class="store-container store-footer-bottom">
-      <span>© 2026 Pelissa. All rights reserved.</span>
+      <span>{{ t('footer.rights', {year: currentYear}) }}</span>
       <div>
-        <a href="#">Privacy</a>
-        <a href="#">Terms</a>
-        <button type="button">United States / USD <UIcon name="i-lucide-chevron-down" /></button>
+        <a href="#">{{ t('footer.privacy') }}</a>
+        <a href="#">{{ t('footer.terms') }}</a>
+        <span>{{ t('common.region') }} / USD</span>
       </div>
     </div>
   </footer>

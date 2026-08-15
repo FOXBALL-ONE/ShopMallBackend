@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import {computed, onMounted, ref, watch} from 'vue'
 
 const route = useRoute()
 const router = useRouter()
 const session = useCustomerSession()
 const customerCart = useCustomerCart()
 const announcementCenter = useAnnouncementCenter()
-const { data: catalogCategories } = await useCatalogCategories()
+const {t, catalogCategoryName} = useStorefrontI18n()
+const {data: catalogCategories} = await useCatalogCategories()
 const navItems = computed(() => [
-  ...catalogCategories.value.map(category => ({ label: category.name, to: `/collections/${category.code}` })),
-  { label: 'Shop all', to: '/collections/shop' }
+  ...catalogCategories.value.map(category => ({
+    label: catalogCategoryName(category.code, category.name),
+    to: `/collections/${category.code}`
+  })),
+  {label: t('catalog.categories.shop'), to: '/collections/shop'}
 ])
 
 const isMenuOpen = ref(false)
@@ -19,10 +23,10 @@ const searchInput = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const cartCount = computed(() => customerCart.totalQuantity.value)
 
 watch(
-  () => route.query.q,
-  value => {
-    searchInput.value = typeof value === 'string' ? value : ''
-  }
+    () => route.query.q,
+    value => {
+      searchInput.value = typeof value === 'string' ? value : ''
+    }
 )
 
 function toggleMenu() {
@@ -54,7 +58,7 @@ function toggleCart() {
 async function submitSearch() {
   const q = searchInput.value.trim()
   isSearchOpen.value = false
-  await router.push({ path: '/search', query: q ? { q } : {} })
+  await router.push({path: '/search', query: q ? {q} : {}})
 }
 
 onMounted(() => {
@@ -71,44 +75,49 @@ watch(() => session.userId.value, userId => {
   <div class="store-header-wrap">
     <header class="store-header">
       <div class="store-utility store-container">
-        <span><UIcon name="i-lucide-map-pin" /> United States</span>
-        <span>USD <UIcon name="i-lucide-chevron-down" /></span>
+        <span><UIcon name="i-lucide-map-pin"/> {{ t('common.region') }}</span>
+        <span>USD</span>
+        <StoreLocaleSwitcher/>
         <NuxtLink class="store-notices" to="/announcements">
-          <UIcon name="i-lucide-megaphone" /> Notices
+          <UIcon name="i-lucide-megaphone"/>
+          {{ t('header.notices') }}
           <b v-if="announcementCenter.currentCount.value">
             {{ announcementCenter.currentCount.value >= 50 ? '50+' : announcementCenter.currentCount.value }}
           </b>
         </NuxtLink>
-        <NuxtLink class="store-help" to="/search">Help</NuxtLink>
+        <NuxtLink class="store-help" to="/search">{{ t('header.help') }}</NuxtLink>
       </div>
 
       <div class="store-brand-row store-container">
-        <button class="store-icon-button store-mobile-menu" type="button" aria-label="Toggle navigation" @click="toggleMenu">
-          <UIcon :name="isMenuOpen ? 'i-lucide-x' : 'i-lucide-menu'" />
+        <button class="store-icon-button store-mobile-menu" type="button" :aria-label="t('header.toggleNavigation')"
+                @click="toggleMenu">
+          <UIcon :name="isMenuOpen ? 'i-lucide-x' : 'i-lucide-menu'"/>
         </button>
 
-        <NuxtLink class="store-brand" to="/" aria-label="Pelissa home">
+        <NuxtLink class="store-brand" to="/" :aria-label="t('header.home')">
           PELISSA<i>°</i>
         </NuxtLink>
 
         <div class="store-header-actions">
-          <button class="store-icon-button" type="button" aria-label="Search products" @click="toggleSearch">
-            <UIcon name="i-lucide-search" />
+          <button class="store-icon-button" type="button" :aria-label="t('header.searchProducts')"
+                  @click="toggleSearch">
+            <UIcon name="i-lucide-search"/>
           </button>
-          <NuxtLink class="store-icon-button store-account-link" to="/account" aria-label="My account">
-            <UIcon name="i-lucide-user-round" />
+          <NuxtLink class="store-icon-button store-account-link" to="/account" :aria-label="t('header.account')">
+            <UIcon name="i-lucide-user-round"/>
           </NuxtLink>
-          <button class="store-icon-button store-cart-button" type="button" aria-label="Shopping cart" @click="toggleCart">
-            <UIcon name="i-lucide-shopping-cart" />
+          <button class="store-icon-button store-cart-button" type="button" :aria-label="t('header.cart')"
+                  @click="toggleCart">
+            <UIcon name="i-lucide-shopping-cart"/>
             <span v-if="cartCount">{{ cartCount > 99 ? '99+' : cartCount }}</span>
           </button>
         </div>
       </div>
 
-      <nav class="store-main-nav" :class="{ 'is-open': isMenuOpen }" aria-label="Main navigation">
+      <nav class="store-main-nav" :class="{ 'is-open': isMenuOpen }" :aria-label="t('header.mainNavigation')">
         <NuxtLink class="store-mobile-account-nav" to="/account" @click="isMenuOpen = false">
-          <UIcon name="i-lucide-user-round" />
-          My account
+          <UIcon name="i-lucide-user-round"/>
+          {{ t('header.account') }}
         </NuxtLink>
         <NuxtLink v-for="item in navItems" :key="item.to" :to="item.to" @click="isMenuOpen = false">
           {{ item.label }}
@@ -116,20 +125,24 @@ watch(() => session.userId.value, userId => {
       </nav>
 
       <form v-if="isSearchOpen" class="store-search-panel" role="search" @submit.prevent="submitSearch">
-        <UIcon name="i-lucide-search" />
-        <label class="store-sr-only" for="store-header-search">Search products</label>
+        <UIcon name="i-lucide-search"/>
+        <label class="store-sr-only" for="store-header-search">{{ t('header.searchProducts') }}</label>
         <input
-          id="store-header-search"
-          v-model="searchInput"
-          type="search"
-          placeholder="Search lace, swim, lounge..."
-          autofocus
+            id="store-header-search"
+            v-model="searchInput"
+            type="search"
+            :placeholder="t('header.searchPlaceholder')"
+            autofocus
         >
-        <button type="submit" aria-label="Submit search"><UIcon name="i-lucide-arrow-right" /></button>
-        <button type="button" aria-label="Close search" @click="isSearchOpen = false"><UIcon name="i-lucide-x" /></button>
+        <button type="submit" :aria-label="t('header.submitSearch')">
+          <UIcon name="i-lucide-arrow-right"/>
+        </button>
+        <button type="button" :aria-label="t('header.closeSearch')" @click="isSearchOpen = false">
+          <UIcon name="i-lucide-x"/>
+        </button>
       </form>
 
-      <StoreCartPopover v-if="isCartOpen" @close="isCartOpen = false" />
+      <StoreCartPopover v-if="isCartOpen" @close="isCartOpen = false"/>
     </header>
   </div>
 </template>

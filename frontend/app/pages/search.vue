@@ -6,6 +6,7 @@ import { collectionMeta, collectionNavigation } from '~/data/catalog'
 const route = useRoute()
 const router = useRouter()
 const catalogApi = useCatalogApi()
+const { catalogCategoryName, t } = useStorefrontI18n()
 const { data: products } = await useAsyncData('search-catalog-products', () => catalogApi.listProducts(), { default: () => [] })
 
 const queryInput = ref(typeof route.query.q === 'string' ? route.query.q : '')
@@ -73,9 +74,11 @@ function resetSearch() {
 }
 
 useHead(() => ({
-  title: submittedQuery.value ? `Search: ${submittedQuery.value} | Pelissa` : 'Search | Pelissa',
+  title: submittedQuery.value
+    ? t('catalogPage.search.seoQueryTitle', { query: submittedQuery.value })
+    : t('catalogPage.search.seoTitle'),
   meta: [
-    { name: 'description', content: 'Search the Pelissa lingerie, lounge and swim collection.' }
+    { name: 'description', content: t('catalogPage.search.seoDescription') }
   ]
 }))
 </script>
@@ -86,20 +89,20 @@ useHead(() => ({
 
     <section class="search-hero">
       <div class="store-container search-hero-inner">
-        <p class="store-eyebrow">FIND YOUR PELISSA</p>
-        <h1>Search the collection.</h1>
-        <p>Try a mood, fabric, color, or silhouette—lace, satin, swim, lounge, black...</p>
+        <p class="store-eyebrow">{{ t('catalogPage.search.eyebrow') }}</p>
+        <h1>{{ t('catalogPage.search.title') }}</h1>
+        <p>{{ t('catalogPage.search.intro') }}</p>
         <form class="search-main-form" role="search" @submit.prevent="submitSearch">
           <UIcon name="i-lucide-search" />
-          <label class="store-sr-only" for="catalog-search">Search the Pelissa catalog</label>
+          <label class="store-sr-only" for="catalog-search">{{ t('catalogPage.search.label') }}</label>
           <input
             id="catalog-search"
             v-model="queryInput"
             type="search"
-            placeholder="What are you looking for?"
+            :placeholder="t('catalogPage.search.placeholder')"
             autofocus
           >
-          <button type="submit">Search <UIcon name="i-lucide-arrow-right" /></button>
+          <button type="submit">{{ t('catalogPage.search.submit') }} <UIcon name="i-lucide-arrow-right" /></button>
         </form>
       </div>
     </section>
@@ -107,18 +110,18 @@ useHead(() => ({
     <section class="search-results store-container">
       <div class="search-results-heading">
         <div>
-          <p class="store-eyebrow">{{ submittedQuery ? 'SEARCH RESULTS' : 'EXPLORE EVERYTHING' }}</p>
-          <h2 v-if="submittedQuery">Results for “{{ submittedQuery }}”</h2>
-          <h2 v-else>All Pelissa pieces</h2>
-          <span>{{ searchResults.length }} matches</span>
+          <p class="store-eyebrow">{{ submittedQuery ? t('catalogPage.search.resultsEyebrow') : t('catalogPage.search.exploreEyebrow') }}</p>
+          <h2 v-if="submittedQuery">{{ t('catalogPage.search.resultsFor', { query: submittedQuery }) }}</h2>
+          <h2 v-else>{{ t('catalogPage.search.allPieces') }}</h2>
+          <span>{{ t('catalogPage.search.matches', searchResults.length) }}</span>
         </div>
-        <p>Search covers the backend product name, color, description, tags, fit notes, highlights, and design details.</p>
+        <p>{{ t('catalogPage.search.coverage') }}</p>
       </div>
 
       <div class="search-toolbar">
-        <div class="search-collection-filter" aria-label="Filter search by collection">
+        <div class="search-collection-filter" :aria-label="t('catalogPage.search.filterLabel')">
           <button :class="{ active: collectionFilter === 'all' }" type="button" @click="collectionFilter = 'all'">
-            All
+            {{ t('catalogPage.search.all') }}
           </button>
           <button
             v-for="item in collectionNavigation.filter(item => item.slug !== 'shop')"
@@ -127,18 +130,18 @@ useHead(() => ({
             type="button"
             @click="collectionFilter = item.slug"
           >
-            {{ item.label }}
+            {{ catalogCategoryName(item.slug, item.englishLabel) }}
           </button>
         </div>
 
         <label class="search-sort">
-          <span>Sort</span>
+          <span>{{ t('catalogPage.sort.label') }}</span>
           <select v-model="sortBy">
-            <option value="relevance">Relevance</option>
-            <option value="newest">Newest</option>
-            <option value="best-selling">Best selling</option>
-            <option value="price-low">Price: low to high</option>
-            <option value="price-high">Price: high to low</option>
+            <option value="relevance">{{ t('catalogPage.sort.relevance') }}</option>
+            <option value="newest">{{ t('catalogPage.sort.newest') }}</option>
+            <option value="best-selling">{{ t('catalogPage.sort.bestSelling') }}</option>
+            <option value="price-low">{{ t('catalogPage.sort.priceLow') }}</option>
+            <option value="price-high">{{ t('catalogPage.sort.priceHigh') }}</option>
           </select>
           <UIcon name="i-lucide-chevron-down" />
         </label>
@@ -155,25 +158,25 @@ useHead(() => ({
 
       <div v-else class="search-empty">
         <span class="search-empty-icon"><UIcon name="i-lucide-search-x" /></span>
-        <p class="store-eyebrow">NOTHING FOUND</p>
-        <h2>No match for “{{ submittedQuery }}”</h2>
-        <p>Check the spelling, try “lace” or “swim”, or browse one of the edits below.</p>
-        <button class="store-button" type="button" @click="resetSearch">Clear search</button>
+        <p class="store-eyebrow">{{ t('catalogPage.search.emptyEyebrow') }}</p>
+        <h2>{{ t('catalogPage.search.noMatch', { query: submittedQuery }) }}</h2>
+        <p>{{ t('catalogPage.search.emptyCopy') }}</p>
+        <button class="store-button" type="button" @click="resetSearch">{{ t('catalogPage.search.clear') }}</button>
       </div>
     </section>
 
     <section class="search-discover">
       <div class="store-container">
         <div class="search-discover-heading">
-          <p class="store-eyebrow">NOT SURE WHERE TO START?</p>
-          <h2>Shop by mood.</h2>
+          <p class="store-eyebrow">{{ t('catalogPage.search.discoverEyebrow') }}</p>
+          <h2>{{ t('catalogPage.search.discoverTitle') }}</h2>
         </div>
         <div class="search-discover-grid">
           <NuxtLink v-for="collection in popularCollections" :key="collection.slug" :to="`/collections/${collection.slug}`">
-            <img :src="collection.image" :alt="collection.englishLabel" :style="{ objectPosition: collection.position }">
+            <img :src="collection.image" :alt="catalogCategoryName(collection.slug, collection.englishLabel)" :style="{ objectPosition: collection.position }">
             <div>
-              <span>{{ collection.label }}</span>
-              <strong>{{ collection.englishLabel }}</strong>
+              <span>PELISSA</span>
+              <strong>{{ catalogCategoryName(collection.slug, collection.englishLabel) }}</strong>
               <UIcon name="i-lucide-arrow-up-right" />
             </div>
           </NuxtLink>

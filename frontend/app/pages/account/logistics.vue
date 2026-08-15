@@ -3,19 +3,19 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { CustomerOrder, CustomerProfile, CustomerShipment } from '~/types/customer-account'
 import { customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
 import {
-  customerStatusLabel,
   customerStatusTone,
-  formatCustomerDate,
   orderItemCount,
   parseProductSnapshot
 } from '~/utils/customer-display'
 
 definePageMeta({ middleware: ['customer-auth'] })
 
-useHead({
-  title: 'Delivery tracking | Pelissa',
-  meta: [{ name: 'description', content: 'Follow your Pelissa deliveries with live shipment updates and tracking history.' }]
-})
+const { formatDate, orderStatusLabel, t } = useStorefrontI18n()
+
+useHead(() => ({
+  title: t('accountLogistics.seoTitle'),
+  meta: [{ name: 'description', content: t('accountLogistics.seoDescription') }]
+}))
 
 const api = useCustomerAccountApi()
 const session = useCustomerSession()
@@ -63,17 +63,13 @@ const sortedTracks = computed(() => [...(selectedShipment.value?.tracks || [])].
 const availableOrders = computed(() => orders.value.filter(order => !['CANCELLED', 'DELETED'].includes(order.status)))
 
 function orderLabel(order: CustomerOrder) {
-  return `${order.order_no} · ${orderItemCount(order.items)} ${orderItemCount(order.items) === 1 ? 'piece' : 'pieces'}`
-}
-
-function shipmentLabel(shipment: CustomerShipment) {
-  return shipment.tracking_no || shipment.shipment_no
+  return `${order.order_no} · ${t('accountLogistics.pieces', orderItemCount(order.items))}`
 }
 
 function shipmentDestination(order: CustomerOrder | null) {
-  if (!order) return 'Delivery details on file'
+  if (!order) return t('accountLogistics.destinationFallback')
   const address = order.shipping_address
-  return [address.city, address.state_or_province, address.country].filter(Boolean).join(', ') || 'Delivery details on file'
+  return [address.city, address.state_or_province, address.country].filter(Boolean).join(', ') || t('accountLogistics.destinationFallback')
 }
 
 async function selectOrder(orderNo: string) {
@@ -93,7 +89,7 @@ async function selectShipment(shipment: CustomerShipment, fetchDetail = true) {
   } catch (error: unknown) {
     // The list response already contains a useful timeline; retain it when a
     // detail refresh is temporarily unavailable.
-    requestError.value = customerRequestMessage(error, 'The latest tracking details are not available right now.')
+    requestError.value = customerRequestMessage(error, t('accountLogistics.errors.latest'))
   } finally {
     isLoadingDetail.value = false
   }
@@ -116,7 +112,7 @@ async function loadShipmentsForOrders(orderList: CustomerOrder[]) {
   isLoadingShipments.value = false
 
   if (!shipments.value.length && candidates.length && results.every(result => result.status === 'rejected')) {
-    requestError.value = 'We could not reach the carrier service just now. Try refreshing in a moment.'
+    requestError.value = t('accountLogistics.errors.carrier')
   }
 }
 
@@ -141,13 +137,13 @@ async function loadLogistics() {
       try {
         orders.value.unshift(await api.getOrder(requestedOrderNo.value))
       } catch (error: unknown) {
-        requestError.value = customerRequestMessage(error, 'We could not open the requested order, so your recent delivery history is shown instead.')
+        requestError.value = customerRequestMessage(error, t('accountLogistics.errors.requestedOrder'))
       }
     }
 
     await loadShipmentsForOrders(orders.value)
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not load your delivery history.')
+    requestError.value = customerRequestMessage(error, t('accountLogistics.errors.load'))
   } finally {
     isLoading.value = false
   }
@@ -158,7 +154,7 @@ async function lookupTracking() {
   const trackingNo = lookupForm.trackingNo.trim()
   lookupError.value = ''
   if (!carrier || !trackingNo) {
-    lookupError.value = 'Enter both a carrier code and a tracking number.'
+    lookupError.value = t('accountLogistics.errors.lookupRequired')
     return
   }
 
@@ -177,7 +173,7 @@ async function lookupTracking() {
     }
     await selectShipment(result, false)
   } catch (error: unknown) {
-    lookupError.value = customerRequestMessage(error, 'We could not find that shipment. Check the carrier code and tracking number.')
+    lookupError.value = customerRequestMessage(error, t('accountLogistics.errors.lookup'))
   } finally {
     lookupLoading.value = false
   }
@@ -193,9 +189,9 @@ onMounted(() => {
 </script>
 <template>
   <CustomerAccountShell
-    eyebrow="THE DELIVERY JOURNAL · 05"
-    title="Know where it is."
-    intro="From the first label scan to the moment it arrives, keep the journey of every dispatched piece close."
+    :eyebrow="t('accountLogistics.eyebrow')"
+    :title="t('accountLogistics.title')"
+    :intro="t('accountLogistics.intro')"
     :profile="profile"
   >
     <div v-if="isLoading" class="logistics-loading" aria-live="polite">
@@ -207,24 +203,24 @@ onMounted(() => {
       <div v-if="requestError" class="account-notice account-notice-warning" role="status">
         <UIcon name="i-lucide-info" />
         <span>{{ requestError }}</span>
-        <button type="button" @click="loadLogistics">Refresh</button>
+        <button type="button" @click="loadLogistics">{{ t('accountLogistics.refresh') }}</button>
       </div>
 
       <section class="logistics-order-picker">
         <div>
-          <p class="store-eyebrow">CHOOSE A JOURNEY</p>
-          <h2>{{ selectedOrder ? `Order ${selectedOrder.order_no}` : 'Your dispatched pieces' }}</h2>
-          <p>{{ selectedOrder ? `${orderItemCount(selectedOrder.items)} ${orderItemCount(selectedOrder.items) === 1 ? 'piece' : 'pieces'} · ${shipmentDestination(selectedOrder)}` : 'Select an order below to see its latest carrier updates.' }}</p>
+          <p class="store-eyebrow">{{ t('accountLogistics.chooseJourney') }}</p>
+          <h2>{{ selectedOrder ? t('accountLogistics.order', { orderNo: selectedOrder.order_no }) : t('accountLogistics.dispatchedPieces') }}</h2>
+          <p>{{ selectedOrder ? t('accountLogistics.selectedSummary', { count: t('accountLogistics.pieces', orderItemCount(selectedOrder.items)), destination: shipmentDestination(selectedOrder) }) : t('accountLogistics.selectOrderCopy') }}</p>
         </div>
         <label v-if="availableOrders.length" class="order-select-label">
-          <span>ORDER</span>
+          <span>{{ t('accountLogistics.orderLabel') }}</span>
           <select :value="selectedOrder?.order_no || requestedOrderNo" @change="selectOrder(($event.target as HTMLSelectElement).value)">
             <option v-for="order in availableOrders" :key="order.order_no" :value="order.order_no">{{ orderLabel(order) }}</option>
           </select>
         </label>
       </section>
 
-      <nav v-if="availableOrders.length > 1" class="order-journal-nav" aria-label="Orders with delivery history">
+      <nav v-if="availableOrders.length > 1" class="order-journal-nav" :aria-label="t('accountLogistics.orderHistory')">
         <button
           v-for="order in availableOrders"
           :key="order.order_no"
@@ -233,7 +229,7 @@ onMounted(() => {
           @click="selectOrder(order.order_no)"
         >
           <span>{{ order.order_no }}</span>
-          <small>{{ formatCustomerDate(order.created_at) }}</small>
+          <small>{{ formatDate(order.created_at) }}</small>
         </button>
       </nav>
 
@@ -244,8 +240,8 @@ onMounted(() => {
       <template v-else-if="selectedShipment">
         <section v-if="selectedOrderShipments.length > 1" class="shipment-selector-panel">
           <div>
-            <p class="panel-kicker">AVAILABLE SHIPMENTS</p>
-            <h2>This order is arriving in {{ selectedOrderShipments.length }} parts.</h2>
+            <p class="panel-kicker">{{ t('accountLogistics.availableShipments') }}</p>
+            <h2>{{ t('accountLogistics.arrivingParts', { count: selectedOrderShipments.length }) }}</h2>
           </div>
           <div class="shipment-chips">
             <button
@@ -256,7 +252,7 @@ onMounted(() => {
               @click="selectShipment(shipment)"
             >
               <span>{{ shipment.shipment_no }}</span>
-              <small>{{ customerStatusLabel(shipment.status) }}</small>
+              <small>{{ orderStatusLabel(shipment.status) }}</small>
             </button>
           </div>
         </section>
@@ -264,26 +260,26 @@ onMounted(() => {
         <section class="shipment-hero-card">
           <div class="shipment-hero-top">
             <div>
-              <span class="shipment-eyebrow">SHIPMENT {{ selectedShipment.shipment_no }}</span>
-              <h2>{{ customerStatusLabel(selectedShipment.status) }}</h2>
+              <span class="shipment-eyebrow">{{ t('accountLogistics.shipment', { shipmentNo: selectedShipment.shipment_no }) }}</span>
+              <h2>{{ orderStatusLabel(selectedShipment.status) }}</h2>
               <p v-if="selectedShipment.last_track_status">{{ selectedShipment.last_track_status }}<span v-if="selectedShipment.last_track_location"> · {{ selectedShipment.last_track_location }}</span></p>
-              <p v-else>{{ selectedShipment.tracking_no ? 'Your carrier has the details.' : 'The carrier label is being prepared.' }}</p>
+              <p v-else>{{ selectedShipment.tracking_no ? t('accountLogistics.carrierHasDetails') : t('accountLogistics.labelPreparing') }}</p>
             </div>
-            <span class="status-pill" :class="`tone-${customerStatusTone(selectedShipment.status)}`">{{ selectedShipment.status.replaceAll('_', ' ') }}</span>
+            <span class="status-pill" :class="`tone-${customerStatusTone(selectedShipment.status)}`">{{ orderStatusLabel(selectedShipment.status) }}</span>
           </div>
-          <div class="shipment-progress" aria-label="Delivery progress">
+          <div class="shipment-progress" :aria-label="t('accountLogistics.deliveryProgress')">
             <div class="shipment-progress-line"><span :style="{ width: `${shipmentProgress}%` }" /></div>
             <div class="shipment-progress-points">
-              <span :class="{ active: shipmentProgress >= 10 }">Label</span>
-              <span :class="{ active: shipmentProgress >= 55 }">In transit</span>
-              <span :class="{ active: shipmentProgress >= 82 }">Out for delivery</span>
-              <span :class="{ active: shipmentProgress >= 100 }">Delivered</span>
+              <span :class="{ active: shipmentProgress >= 10 }">{{ t('accountLogistics.progressLabel') }}</span>
+              <span :class="{ active: shipmentProgress >= 55 }">{{ t('accountLogistics.progressTransit') }}</span>
+              <span :class="{ active: shipmentProgress >= 82 }">{{ t('accountLogistics.progressDelivery') }}</span>
+              <span :class="{ active: shipmentProgress >= 100 }">{{ t('accountLogistics.progressDelivered') }}</span>
             </div>
           </div>
           <div class="shipment-reference-row">
-            <div><span>CARRIER</span><strong>{{ selectedShipment.carrier || 'Carrier pending' }}</strong></div>
-            <div><span>TRACKING NUMBER</span><strong>{{ selectedShipment.tracking_no || 'Not assigned yet' }}</strong></div>
-            <a v-if="selectedShipment.tracking_url" :href="selectedShipment.tracking_url" target="_blank" rel="noreferrer">Open carrier site <UIcon name="i-lucide-arrow-up-right" /></a>
+            <div><span>{{ t('accountLogistics.carrier') }}</span><strong>{{ selectedShipment.carrier || t('accountLogistics.carrierPending') }}</strong></div>
+            <div><span>{{ t('accountLogistics.trackingNumber') }}</span><strong>{{ selectedShipment.tracking_no || t('accountLogistics.notAssigned') }}</strong></div>
+            <a v-if="selectedShipment.tracking_url" :href="selectedShipment.tracking_url" target="_blank" rel="noreferrer">{{ t('accountLogistics.openCarrier') }} <UIcon name="i-lucide-arrow-up-right" /></a>
           </div>
         </section>
 
@@ -291,8 +287,8 @@ onMounted(() => {
           <div class="tracking-panel">
             <div class="panel-heading-row">
               <div>
-                <p class="panel-kicker">01 / MOVEMENT</p>
-                <h2>Tracking history</h2>
+                <p class="panel-kicker">{{ t('accountLogistics.movementKicker') }}</p>
+                <h2>{{ t('accountLogistics.trackingHistory') }}</h2>
               </div>
               <UIcon v-if="isLoadingDetail" class="is-spinning panel-loading-icon" name="i-lucide-loader-circle" />
             </div>
@@ -301,38 +297,38 @@ onMounted(() => {
                 <div class="tracking-event-rail"><span :class="{ current: index === 0 }" /></div>
                 <div class="tracking-event-copy">
                   <div class="tracking-event-top">
-                    <strong>{{ customerStatusLabel(track.normalized_status || track.status_code) }}</strong>
-                    <time>{{ formatCustomerDate(track.occurred_at, true) }}</time>
+                    <strong>{{ orderStatusLabel(track.normalized_status || track.status_code) }}</strong>
+                    <time>{{ formatDate(track.occurred_at, 'long') }}</time>
                   </div>
-                  <p>{{ track.description || 'Carrier update received.' }}</p>
+                  <p>{{ track.description || t('accountLogistics.carrierUpdate') }}</p>
                   <span v-if="track.location"><UIcon name="i-lucide-map-pin" /> {{ track.location }}</span>
                 </div>
               </article>
             </div>
-            <div v-else class="tracking-empty"><UIcon name="i-lucide-hourglass" /><p>Tracking scans will appear here as soon as the carrier receives the parcel.</p></div>
+            <div v-else class="tracking-empty"><UIcon name="i-lucide-hourglass" /><p>{{ t('accountLogistics.noScans') }}</p></div>
           </div>
 
           <aside class="shipment-side-column">
             <div class="shipment-info-card">
-              <p class="panel-kicker">02 / DESTINATION</p>
-              <h3>{{ selectedOrder?.shipping_address.name || 'Your delivery' }}</h3>
+              <p class="panel-kicker">{{ t('accountLogistics.destinationKicker') }}</p>
+              <h3>{{ selectedOrder?.shipping_address.name || t('accountLogistics.yourDelivery') }}</h3>
               <p v-if="selectedOrder">{{ selectedOrder.shipping_address.phone }}</p>
               <p v-if="selectedOrder" class="shipment-address">{{ [selectedOrder.shipping_address.address1, selectedOrder.shipping_address.address2, selectedOrder.shipping_address.city, selectedOrder.shipping_address.state_or_province, selectedOrder.shipping_address.postal_code, selectedOrder.shipping_address.country].filter(Boolean).join(', ') }}</p>
-              <NuxtLink to="/account/profile#addresses">Manage addresses <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
+              <NuxtLink to="/account/profile#addresses">{{ t('accountLogistics.manageAddresses') }} <UIcon name="i-lucide-arrow-up-right" /></NuxtLink>
             </div>
 
             <div class="shipment-info-card shipment-items-card">
-              <p class="panel-kicker">03 / IN THIS PARCEL</p>
+              <p class="panel-kicker">{{ t('accountLogistics.parcelKicker') }}</p>
               <div v-if="selectedShipment.items.length" class="shipment-item-list">
                 <div v-for="item in selectedShipment.items" :key="item.order_item_id" class="shipment-item-row">
                   <div class="shipment-item-mark">{{ String(item.quantity).padStart(2, '0') }}</div>
                   <div>
                     <strong>{{ parseProductSnapshot(item.product_snapshot).name }}</strong>
-                    <span>{{ customerStatusLabel(item.allocation_status) }}</span>
+                    <span>{{ orderStatusLabel(item.allocation_status) }}</span>
                   </div>
                 </div>
               </div>
-              <p v-else class="side-muted">Item allocation is still being prepared.</p>
+              <p v-else class="side-muted">{{ t('accountLogistics.allocationPending') }}</p>
             </div>
           </aside>
         </section>
@@ -341,25 +337,25 @@ onMounted(() => {
       <section v-else class="logistics-empty">
         <div class="logistics-empty-art" aria-hidden="true"><span>05</span></div>
         <div>
-          <p class="panel-kicker">THE JOURNEY HAS NOT STARTED</p>
-          <h2>No shipments to trace yet.</h2>
-          <p>Once an order leaves our studio, its carrier updates will unfold here. You can also look up a shipment directly below.</p>
-          <NuxtLink class="store-button" to="/account/orders"><UIcon name="i-lucide-receipt-text" /> View your orders</NuxtLink>
+          <p class="panel-kicker">{{ t('accountLogistics.emptyEyebrow') }}</p>
+          <h2>{{ t('accountLogistics.emptyTitle') }}</h2>
+          <p>{{ t('accountLogistics.emptyCopy') }}</p>
+          <NuxtLink class="store-button" to="/account/orders"><UIcon name="i-lucide-receipt-text" /> {{ t('accountLogistics.viewOrders') }}</NuxtLink>
         </div>
       </section>
 
       <section class="tracking-lookup-panel">
         <div>
-          <p class="panel-kicker">DIRECT LOOKUP</p>
-          <h2>Have a tracking number?</h2>
-          <p>Use the carrier code and tracking number from your dispatch email.</p>
+          <p class="panel-kicker">{{ t('accountLogistics.lookupEyebrow') }}</p>
+          <h2>{{ t('accountLogistics.lookupTitle') }}</h2>
+          <p>{{ t('accountLogistics.lookupCopy') }}</p>
         </div>
         <form class="tracking-lookup-form" @submit.prevent="lookupTracking">
-          <label class="field-label"><span>Carrier code</span><input v-model="lookupForm.carrier" type="text" placeholder="ups, fedex, usps…" autocomplete="off"></label>
-          <label class="field-label"><span>Tracking number</span><input v-model="lookupForm.trackingNo" type="text" placeholder="Enter tracking number" autocomplete="off"></label>
+          <label class="field-label"><span>{{ t('accountLogistics.carrierCode') }}</span><input v-model="lookupForm.carrier" type="text" :placeholder="t('accountLogistics.carrierPlaceholder')" autocomplete="off"></label>
+          <label class="field-label"><span>{{ t('accountLogistics.trackingNumber') }}</span><input v-model="lookupForm.trackingNo" type="text" :placeholder="t('accountLogistics.trackingPlaceholder')" autocomplete="off"></label>
           <button class="store-button" type="submit" :disabled="lookupLoading">
             <UIcon :name="lookupLoading ? 'i-lucide-loader-circle' : 'i-lucide-search'" :class="{ 'is-spinning': lookupLoading }" />
-            {{ lookupLoading ? 'Looking up…' : 'Find shipment' }}
+            {{ lookupLoading ? t('accountLogistics.lookingUp') : t('accountLogistics.findShipment') }}
           </button>
           <div v-if="lookupError" class="inline-error"><UIcon name="i-lucide-circle-alert" /> {{ lookupError }}</div>
         </form>

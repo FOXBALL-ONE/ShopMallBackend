@@ -13,14 +13,9 @@ import {
   customerRequestMessage,
   useCustomerAccountApi
 } from '~/composables/useCustomerAccountApi'
-import { formatAddressLine, formatCustomerMoney, parseProductSnapshot } from '~/utils/customer-display'
+import { formatAddressLine, parseProductSnapshot } from '~/utils/customer-display'
 
 definePageMeta({ middleware: ['customer-auth'] })
-
-useHead({
-  title: 'Secure checkout | Pelissa',
-  meta: [{ name: 'description', content: 'Confirm delivery and complete your Pelissa order.' }]
-})
 
 type CheckoutLine = {
   key: string
@@ -38,6 +33,12 @@ const api = useCustomerAccountApi()
 const session = useCustomerSession()
 const checkoutSession = useOrderCheckoutSession()
 const toast = useToast()
+const { formatMoney, t } = useStorefrontI18n()
+
+useHead(() => ({
+  title: t('checkoutPage.seoTitle'),
+  meta: [{ name: 'description', content: t('checkoutPage.seoDescription') }]
+}))
 
 const cart = ref<CustomerCart | null>(null)
 const addresses = ref<CustomerAddress[]>([])
@@ -70,7 +71,7 @@ const lines = computed<CheckoutLine[]>(() => {
       return {
         key: `order-${item.id}`,
         name: snapshot.name,
-        detail: snapshot.color || 'Pelissa piece',
+        detail: snapshot.color || t('checkoutPage.pieceFallback'),
         image: snapshot.image,
         quantity: item.quantity,
         lineTotal: item.line_total
@@ -81,7 +82,7 @@ const lines = computed<CheckoutLine[]>(() => {
   return cartItems.value.map(item => ({
     key: `cart-${item.id}`,
     name: item.name,
-    detail: [item.color, item.size || item.top_size, item.bottom_size].filter(Boolean).join(' / ') || 'Pelissa piece',
+    detail: [item.color, item.size || item.top_size, item.bottom_size].filter(Boolean).join(' / ') || t('checkoutPage.pieceFallback'),
     image: item.primary_image,
     quantity: item.quantity,
     lineTotal: item.line_total
@@ -108,9 +109,9 @@ const retryLabel = computed(() => {
 })
 
 const payButtonLabel = computed(() => {
-  if (isSubmitting.value) return 'Preparing Stripe…'
-  if (retrySeconds.value > 0) return `Try again in ${retryLabel.value}`
-  return pendingOrder.value ? 'Continue with Stripe' : 'Place order & pay'
+  if (isSubmitting.value) return t('checkoutPage.preparingStripe')
+  if (retrySeconds.value > 0) return t('checkoutPage.retryIn', { time: retryLabel.value })
+  return pendingOrder.value ? t('checkoutPage.continueStripe') : t('checkoutPage.placeOrder')
 })
 
 const deadlineLabel = computed(() => {
@@ -122,7 +123,7 @@ const deadlineLabel = computed(() => {
 })
 
 function addressLabel(address: CustomerAddress) {
-  return address.label?.trim() || (address.is_default ? 'Default address' : 'Delivery address')
+  return address.label?.trim() || (address.is_default ? t('checkoutPage.defaultAddress') : t('checkoutPage.deliveryAddress'))
 }
 
 async function loadCheckout() {
@@ -155,7 +156,7 @@ async function loadCheckout() {
       }
     }
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not prepare checkout. Please try again.')
+    requestError.value = customerRequestMessage(error, t('checkoutPage.errors.prepare'))
   } finally {
     isLoading.value = false
   }
@@ -166,8 +167,8 @@ async function openStripeCheckout() {
 
   const paymentWindow = window.open('/checkout/redirecting', '_blank')
   if (!paymentWindow) {
-    requestError.value = 'Your browser blocked the payment tab. Allow pop-ups for Pelissa and try again.'
-    toast.add({ title: 'Payment tab blocked', description: requestError.value, color: 'warning' })
+    requestError.value = t('checkoutPage.errors.popup')
+    toast.add({ title: t('checkoutPage.errors.popupTitle'), description: requestError.value, color: 'warning' })
     return
   }
   try {
@@ -185,7 +186,7 @@ async function openStripeCheckout() {
     let order = pendingOrder.value
 
     if (!order) {
-      if (!selectedAddress.value) throw new Error('Select a delivery address before continuing.')
+      if (!selectedAddress.value) throw new Error(t('checkoutPage.errors.selectAddress'))
       const orderInput: CustomerPlaceOrderInput = {
         variant_ids: cartItems.value.map(item => item.variant_id),
         quantities: cartItems.value.map(item => item.quantity),
@@ -230,7 +231,7 @@ async function openStripeCheckout() {
         }
       }
 
-      if (!context) throw new Error('The secure checkout session is no longer available.')
+      if (!context) throw new Error(t('checkoutPage.errors.sessionUnavailable'))
       context = { ...context, orderNo: order.order_no }
       checkoutSession.write(context)
       pendingOrder.value = order
@@ -243,12 +244,12 @@ async function openStripeCheckout() {
       }
       if (order.status !== 'PENDING_PAYMENT') {
         checkoutSession.clear(order.order_no)
-        throw new Error(`Order ${order.order_no} cannot be paid in its current state.`)
+        throw new Error(t('checkoutPage.errors.orderState', { orderNo: order.order_no }))
       }
     }
 
     let checkout: CustomerOrderCheckout | null = null
-    let checkoutError: unknown = new Error('Stripe checkout is temporarily unavailable.')
+    let checkoutError: unknown = new Error(t('checkoutPage.errors.stripeUnavailable'))
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         checkout = await api.openOrderCheckout(order.order_no)
@@ -279,21 +280,21 @@ async function openStripeCheckout() {
       throw checkoutError
     }
     if (checkout.order_no !== order.order_no || checkout.status !== 'PENDING_PAYMENT') {
-      throw new Error('The payment provider returned an unexpected order state.')
+      throw new Error(t('checkoutPage.errors.unexpectedState'))
     }
     const target = new URL(checkout.checkout_url)
-    if (target.protocol !== 'https:') throw new Error('The payment provider returned an invalid checkout link.')
+    if (target.protocol !== 'https:') throw new Error(t('checkoutPage.errors.invalidLink'))
 
     lastCheckoutUrl.value = target.toString()
     paymentWindow.location.replace(target.toString())
     toast.add({
-      title: 'Stripe checkout opened',
-      description: `Order ${order.order_no} is reserved while payment is completed.`,
+      title: t('checkoutPage.notices.openedTitle'),
+      description: t('checkoutPage.notices.openedDescription', { orderNo: order.order_no }),
       color: 'success'
     })
   } catch (error: unknown) {
     if (!paymentWindow.closed) paymentWindow.close()
-    const failure = customerRequestDetails(error, 'We could not open Stripe checkout. Your order has not been charged.')
+    const failure = customerRequestDetails(error, t('checkoutPage.errors.open'))
     const retryDelay = failure.retryAfterSeconds ?? 0
     const hasRetryDelay = retryDelay > 0
     if (hasRetryDelay) {
@@ -302,7 +303,7 @@ async function openStripeCheckout() {
     }
     requestError.value = hasRetryDelay ? '' : failure.message
     toast.add({
-      title: hasRetryDelay ? 'Checkout temporarily unavailable' : 'Checkout not opened',
+      title: hasRetryDelay ? t('checkoutPage.errors.temporarilyUnavailable') : t('checkoutPage.errors.notOpened'),
       description: failure.message,
       color: hasRetryDelay ? 'warning' : 'error'
     })
@@ -326,23 +327,23 @@ onBeforeUnmount(() => {
     <StoreHeader />
 
     <div class="checkout-progress-wrap">
-      <nav class="store-container checkout-progress" aria-label="Checkout progress">
-        <NuxtLink to="/cart"><span>01</span> Cart</NuxtLink>
+      <nav class="store-container checkout-progress" :aria-label="t('checkoutPage.progressLabel')">
+        <NuxtLink to="/cart"><span>01</span> {{ t('checkoutPage.cart') }}</NuxtLink>
         <UIcon name="i-lucide-chevron-right" />
-        <strong><span>02</span> Delivery</strong>
+        <strong><span>02</span> {{ t('checkoutPage.delivery') }}</strong>
         <UIcon name="i-lucide-chevron-right" />
-        <span><b>03</b> Payment</span>
+        <span><b>03</b> {{ t('checkoutPage.payment') }}</span>
       </nav>
     </div>
 
     <header class="store-container checkout-heading">
       <div>
-        <p class="store-eyebrow">SECURE CHECKOUT / 02</p>
-        <h1>Complete your order.</h1>
+        <p class="store-eyebrow">{{ t('checkoutPage.eyebrow') }}</p>
+        <h1>{{ t('checkoutPage.title') }}</h1>
       </div>
       <div class="checkout-security">
         <span><UIcon name="i-lucide-shield-check" /></span>
-        <div><strong>Protected checkout</strong><small>Payment secured by Stripe</small></div>
+        <div><strong>{{ t('checkoutPage.protectedTitle') }}</strong><small>{{ t('checkoutPage.protectedCopy') }}</small></div>
       </div>
     </header>
 
@@ -355,12 +356,12 @@ onBeforeUnmount(() => {
         <div v-if="requestError" class="checkout-notice error" role="alert">
           <UIcon name="i-lucide-circle-alert" />
           <span>{{ requestError }}</span>
-          <button type="button" aria-label="Dismiss message" @click="requestError = ''"><UIcon name="i-lucide-x" /></button>
+          <button type="button" :aria-label="t('checkoutPage.dismiss')" @click="requestError = ''"><UIcon name="i-lucide-x" /></button>
         </div>
 
         <div v-if="retrySeconds > 0" class="checkout-notice waiting" role="status">
           <UIcon name="i-lucide-hourglass" />
-          <span><strong>Order creation is temporarily limited.</strong> Try again in {{ retryLabel }}.</span>
+          <span><strong>{{ t('checkoutPage.rateLimitedTitle') }}</strong> {{ t('checkoutPage.rateLimitedCopy', { time: retryLabel }) }}</span>
         </div>
 
         <div v-if="pendingOrder" class="checkout-notice reserved" role="status">
@@ -371,8 +372,8 @@ onBeforeUnmount(() => {
         <section class="checkout-section">
           <div class="section-heading">
             <span class="section-icon"><UIcon name="i-lucide-map-pin" /></span>
-            <div><p>01 / DELIVERY</p><h2>Where it is going</h2></div>
-            <NuxtLink v-if="!pendingOrder" to="/account/profile#addresses"><UIcon name="i-lucide-plus" /> Manage addresses</NuxtLink>
+            <div><p>{{ t('checkoutPage.deliverySection') }}</p><h2>{{ t('checkoutPage.deliveryTitle') }}</h2></div>
+            <NuxtLink v-if="!pendingOrder" to="/account/profile#addresses"><UIcon name="i-lucide-plus" /> {{ t('checkoutPage.manageAddresses') }}</NuxtLink>
           </div>
 
           <div v-if="pendingOrder" class="fixed-address">
@@ -390,7 +391,7 @@ onBeforeUnmount(() => {
               }) }}</p>
               <small>{{ pendingOrder.shipping_address.phone }}</small>
             </div>
-            <span class="locked-label"><UIcon name="i-lucide-lock-keyhole" /> Confirmed</span>
+            <span class="locked-label"><UIcon name="i-lucide-lock-keyhole" /> {{ t('checkoutPage.confirmed') }}</span>
           </div>
 
           <div v-else-if="addresses.length" class="address-list">
@@ -403,7 +404,7 @@ onBeforeUnmount(() => {
               <input v-model="selectedAddressId" type="radio" name="delivery-address" :value="address.id">
               <span class="radio-mark"><UIcon name="i-lucide-check" /></span>
               <span class="address-copy">
-                <span class="address-title"><strong>{{ addressLabel(address) }}</strong><small v-if="address.is_default">Default</small></span>
+                <span class="address-title"><strong>{{ addressLabel(address) }}</strong><small v-if="address.is_default">{{ t('checkoutPage.default') }}</small></span>
                 <b>{{ address.name }}</b>
                 <span>{{ formatAddressLine(address) }}</span>
                 <span>{{ address.phone }}</span>
@@ -413,24 +414,24 @@ onBeforeUnmount(() => {
 
           <div v-else class="address-empty">
             <span><UIcon name="i-lucide-map-pinned" /></span>
-            <div><strong>Add a delivery address</strong><p>A saved recipient and street address are required before checkout.</p></div>
-            <NuxtLink class="outline-action" to="/account/profile#addresses"><UIcon name="i-lucide-plus" /> Add address</NuxtLink>
+            <div><strong>{{ t('checkoutPage.addAddressTitle') }}</strong><p>{{ t('checkoutPage.addAddressCopy') }}</p></div>
+            <NuxtLink class="outline-action" to="/account/profile#addresses"><UIcon name="i-lucide-plus" /> {{ t('checkoutPage.addAddress') }}</NuxtLink>
           </div>
         </section>
 
         <section class="checkout-section">
           <div class="section-heading">
             <span class="section-icon"><UIcon name="i-lucide-message-square-text" /></span>
-            <div><p>02 / ORDER NOTE</p><h2>A note for delivery</h2></div>
+            <div><p>{{ t('checkoutPage.noteSection') }}</p><h2>{{ t('checkoutPage.noteTitle') }}</h2></div>
           </div>
           <label class="message-field">
-            <span>Optional message <small>{{ clientMessage.length }} / 500</small></span>
+            <span>{{ t('checkoutPage.optionalMessage') }} <small>{{ clientMessage.length }} / 500</small></span>
             <textarea
               v-model="clientMessage"
               maxlength="500"
               rows="4"
               :disabled="Boolean(pendingOrder)"
-              placeholder="Delivery details or a note for your order"
+              :placeholder="t('checkoutPage.notePlaceholder')"
             />
           </label>
         </section>
@@ -438,8 +439,8 @@ onBeforeUnmount(() => {
 
       <aside class="order-summary">
         <div class="summary-heading">
-          <div><p>03 / YOUR ORDER</p><h2>Order summary</h2></div>
-          <NuxtLink v-if="!pendingOrder" to="/cart">Edit cart</NuxtLink>
+          <div><p>{{ t('checkoutPage.orderSection') }}</p><h2>{{ t('checkoutPage.orderSummary') }}</h2></div>
+          <NuxtLink v-if="!pendingOrder" to="/cart">{{ t('checkoutPage.editCart') }}</NuxtLink>
         </div>
 
         <div v-if="lines.length" class="checkout-lines">
@@ -450,30 +451,30 @@ onBeforeUnmount(() => {
               <b>{{ line.quantity }}</b>
             </div>
             <div class="line-copy"><strong>{{ line.name }}</strong><span>{{ line.detail }}</span></div>
-            <strong class="line-price">{{ formatCustomerMoney(line.lineTotal, currency) }}</strong>
+            <strong class="line-price">{{ formatMoney(line.lineTotal, currency) }}</strong>
           </article>
         </div>
         <div v-else class="summary-empty">
           <UIcon name="i-lucide-shopping-cart" />
-          <strong>Your cart is empty</strong>
-          <NuxtLink to="/collections/shop">Return to the shop</NuxtLink>
+          <strong>{{ t('checkoutPage.emptyTitle') }}</strong>
+          <NuxtLink to="/collections/shop">{{ t('checkoutPage.returnToShop') }}</NuxtLink>
         </div>
 
         <div v-if="lines.length" class="summary-totals">
-          <div><span>Subtotal</span><strong>{{ formatCustomerMoney(subtotal, currency) }}</strong></div>
-          <div><span>Delivery</span><strong>{{ Number(shippingFee) ? formatCustomerMoney(shippingFee, currency) : 'Complimentary' }}</strong></div>
-          <div v-if="Number(taxAmount)"><span>Tax</span><strong>{{ formatCustomerMoney(taxAmount, currency) }}</strong></div>
-          <div class="total-line"><span>Total</span><strong>{{ formatCustomerMoney(total, currency) }}</strong></div>
+          <div><span>{{ t('checkoutPage.subtotal') }}</span><strong>{{ formatMoney(subtotal, currency) }}</strong></div>
+          <div><span>{{ t('checkoutPage.delivery') }}</span><strong>{{ Number(shippingFee) ? formatMoney(shippingFee, currency) : t('checkoutPage.complimentary') }}</strong></div>
+          <div v-if="Number(taxAmount)"><span>{{ t('checkoutPage.tax') }}</span><strong>{{ formatMoney(taxAmount, currency) }}</strong></div>
+          <div class="total-line"><span>{{ t('checkoutPage.total') }}</span><strong>{{ formatMoney(total, currency) }}</strong></div>
         </div>
 
         <div v-if="hasUnavailableItems && !pendingOrder" class="summary-warning">
-          <UIcon name="i-lucide-circle-alert" /> Remove unavailable pieces before checkout.
+          <UIcon name="i-lucide-circle-alert" /> {{ t('checkoutPage.unavailable') }}
         </div>
         <div v-if="exceedsOrderLineLimit" class="summary-warning">
-          <UIcon name="i-lucide-list-x" /> An order can include at most 10 different products.
+          <UIcon name="i-lucide-list-x" /> {{ t('checkoutPage.lineLimit') }}
         </div>
         <div v-if="isExpired" class="summary-warning">
-          <UIcon name="i-lucide-clock-alert" /> This order's payment window has expired.
+          <UIcon name="i-lucide-clock-alert" /> {{ t('checkoutPage.expired') }}
         </div>
 
         <button class="pay-button" type="button" :disabled="!canPay" @click="openStripeCheckout">
@@ -482,12 +483,12 @@ onBeforeUnmount(() => {
           <UIcon v-if="!isSubmitting" name="i-lucide-arrow-up-right" />
         </button>
         <a v-if="lastCheckoutUrl" class="payment-fallback" :href="lastCheckoutUrl" target="_blank" rel="noopener noreferrer">
-          Open Stripe checkout again <UIcon name="i-lucide-external-link" />
+          {{ t('checkoutPage.openAgain') }} <UIcon name="i-lucide-external-link" />
         </a>
 
         <div class="payment-trust">
-          <span><UIcon name="i-lucide-shield-check" /> Secure payment</span>
-          <span><UIcon name="i-lucide-credit-card" /> Stripe checkout</span>
+          <span><UIcon name="i-lucide-shield-check" /> {{ t('checkoutPage.securePayment') }}</span>
+          <span><UIcon name="i-lucide-credit-card" /> {{ t('checkoutPage.stripeCheckout') }}</span>
         </div>
       </aside>
     </div>
