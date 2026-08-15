@@ -72,9 +72,23 @@ class TokenInvalidException(
     message: String = "Token 无效"
 ) : BusinessException(HttpStatus.UNAUTHORIZED, message)
 
-class TokenExpiredException(
-    message: String = "Token 过期"
-) : BusinessException(HttpStatus.UNAUTHORIZED, message)
+/** Access Token 已过期，客户端可使用 Refresh Token 换取新的 Access Token。 */
+class AccessTokenExpiredException(
+    message: String = "Access Token 已过期"
+) : BusinessException(HttpStatus.UNAUTHORIZED, message) {
+    companion object {
+        const val ERROR = "ACCESS_TOKEN_EXPIRED"
+    }
+}
+
+/** Refresh Token 已过期，客户端应清理登录态并要求用户重新登录。 */
+class RefreshTokenExpiredException(
+    message: String = "Refresh Token 已过期"
+) : BusinessException(HttpStatus.UNAUTHORIZED, message) {
+    companion object {
+        const val ERROR = "REFRESH_TOKEN_EXPIRED"
+    }
+}
 
 class TokenForbiddenException(
     message: String = "Token 校验失败"

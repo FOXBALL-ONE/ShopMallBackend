@@ -54,7 +54,7 @@ class SupportTicketServiceImpl(
 ) : SupportTicketService {
     @Transactional
     override fun create(customerId: Long, command: CreateSupportTicketCommand): SupportTicketView {
-        requireCustomerAccess(customerId)
+        requireAuthenticatedAccountId(customerId)
 
         val subject = normalizeRequiredText(command.subject, SUBJECT_MAX_LENGTH, "工单主题")
         val content = normalizeRequiredText(command.content, CONTENT_MAX_LENGTH, "工单内容")
@@ -114,7 +114,7 @@ class SupportTicketServiceImpl(
     }
 
     override fun listCustomer(customerId: Long, query: SupportTicketPageQuery): Page<SupportTicketView> {
-        requireCustomerAccess(customerId)
+        requireAuthenticatedAccountId(customerId)
         val pageable = pageRequest(query.page, query.size)
         return supportTicketRepository.findAllForCustomer(
             customerId = customerId,
@@ -131,7 +131,7 @@ class SupportTicketServiceImpl(
         messagePage: Int,
         messageSize: Int,
     ): SupportTicketView? {
-        requireCustomerAccess(customerId)
+        requireAuthenticatedAccountId(customerId)
         val ticket = customerTicket(ticketId, customerId) ?: return null
         val messages = messagesFor(ticketId, messagePage, messageSize)
         return ticket.toView(messages.content, messages.totalPages, messages.totalElements)
@@ -143,14 +143,14 @@ class SupportTicketServiceImpl(
         ticketId: Long,
         command: SendSupportTicketMessageCommand,
     ): SupportTicketMessageView? {
-        requireCustomerAccess(customerId)
+        requireAuthenticatedAccountId(customerId)
         val ticket = customerTicket(ticketId, customerId) ?: return null
         return sendMessage(ticket, customerId, SupportTicketMessageSender.CUSTOMER, command)
     }
 
     @Transactional
     override fun closeByCustomer(customerId: Long, ticketId: Long): SupportTicketView? {
-        requireCustomerAccess(customerId)
+        requireAuthenticatedAccountId(customerId)
         val ticket = customerTicket(ticketId, customerId) ?: return null
         if (ticket.status != SupportTicketStatus.CLOSED) {
             ticket.status = SupportTicketStatus.CLOSED
@@ -372,9 +372,6 @@ class SupportTicketServiceImpl(
                 try {
                     requireOpenForMessage(ticket)
                     requestProtection.requireMessageRateAllowed(senderId, senderType, ticketId)
-                    if (senderType == SupportTicketMessageSender.CUSTOMER && command.files.isNotEmpty()) {
-                        adminAccessService.requireCustomerForUpdate(senderId)
-                    }
                     requestProtection.requireAttachmentQuota(senderId, senderType, ticketId, command.files)
                     val saved = persistMessage(ticket, senderId, senderType, content, command.files)
                     supportTicketRepository.saveAndFlush(ticket)
@@ -471,9 +468,8 @@ class SupportTicketServiceImpl(
             throw SupportTicketStatusException("已关闭的工单不能继续发送消息")
         }
     }
-    private fun requireCustomerAccess(customerId: Long) {
-        if (customerId <= 0) throw ParamErrorException("用户 ID 无效")
-        adminAccessService.requireCustomer(customerId)
+    private fun requireAuthenticatedAccountId(accountId: Long) {
+        if (accountId <= 0) throw ParamErrorException("用户 ID 无效")
     }
 
     /** 工单按客户 ID 隔离；已存在但归属其他客户时必须返回 403。 */

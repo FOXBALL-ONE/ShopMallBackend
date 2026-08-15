@@ -10,9 +10,11 @@ import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
 import org.springframework.security.core.context.SecurityContextHolder
 import top.foxball.shopmall.config.DevTokenManager
+import top.foxball.shopmall.handler.AccessTokenExpiredException
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -47,6 +49,30 @@ class JwtAuthenticationFilterTest {
         val authentication = assertNotNull(SecurityContextHolder.getContext().authentication)
         assertEquals(42L, authentication.principal)
         assertTrue(authentication.authorities.any { it.authority == "ROLE_ADMIN" })
+        verify(chain).doFilter(request, response)
+    }
+
+    @Test
+    fun `expired access token is marked with dedicated exception`() {
+        val accessToken = jwtService.issue(
+            userId = 42,
+            type = TokenType.ACCESS,
+            ttlSeconds = 1,
+            role = "ADMIN",
+        ).token
+        Thread.sleep(1_100)
+        val request = MockHttpServletRequest("GET", "/admin/api/logs/live").apply {
+            addHeader("Authorization", "Bearer $accessToken")
+        }
+        val response = MockHttpServletResponse()
+        val chain = mock(FilterChain::class.java)
+
+        filter.doFilter(request, response, chain)
+
+        val exception = assertIs<AccessTokenExpiredException>(
+            request.getAttribute(JwtAuthenticationFilter.ACCESS_TOKEN_EXPIRED_ATTRIBUTE),
+        )
+        assertEquals("Access Token 已过期", exception.message)
         verify(chain).doFilter(request, response)
     }
 }

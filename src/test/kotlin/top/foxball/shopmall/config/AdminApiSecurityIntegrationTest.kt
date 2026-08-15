@@ -152,13 +152,20 @@ class AdminApiSecurityIntegrationTest @Autowired constructor(
             .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, containsString("Retry-After")))
     }
     @Test
-    fun `admin access token cannot impersonate a customer on support ticket api`() {
+    fun `admin access token can use customer support ticket entry points`() {
         mockMvc.perform(
             get("/api/support-tickets/options")
                 .header("Authorization", bearerToken(userId = 42L, role = "ADMIN")),
         )
-            .andExpect(status().isForbidden)
-            .andExpect(jsonPath("$.status").value(403))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.default_priority").value("LOW"))
+
+        mockMvc.perform(
+            get("/api/support-tickets")
+                .header("Authorization", bearerToken(userId = 42L, role = "ADMIN")),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.list").isArray)
     }
     private fun bearerToken(userId: Long, role: String): String =
         "Bearer ${jwtService.issue(userId, TokenType.ACCESS, ttlSeconds = 60, role = role).token}"

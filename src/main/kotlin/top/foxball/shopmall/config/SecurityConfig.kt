@@ -14,6 +14,7 @@ import org.springframework.web.cors.CorsConfigurationSource
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource
 import top.foxball.shopmall.authentication.JwtAuthenticationFilter
 import top.foxball.shopmall.authentication.JwtService
+import top.foxball.shopmall.handler.AccessTokenExpiredException
 import top.foxball.shopmall.ratelimit.ApiRateLimitFilter
 import top.foxball.shopmall.ratelimit.ApiRateLimitService
 import top.foxball.shopmall.ratelimit.ClientIpResolver
@@ -100,8 +101,8 @@ class SecurityConfig(
                 it.requestMatchers(HttpMethod.GET, "/api/orders/*/shipments/**").authenticated()
                 // 其余管理端：凭角色（access 的 role claim 映射为 ROLE_ADMIN）
                 it.requestMatchers("/admin/api/**").hasRole("ADMIN")
-                // 客户工单入口仅允许普通客户，避免管理员身份被记录为客户发送者。
-                it.requestMatchers("/api/support-tickets/**").hasRole("CUSTOMER")
+                // 客户端工单入口允许任意已登录账号，工单数据仍按当前用户 ID 隔离。
+                it.requestMatchers("/api/support-tickets/**").authenticated()
                 // 仅带签名的下载 URL 可匿名访问，其余文件接口均要求 JWT。
                 it.requestMatchers(HttpMethod.GET, "/api/files/*/download").permitAll()
                 it.requestMatchers("/api/files/**").authenticated()
@@ -111,9 +112,20 @@ class SecurityConfig(
                 it.anyRequest().authenticated()
             }
             .exceptionHandling {
-                // 无/失效 JWT 的受保护接口统一回 401 JSON
-                it.authenticationEntryPoint { _, response, _ ->
-                    writeJson(response, HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized")
+                // 无效 JWT 回 401；已验签的过期 Access Token 单独回专用错误，供客户端触发 refresh。
+                it.authenticationEntryPoint { request, response, _ ->
+                    val accessTokenExpired = request.getAttribute(JwtAuthenticationFilter.ACCESS_TOKEN_EXPIRED_ATTRIBUTE)
+                        as? AccessTokenExpiredException
+                    if (accessTokenExpired != null) {
+                        writeJson(
+                            response,
+                            HttpServletResponse.SC_UNAUTHORIZED,
+                            accessTokenExpired.message,
+                            AccessTokenExpiredException.ERROR,
+                        )
+                    } else {
+                        writeJson(response, HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized")
+                    }
                 }
                 // hasRole 拒绝时统一回 403 JSON（否则落到 Spring Security 默认 HTML）
                 it.accessDeniedHandler { _, response, _ ->
@@ -140,10 +152,17 @@ class SecurityConfig(
         return http.build()
     }
 
-    private fun writeJson(response: HttpServletResponse, status: Int, message: String) {
+    private fun writeJson(response: HttpServletResponse, status: Int, message: String, error: String? = null) {
         response.contentType = "application/json;charset=UTF-8"
         response.status = status
-        response.writer.write("""{"status":$status,"message":"$message","data":{}}""")
+        objectMapper.writeValue(
+            response.writer,
+            mapOf(
+                "status" to status,
+                "message" to message,
+                "data" to (error?.let { mapOf("error" to it) } ?: emptyMap<String, Any?>()),
+            ),
+        )
     }
 
     @Bean
@@ -169,4 +188,5 @@ class SecurityConfig(
         source.registerCorsConfiguration("/**", config)
         return source
     }
+
 }

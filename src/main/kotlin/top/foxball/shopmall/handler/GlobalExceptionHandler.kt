@@ -71,6 +71,22 @@ class GlobalExceptionHandler {
             .build()
     }
 
+    @ExceptionHandler(AccessTokenExpiredException::class)
+    fun onAccessTokenExpiredException(ex: AccessTokenExpiredException): ResponseEntity<Response> {
+        return builder.status(ex.status)
+            .message(ex.message)
+            .data(mapOf("error" to AccessTokenExpiredException.ERROR))
+            .build()
+    }
+
+    @ExceptionHandler(RefreshTokenExpiredException::class)
+    fun onRefreshTokenExpiredException(ex: RefreshTokenExpiredException): ResponseEntity<Response> {
+        return builder.status(ex.status)
+            .message(ex.message)
+            .data(mapOf("error" to RefreshTokenExpiredException.ERROR))
+            .build()
+    }
+
     @ExceptionHandler(BusinessException::class)
     fun onBusinessException(ex: BusinessException): ResponseEntity<Response> {
         return builder.status(ex.status)

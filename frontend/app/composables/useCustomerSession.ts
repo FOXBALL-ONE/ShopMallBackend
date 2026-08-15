@@ -12,18 +12,20 @@ function decodeBase64Url(value: string) {
   return globalThis.atob(padded)
 }
 
-function readUserIdFromToken(token: string | null | undefined) {
+function readJwtPayload(token: string | null | undefined) {
   if (!token) return null
 
   try {
     const payload = token.replace(/^bearer\s+/i, '').split('.')[1]
-    if (!payload) return null
-    const claims = JSON.parse(decodeBase64Url(payload)) as JwtPayload
-    const userId = Number(claims.sub)
-    return Number.isSafeInteger(userId) && userId > 0 ? userId : null
+    return payload ? JSON.parse(decodeBase64Url(payload)) as JwtPayload : null
   } catch {
     return null
   }
+}
+
+function readUserIdFromToken(token: string | null | undefined) {
+  const userId = Number(readJwtPayload(token)?.sub)
+  return Number.isSafeInteger(userId) && userId > 0 ? userId : null
 }
 
 export function useCustomerSession() {

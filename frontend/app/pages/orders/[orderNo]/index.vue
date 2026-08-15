@@ -481,6 +481,12 @@ onBeforeUnmount(() => {
             <button v-if="canCancel" class="danger-link" type="button" :disabled="isCancelling" @click="cancelFormOpen = !cancelFormOpen"><UIcon name="i-lucide-circle-x" /> {{ cancelFormOpen ? 'Close cancellation' : 'Cancel order' }}</button>
             <button v-if="canRequestRefund" class="danger-link" type="button" :disabled="isRefundRequesting" @click="requestRefund"><UIcon :name="isRefundRequesting ? 'i-lucide-loader-circle' : 'i-lucide-rotate-ccw'" :class="{ spinning: isRefundRequesting }" /> {{ isRefundRequesting ? 'Requesting refund...' : 'Request refund' }}</button>
             <button v-if="canQueryRefundStatus" class="outline-button" type="button" :disabled="isRefundStatusLoading" @click="queryRefundStatus"><UIcon :name="isRefundStatusLoading ? 'i-lucide-loader-circle' : 'i-lucide-refresh-cw'" :class="{ spinning: isRefundStatusLoading }" /> {{ isRefundStatusLoading ? 'Checking refund...' : 'Check refund status' }}</button>
+            <NuxtLink
+              class="support-ticket-link"
+              :to="{ path: '/account/support-tickets', query: { create: '1', order_no: order.order_no } }"
+            >
+              <UIcon name="i-lucide-message-square-plus" /> Create support ticket
+            </NuxtLink>
             <NuxtLink to="/account/orders"><UIcon name="i-lucide-arrow-left" /> Back to orders</NuxtLink>
           </div>
 
@@ -631,6 +637,8 @@ onBeforeUnmount(() => {
 .summary-actions { display: flex; align-items: stretch; flex-direction: column; gap: 11px; padding-top: 17px; }
 .summary-actions > a, .summary-actions > button { min-height: 39px; display: flex; align-items: center; justify-content: center; gap: 7px; box-sizing: border-box; font-family: 'DM Mono', monospace; font-size: 8px; text-decoration: none; text-transform: uppercase; }
 .summary-actions > a { color: var(--store-ink); }
+.summary-actions .support-ticket-link { border: 1px solid var(--store-wine); color: var(--store-wine); background: rgba(154,64,85,.06); }
+.summary-actions .support-ticket-link:hover { color: #fff; background: var(--store-wine); }
 .summary-actions .danger-link { border: 0; color: #963f4f; background: none; cursor: pointer; }
 .primary-button { min-height: 41px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 15px; border: 1px solid var(--store-ink); color: #fff; background: var(--store-ink); cursor: pointer; font-family: 'DM Mono', monospace; font-size: 8px; text-decoration: none; text-transform: uppercase; }
 .primary-button:hover { color: var(--store-ink); background: transparent; }

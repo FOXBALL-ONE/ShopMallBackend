@@ -28,7 +28,8 @@ enum class TokenType { ACCESS, REFRESH }
  *
  * 载荷中 `iat`/`exp` 为秒级 NumericDate（UTC 纪元秒），内存中以 [LocalDateTime]（UTC）表达，
  * 通过 [ZoneOffset.UTC] 与纪元秒互转并 [ChronoUnit.SECONDS] 截断，保证签发与回读的时间戳严格相等。
- * 验签失败 / 结构错误 / 过期 / 类型不符 / role 非法 一律返回 null，不抛异常外泄内部细节。
+ * 验签失败 / 结构错误 / 类型不符 / role 非法一律返回 null，不抛异常外泄内部细节；
+ * 已验签且声明结构合法的过期令牌会返回其 claims，调用方可据此区分 Access 与 Refresh 的过期响应。
  */
 class JwtService(secret: String) {
 
@@ -64,6 +65,16 @@ class JwtService(secret: String) {
         val issuedAt: LocalDateTime,
         val expiresAt: LocalDateTime,
     )
+
+    /**
+     * 令牌校验结果。签名、结构、类型或角色校验失败时为 [Invalid]；已通过这些校验时返回
+     * [Valid] 或 [Expired]，以便调用方准确识别过期令牌的类型。
+     */
+    sealed interface VerificationResult {
+        data class Valid(val claims: Claims) : VerificationResult
+        data class Expired(val claims: Claims) : VerificationResult
+        data object Invalid : VerificationResult
+    }
 
     /**
      * 签发一张 JWT。[type] 决定写入哪些 claim：
@@ -119,9 +130,17 @@ class JwtService(secret: String) {
      * - [expectedType]：非 null 时，`claims.type != expectedType` 即返回 null——这是防止 refresh 当 access（或反之）的最后防线。
      */
     fun verify(token: String, expectedType: TokenType? = null): Claims? {
+        return (verifyDetailed(token, expectedType) as? VerificationResult.Valid)?.claims
+    }
+
+    /**
+     * 与 [verify] 相同地校验签名、结构与类型，但会保留已验签令牌的过期状态，供鉴权层返回
+     * Access / Refresh Token 专用的过期响应。调用方不得把 [VerificationResult.Expired] 视为已认证。
+     */
+    fun verifyDetailed(token: String, expectedType: TokenType? = null): VerificationResult {
         return try {
             val parts = token.split(".")
-            if (parts.size != 3) return null
+            if (parts.size != 3) return VerificationResult.Invalid
             val signingInput = "${parts[0]}.${parts[1]}"
             // 常量时间比较签名，避免计时侧信道
             val expected = base64UrlEncode(sign(signingInput.toByteArray(StandardCharsets.UTF_8)))
@@ -129,14 +148,17 @@ class JwtService(secret: String) {
                     expected.toByteArray(StandardCharsets.UTF_8),
                     parts[2].toByteArray(StandardCharsets.UTF_8),
                 )
-            ) return null
+            ) return VerificationResult.Invalid
             val payload = String(base64UrlDecode(parts[1]), StandardCharsets.UTF_8)
-            val claims = parseClaims(payload) ?: return null
-            if (!LocalDateTime.now(ZoneOffset.UTC).isBefore(claims.expiresAt)) return null
-            if (expectedType != null && claims.type != expectedType) return null
-            claims
+            val claims = parseClaims(payload) ?: return VerificationResult.Invalid
+            if (expectedType != null && claims.type != expectedType) return VerificationResult.Invalid
+            if (!LocalDateTime.now(ZoneOffset.UTC).isBefore(claims.expiresAt)) {
+                VerificationResult.Expired(claims)
+            } else {
+                VerificationResult.Valid(claims)
+            }
         } catch (e: Exception) {
-            null
+            VerificationResult.Invalid
         }
     }
 

@@ -23,7 +23,6 @@ import top.foxball.shopmall.entity.jdbc.SupportTicketMessageAttachment
 import top.foxball.shopmall.entity.jdbc.SupportTicketMessageSender
 import top.foxball.shopmall.entity.jdbc.SupportTicketPriority
 import top.foxball.shopmall.entity.jdbc.SupportTicketStatus
-import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.SupportTicketRequestInProgressException
 import top.foxball.shopmall.repository.OrderRepository
@@ -40,7 +39,6 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNull
 
 class SupportTicketServiceRequestSafetyTest {
     private val supportTicketRepository = mock(SupportTicketRepository::class.java)
@@ -73,13 +71,10 @@ class SupportTicketServiceRequestSafetyTest {
     }
 
     @Test
-    fun `all customer service entry points require a customer account before data access`() {
-        doThrow(ForbiddenException("仅普通客户可以执行此操作"))
-            .`when`(adminAccessService).requireCustomer(7)
-
-        assertFailsWith<ForbiddenException> {
+    fun `all customer service entry points reject an invalid account id before data access`() {
+        assertFailsWith<ParamErrorException> {
             service.create(
-                7,
+                0,
                 CreateSupportTicketCommand(
                     serviceType = SupportServiceType.PRE_SALES,
                     subject = "Question",
@@ -88,29 +83,29 @@ class SupportTicketServiceRequestSafetyTest {
                 ),
             )
         }
-        assertFailsWith<ForbiddenException> {
-            service.listCustomer(7, SupportTicketPageQuery())
+        assertFailsWith<ParamErrorException> {
+            service.listCustomer(0, SupportTicketPageQuery())
         }
-        assertFailsWith<ForbiddenException> {
-            service.getCustomer(7, 3)
+        assertFailsWith<ParamErrorException> {
+            service.getCustomer(0, 3)
         }
-        assertFailsWith<ForbiddenException> {
+        assertFailsWith<ParamErrorException> {
             service.sendCustomerMessage(
-                7,
+                0,
                 3,
                 SendSupportTicketMessageCommand(content = "Hello", idempotencyKey = IDEMPOTENCY_KEY),
             )
         }
-        assertFailsWith<ForbiddenException> {
-            service.closeByCustomer(7, 3)
+        assertFailsWith<ParamErrorException> {
+            service.closeByCustomer(0, 3)
         }
 
-        verify(adminAccessService, times(5)).requireCustomer(7)
         verifyNoInteractions(
             supportTicketRepository,
             supportTicketMessageRepository,
             supportTicketMessageAttachmentRepository,
             orderRepository,
+            adminAccessService,
             fileService,
             requestProtection,
         )
@@ -130,7 +125,7 @@ class SupportTicketServiceRequestSafetyTest {
             )
         }
 
-        verify(adminAccessService).requireCustomer(7)
+        verifyNoInteractions(adminAccessService)
         verify(requestProtection, never()).normalizeIdempotencyKey(anyString())
         verifyNoInteractions(supportTicketRepository, orderRepository)
     }

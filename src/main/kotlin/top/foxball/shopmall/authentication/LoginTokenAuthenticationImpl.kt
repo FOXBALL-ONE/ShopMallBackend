@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service
 import top.foxball.shopmall.config.JwtProperties
 import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.User
+import top.foxball.shopmall.handler.RefreshTokenExpiredException
 import top.foxball.shopmall.handler.TokenInvalidException
 import top.foxball.shopmall.handler.UserDisabledException
 import top.foxball.shopmall.repository.UserRepository
@@ -93,8 +94,12 @@ class LoginTokenAuthenticationImpl(
         refreshJwt: String,
         requestUA: String,
     ): LoginTokenAuthentication.RefreshResult {
-        // ① 签名 + 过期 + 类型必须是 refresh
-        val claims = jwtService.verify(refreshJwt, TokenType.REFRESH) ?: throw TokenInvalidException()
+        // ① 签名 + 类型必须是 refresh；过期令牌单独返回 Refresh Token 过期错误。
+        val claims = when (val verification = jwtService.verifyDetailed(refreshJwt, TokenType.REFRESH)) {
+            is JwtService.VerificationResult.Valid -> verification.claims
+            is JwtService.VerificationResult.Expired -> throw RefreshTokenExpiredException()
+            JwtService.VerificationResult.Invalid -> throw TokenInvalidException()
+        }
         val familyId = claims.familyId ?: throw TokenInvalidException()
 
         // ② 用户态校验：用户存在且启用

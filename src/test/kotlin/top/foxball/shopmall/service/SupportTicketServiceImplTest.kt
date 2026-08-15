@@ -99,7 +99,7 @@ class SupportTicketServiceImplTest {
         assertEquals("Size advice", result.subject)
         assertEquals("Which size should I choose?", result.content)
         assertNull(result.orderNo)
-        verify(adminAccessService).requireCustomer(7)
+        verifyNoInteractions(adminAccessService)
         verifyNoInteractions(orderRepository)
     }
 
@@ -197,7 +197,7 @@ class SupportTicketServiceImplTest {
 
         assertEquals(SupportTicketStatus.CLOSED, result?.status)
         assertEquals(now, result?.closedAt)
-        verify(adminAccessService).requireCustomer(7)
+        verifyNoInteractions(adminAccessService)
         verify(supportTicketRepository).findByIdAndCustomerId(3, 7)
         verify(supportTicketRepository).saveAndFlush(ticket)
     }
@@ -208,7 +208,7 @@ class SupportTicketServiceImplTest {
         `when`(supportTicketRepository.findWithOrderById(3)).thenReturn(null)
 
         assertNull(service.getCustomer(7, 3))
-        verify(adminAccessService).requireCustomer(7)
+        verifyNoInteractions(adminAccessService)
     }
 
     @Test
@@ -221,7 +221,7 @@ class SupportTicketServiceImplTest {
         assertFailsWith<ForbiddenException> {
             service.getCustomer(7, 3)
         }
-        verify(adminAccessService).requireCustomer(7)
+        verifyNoInteractions(adminAccessService)
     }
 
     @Test
@@ -346,7 +346,7 @@ class SupportTicketServiceImplTest {
         assertEquals(fileDetails.signedDownloadUrl, result?.attachments?.single()?.signedDownloadUrl)
         verify(requestProtection).requireMessageRateAllowed(7, SupportTicketMessageSender.CUSTOMER, 3)
         verify(requestProtection).requireAttachmentQuota(7, SupportTicketMessageSender.CUSTOMER, 3, listOf(multipart))
-        verify(adminAccessService).requireCustomerForUpdate(7)
+        verifyNoInteractions(adminAccessService)
         verify(fileService).upload(7, listOf(multipart))
         verify(supportTicketMessageRepository).saveAndFlush(any(SupportTicketMessage::class.java))
     }

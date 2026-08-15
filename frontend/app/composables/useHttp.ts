@@ -15,6 +15,7 @@ interface RequestFailure {
     status: number;
     message: string;
     data?: ApiResult<unknown>;
+    error?: string;
     retryAfterSeconds?: number;
     transportFailure?: boolean;
 }
@@ -24,6 +25,7 @@ interface RefreshAttempt {
     expiresIn: number | null;
     status: number;
     message: string;
+    error?: string;
     missingRefreshToken: boolean;
 }
 
@@ -40,7 +42,10 @@ export interface HttpRequestOptions<T> extends Omit<FetchOptions<"json">, "baseU
     businessErrorStatuses?: number[];
 }
 
-const AUTH_FAILURE_STATUSES = new Set([401, 403]);
+const ACCESS_TOKEN_EXPIRED_ERROR = "ACCESS_TOKEN_EXPIRED";
+const REFRESH_TOKEN_EXPIRED_ERROR = "REFRESH_TOKEN_EXPIRED";
+const UNAUTHORIZED_STATUS = 401;
+const FORBIDDEN_STATUS = 403;
 const MAX_REFRESH_ATTEMPTS = 2;
 const REFRESH_REMAINING_RATIO = 0.2;
 const REFRESH_RETRY_DELAY_MS = 30_000;
@@ -82,8 +87,33 @@ function isSuccessfulStatus(status: number): boolean {
     return status === 0 || (status >= 200 && status < 300);
 }
 
-function isAuthenticationFailure(status: number): boolean {
-    return AUTH_FAILURE_STATUSES.has(status);
+function getResponseError(response?: ApiResult<unknown>): string | undefined {
+    const data = response?.data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+        return undefined;
+    }
+
+    const error = (data as { error?: unknown }).error;
+    return typeof error === "string" ? error : undefined;
+}
+
+function isAccessTokenExpired(failure: RequestFailure): boolean {
+    return failure.status === UNAUTHORIZED_STATUS && failure.error === ACCESS_TOKEN_EXPIRED_ERROR;
+}
+
+function isRefreshTokenExpired(failure: RequestFailure): boolean {
+    return failure.status === UNAUTHORIZED_STATUS && failure.error === REFRESH_TOKEN_EXPIRED_ERROR;
+}
+
+function isUnauthorized(failure: RequestFailure): boolean {
+    return failure.status === UNAUTHORIZED_STATUS;
+}
+
+function permissionDeniedMessage(failure: RequestFailure, fallback: string): string {
+    const message = failure.message.trim();
+    return message && !/^forbidden$/i.test(message)
+        ? message
+        : fallback;
 }
 
 function requestPath(url: string): string {
@@ -112,7 +142,7 @@ function isAuthenticationEndpoint(url: string): boolean {
 
 function requestFailure(error: unknown): RequestFailure {
     const value = error as {
-        response?: {status?: number; _data?: ApiResult<unknown>; headers?: Headers};
+        response?: { status?: number; _data?: ApiResult<unknown>; headers?: Headers };
         data?: ApiResult<unknown>;
         statusCode?: number;
         message?: string;
@@ -135,13 +165,14 @@ function requestFailure(error: unknown): RequestFailure {
         status: Number.isFinite(status) && status > 0 ? status : 500,
         message: data?.message ?? value.message ?? "Request failed",
         data,
+        error: getResponseError(data),
         retryAfterSeconds,
         transportFailure: rawStatus === undefined || rawStatus === null,
     };
 }
 
 function isRefreshTokenMissing(failure: RequestFailure): boolean {
-    return isAuthenticationFailure(failure.status)
+    return isUnauthorized(failure)
         && /未提供刷新令牌|refresh[\s_-]*token\s*(?:is\s*)?(?:missing|not provided)|missing\s+refresh/i.test(failure.message);
 }
 
@@ -169,7 +200,7 @@ function readJwtTiming(token: string): JwtTiming | null {
         const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
         const binary = globalThis.atob(padded);
         const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-        const claims = JSON.parse(new TextDecoder().decode(bytes)) as {iat?: unknown; exp?: unknown};
+        const claims = JSON.parse(new TextDecoder().decode(bytes)) as { iat?: unknown; exp?: unknown };
         const issuedAt = Number(claims.iat) * 1000;
         const expiresAt = Number(claims.exp) * 1000;
 
@@ -220,7 +251,7 @@ export const useHttp = (baseURL?: string) => {
     });
     const toast = useToast();
     const router = useRouter();
-    const { currentLocale } = useStorefrontI18n();
+    const {currentLocale, t} = useStorefrontI18n();
     const configuredApiBase = useRuntimeConfig().public.apiBase;
     const authApiBase = typeof configuredApiBase === "string" && configuredApiBase
         ? configuredApiBase
@@ -256,6 +287,12 @@ export const useHttp = (baseURL?: string) => {
             description,
             color: type,
         });
+    };
+
+    const localizedHeaders = (headers?: HeadersInit) => {
+        const requestHeaders = new Headers(headers);
+        requestHeaders.set("Accept-Language", currentLocale.value);
+        return requestHeaders;
     };
 
     const scheduleSilentRefresh = (token: string | null, expiresIn?: number, minimumDelay = 0) => {
@@ -305,7 +342,10 @@ export const useHttp = (baseURL?: string) => {
             clientSessionCleanupPromise = (async () => {
                 // Refresh Token 是 HttpOnly Cookie，JS 无法直接删除；调用 logout 让后端清空它。
                 try {
-                    await authHttp("/auth/logout", {method: "POST"});
+                    await authHttp("/auth/logout", {
+                        method: "POST",
+                        headers: localizedHeaders(),
+                    });
                 } catch {
                     // 无论服务端清理是否可达，本地 Access Token 都必须清除并返回登录页。
                 }
@@ -333,6 +373,7 @@ export const useHttp = (baseURL?: string) => {
             try {
                 const response = await authHttp<ApiResult<RefreshResponse>>("/auth/refresh", {
                     method: "POST",
+                    headers: localizedHeaders(),
                 });
                 const status = getResponseStatus(response);
                 if (!isSuccessfulStatus(status)) {
@@ -340,12 +381,14 @@ export const useHttp = (baseURL?: string) => {
                         status,
                         message: getResponseMessage(response),
                         data: response,
+                        error: getResponseError(response),
                     };
                     return {
                         token: null,
                         expiresIn: null,
                         status,
                         message: failure.message,
+                        error: failure.error,
                         missingRefreshToken: isRefreshTokenMissing(failure),
                     };
                 }
@@ -357,7 +400,7 @@ export const useHttp = (baseURL?: string) => {
                         token: null,
                         expiresIn: null,
                         status: 500,
-                        message: "刷新接口未返回 Access Token",
+                        message: t("request.refreshResponseMissingToken"),
                         missingRefreshToken: false,
                     };
                 }
@@ -377,6 +420,7 @@ export const useHttp = (baseURL?: string) => {
                     expiresIn: null,
                     status: failure.status,
                     message: failure.message,
+                    error: failure.error,
                     missingRefreshToken: isRefreshTokenMissing(failure),
                 };
             }
@@ -416,7 +460,7 @@ export const useHttp = (baseURL?: string) => {
         clientSilentRefreshPromise = (async () => {
             for (let attempt = 1; attempt <= MAX_REFRESH_ATTEMPTS; attempt++) {
                 if (attempt > 1) {
-                    notify("warning", "Token 无感刷新未成功，正在重试（2/2）");
+                    notify("warning", t("request.refreshRetry"));
                 }
 
                 const refreshed = await refreshAccessToken();
@@ -428,17 +472,21 @@ export const useHttp = (baseURL?: string) => {
                 const failure = {
                     status: refreshed.status,
                     message: refreshed.message,
+                    error: refreshed.error,
                 };
                 if (refreshed.missingRefreshToken) {
-                    await expireSession("未检测到 Refresh Token，正在跳转登录页", failure);
+                    await expireSession(t("request.refreshMissingToken"), failure);
                 }
-                if (attempt === MAX_REFRESH_ATTEMPTS && isAuthenticationFailure(refreshed.status)) {
-                    await expireSession("登录状态刷新失败，已清除所有 Token，请重新登录", failure);
+                if (isRefreshTokenExpired(failure)) {
+                    await expireSession(t("request.sessionExpired"), failure);
+                }
+                if (attempt === MAX_REFRESH_ATTEMPTS && isUnauthorized(failure)) {
+                    await expireSession(t("request.refreshFailedAndCleared"), failure);
                 }
             }
 
             // 网络或服务端临时错误不应直接注销仍有效的会话；保留当前 token，稍后再无感重试。
-            notify("error", "Token 无感刷新失败，将稍后重试");
+            notify("error", t("request.refreshTemporaryFailure"));
             if (authToken.value === tokenAtStart) {
                 scheduleSilentRefresh(tokenAtStart, undefined, REFRESH_RETRY_DELAY_MS);
             }
@@ -471,8 +519,7 @@ export const useHttp = (baseURL?: string) => {
         let replayWithRefreshedToken = false;
 
         const send = async () => {
-            const requestHeaders = new Headers(fetchOptions.headers as HeadersInit | undefined);
-            requestHeaders.set("Accept-Language", currentLocale.value);
+            const requestHeaders = localizedHeaders(fetchOptions.headers as HeadersInit | undefined);
             const authorization = normalizeAuthorization(authToken.value);
             if (authorization && (replayWithRefreshedToken || !requestHeaders.has("Authorization"))) {
                 requestHeaders.set("Authorization", authorization);
@@ -526,26 +573,28 @@ export const useHttp = (baseURL?: string) => {
         }
 
         // 登录/刷新/登出不能递归刷新；SSR 也不尝试消费浏览器侧 HttpOnly Refresh Cookie。
-        if (
-            import.meta.server
-            || isAuthenticationEndpoint(url)
-            || !isAuthenticationFailure(failure.status)
-            || businessErrorStatuses.includes(failure.status)
-        ) {
+        if (import.meta.server || isAuthenticationEndpoint(url) || businessErrorStatuses.includes(failure.status)) {
             throw toRequestError(failure);
         }
         if (clientSessionExpired) {
             throw createError({
                 statusCode: failure.status,
-                statusMessage: "登录已失效，请重新登录",
+                statusMessage: t("request.loginRequired"),
                 data: failure.data,
             });
         }
 
-        // HTTP/body 401 或 403：最多刷新并重放两轮。第一次静默，第二次与最终失败均提示。
+        // 仅当后端明确返回 Access Token 过期标识时刷新并重放；403 一律作为权限不足提示，不再触发刷新。
+        if (!isAccessTokenExpired(failure)) {
+            if (failure.status === FORBIDDEN_STATUS) {
+                notify("warning", permissionDeniedMessage(failure, t("request.forbidden")));
+            }
+            throw toRequestError(failure);
+        }
+
         for (let attempt = 1; attempt <= MAX_REFRESH_ATTEMPTS; attempt++) {
             if (attempt > 1) {
-                notify("warning", "Token 刷新后仍未通过验权，正在重试（2/2）");
+                notify("warning", t("request.authorizationRetry"));
             }
 
             const refreshed = await refreshAccessToken();
@@ -553,15 +602,19 @@ export const useHttp = (baseURL?: string) => {
                 failure = {
                     status: refreshed.status,
                     message: refreshed.message,
+                    error: refreshed.error,
                 };
                 if (refreshed.missingRefreshToken) {
-                    return expireSession("未检测到 Refresh Token，正在跳转登录页", failure);
+                    return expireSession(t("request.refreshMissingToken"), failure);
+                }
+                if (isRefreshTokenExpired(failure)) {
+                    return expireSession(t("request.sessionExpired"), failure);
                 }
                 if (attempt === MAX_REFRESH_ATTEMPTS) {
-                    if (isAuthenticationFailure(refreshed.status)) {
-                        return expireSession("登录状态刷新失败，已清除所有 Token，请重新登录", failure);
+                    if (isUnauthorized(failure)) {
+                        return expireSession(t("request.refreshFailedAndCleared"), failure);
                     }
-                    notify("error", "Token 刷新失败，请稍后重试");
+                    notify("error", t("request.refreshTemporaryFailure"));
                     throw toRequestError(failure);
                 }
                 continue;
@@ -573,12 +626,15 @@ export const useHttp = (baseURL?: string) => {
             } catch (error: unknown) {
                 failure = requestFailure(error);
             }
-            if (!isAuthenticationFailure(failure.status)) {
+            if (!isAccessTokenExpired(failure)) {
+                if (failure.status === FORBIDDEN_STATUS) {
+                    notify("warning", permissionDeniedMessage(failure, t("request.forbidden")));
+                }
                 throw toRequestError(failure);
             }
         }
 
-        return expireSession("两次刷新后仍未通过验权，已清除所有 Token，请重新登录", failure);
+        return expireSession(t("request.doubleRefreshFailed"), failure);
     };
 
     const request = async <TResponse, TPayload = Record<string, unknown>>(

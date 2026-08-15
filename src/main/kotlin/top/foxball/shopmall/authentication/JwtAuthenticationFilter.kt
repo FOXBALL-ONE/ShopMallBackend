@@ -8,13 +8,15 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.web.filter.OncePerRequestFilter
 import top.foxball.shopmall.config.DevTokenManager
+import top.foxball.shopmall.handler.AccessTokenExpiredException
 
 /**
  * JWT 认证过滤器：双 Token 模型下，受保护请求仅验 **访问令牌**（无状态、不查 Redis）。
  *
- * 从 `Authorization: Bearer <jwt>` 取令牌，经 [JwtService.verify] 校验签名 + 过期 + **类型必须为 ACCESS**
+ * 从 `Authorization: Bearer <jwt>` 取令牌，经 [JwtService.verifyDetailed] 校验签名 + 过期 + **类型必须为 ACCESS**
  * （refresh 当 Bearer 直接被拒，类型隔离的执行点），通过则把 `userId` 与 `ROLE_<role>` 写入
- * [SecurityContextHolder]。失败不设置认证，交由 `authorizeHttpRequests` 判定 401。
+ * [SecurityContextHolder]。Access Token 过期时写入请求属性，交由 Security 的 entry point 返回专用异常；
+ * 其他失败不设置认证，交由 `authorizeHttpRequests` 判定 401。
  *
  * 去掉了旧模型的每请求 Redis 白名单查询（`LoginTokenAuthentication.isValid`）——令牌完整性已由 HS256
  * 保证，撤销靠刷新令牌侧（登出/改密删 refresh，access 在 ≤ [top.foxball.shopmall.config.JwtProperties.Access.ttlSeconds] 内自然过期）。
@@ -39,14 +41,21 @@ class JwtAuthenticationFilter(
     ) {
         val token = extractBearerToken(request)
         if (token != null && SecurityContextHolder.getContext().authentication == null) {
-            // 仅接受 typ=access；refresh 当 Bearer 使用直接被拒（verify 返回 null）
-            val claims = jwtService.verify(token, TokenType.ACCESS)
-            val devUserId = devTokenManager.fixedTokenUserId(claims)
-            when {
-                // dev 旁路优先：固定令牌仍是 access 语义（已校验 typ=access + role=ADMIN）
-                devUserId != null -> authenticate(devUserId, "ROLE_ADMIN")
-                // 正常分支：role 由 verify 保证为已知角色（非已知 → null），映射为 Spring Security authority
-                claims != null -> authenticate(claims.userId, "ROLE_${claims.role ?: "CUSTOMER"}")
+            when (val verification = jwtService.verifyDetailed(token, TokenType.ACCESS)) {
+                is JwtService.VerificationResult.Valid -> {
+                    val claims = verification.claims
+                    // dev 旁路优先：固定令牌仍是 access 语义（已校验 typ=access + role=ADMIN）
+                    val devUserId = devTokenManager.fixedTokenUserId(claims)
+                    when {
+                        devUserId != null -> authenticate(devUserId, "ROLE_ADMIN")
+                        // 正常分支：role 由 verifyDetailed 保证为已知角色（非已知 → Invalid），映射为 Spring Security authority
+                        else -> authenticate(claims.userId, "ROLE_${claims.role ?: "CUSTOMER"}")
+                    }
+                }
+                is JwtService.VerificationResult.Expired -> {
+                    request.setAttribute(ACCESS_TOKEN_EXPIRED_ATTRIBUTE, AccessTokenExpiredException())
+                }
+                JwtService.VerificationResult.Invalid -> Unit
             }
         }
         filterChain.doFilter(request, response)
@@ -66,8 +75,9 @@ class JwtAuthenticationFilter(
         return header.substring(BEARER_PREFIX.length).trim().takeIf { it.isNotEmpty() }
     }
 
-    private companion object {
+    companion object {
         const val AUTHORIZATION_HEADER = "Authorization"
         const val BEARER_PREFIX = "Bearer "
+        const val ACCESS_TOKEN_EXPIRED_ATTRIBUTE = "shopmall.access-token-expired"
     }
 }
