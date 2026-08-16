@@ -89,8 +89,12 @@ watch(() => session.userId.value, userId => {
       </div>
 
       <div class="store-brand-row store-container">
-        <button class="store-icon-button store-mobile-menu" type="button" :aria-label="t('header.toggleNavigation')"
-                @click="toggleMenu">
+        <button
+          class="store-icon-button store-mobile-menu"
+          type="button"
+          :aria-label="t('header.toggleNavigation')"
+          @click="toggleMenu"
+        >
           <UIcon :name="isMenuOpen ? 'i-lucide-x' : 'i-lucide-menu'"/>
         </button>
 
@@ -99,15 +103,23 @@ watch(() => session.userId.value, userId => {
         </NuxtLink>
 
         <div class="store-header-actions">
-          <button class="store-icon-button" type="button" :aria-label="t('header.searchProducts')"
-                  @click="toggleSearch">
+          <button
+            class="store-icon-button"
+            type="button"
+            :aria-label="t('header.searchProducts')"
+            @click="toggleSearch"
+          >
             <UIcon name="i-lucide-search"/>
           </button>
           <NuxtLink class="store-icon-button store-account-link" to="/account" :aria-label="t('header.account')">
             <UIcon name="i-lucide-user-round"/>
           </NuxtLink>
-          <button class="store-icon-button store-cart-button" type="button" :aria-label="t('header.cart')"
-                  @click="toggleCart">
+          <button
+            class="store-icon-button store-cart-button"
+            type="button"
+            :aria-label="t('header.cart')"
+            @click="toggleCart"
+          >
             <UIcon name="i-lucide-shopping-cart"/>
             <span v-if="cartCount">{{ cartCount > 99 ? '99+' : cartCount }}</span>
           </button>

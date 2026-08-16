@@ -81,8 +81,12 @@ onMounted(() => {
         <span>{{ t('cartPopover.eyebrow') }}</span>
         <strong>{{ t('cartPopover.title') }}</strong>
       </div>
-      <button type="button" :aria-label="t('cartPopover.close')" :title="t('common.actions.close')"
-              @click="emit('close')">
+      <button
+        type="button"
+        :aria-label="t('cartPopover.close')"
+        :title="t('common.actions.close')"
+        @click="emit('close')"
+      >
         <UIcon name="i-lucide-x"/>
       </button>
     </header>
@@ -99,8 +103,11 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-else-if="customerCart.isLoading.value && !customerCart.cart.value" class="store-cart-state"
-         aria-live="polite">
+    <div
+      v-else-if="customerCart.isLoading.value && !customerCart.cart.value"
+      class="store-cart-state"
+      aria-live="polite"
+    >
       <UIcon name="i-lucide-loader-circle" class="is-spinning"/>
       <strong>{{ t('cartPopover.loadingTitle') }}</strong>
       <p>{{ t('cartPopover.loadingDescription') }}</p>
