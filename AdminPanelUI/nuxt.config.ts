@@ -9,6 +9,8 @@ export default defineNuxtConfig({
   modules: ['nuxtjs-naive-ui'],
   runtimeConfig: {
     public: {
+      // 浏览器直连的 Cloudflare trace 目标；可用 NUXT_PUBLIC_CLOUDFLARE_TRACE_URL 覆盖。
+      cloudflareTraceUrl: 'https://mall.foxball.dev/cdn-cgi/trace',
       // 用户端及管理员共享 API 基址；可用 NUXT_PUBLIC_API_BASE 覆盖
       apiBase: 'http://127.0.0.1:8080/api',
       // 纯管理员 API 基址；可用 NUXT_PUBLIC_ADMIN_API_BASE 覆盖

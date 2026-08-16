@@ -206,7 +206,7 @@ const pageStats = computed(() => ({
 const formRules = computed<FormRules>(() => ({
   email: [
     { required: true, message: '请输入邮箱', trigger: ['blur', 'input'] },
-    { type: 'email', message: '请输入有效邮箱', trigger: ['blur', 'input'] },
+    { type: 'email', message: '邮箱格式应为“用户名@域名”，例如 name@example.com', trigger: ['blur', 'input'] },
   ],
   username: [
     { required: true, message: '请输入用户名', trigger: ['blur', 'input'] },
@@ -765,7 +765,10 @@ onMounted(() => {
                 <NInput v-model:value="form.username" maxlength="50" :disabled="saving" />
               </NFormItemGi>
               <NFormItemGi label="邮箱" path="email">
-                <NInput v-model:value="form.email" maxlength="100" :disabled="saving" />
+                <div class="field-with-hint">
+                  <NInput v-model:value="form.email" maxlength="100" :disabled="saving" />
+                  <small class="field-hint">格式为“用户名@域名”，例如 name@example.com，最多 100 个字符。</small>
+                </div>
               </NFormItemGi>
               <NFormItemGi v-if="editorMode === 'create'" label="初始密码" path="password" :span="2">
                 <NInput
@@ -927,6 +930,19 @@ onMounted(() => {
 
 .code-picker-icon {
   color: #8c8c8c;
+}
+
+.field-with-hint {
+  width: 100%;
+  min-width: 0;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 5px;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .table-actions {

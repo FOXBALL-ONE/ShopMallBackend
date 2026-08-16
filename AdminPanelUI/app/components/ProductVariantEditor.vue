@@ -82,17 +82,33 @@ function numericValue(value: string): number | null {
         <tbody>
           <tr v-for="(variant, index) in variants" :key="variant.id ?? `new-${index}`">
             <td>
-              <NInput v-model:value="variant.sku" :disabled="variant.id !== undefined" maxlength="64" placeholder="SKU" />
+              <div class="field-with-hint">
+                <NInput v-model:value="variant.sku" :disabled="variant.id !== undefined" maxlength="64" placeholder="SKU" />
+                <small class="field-hint">1–64 个字符；只允许字母、数字、点、下划线和连字符，首字符须为字母或数字。</small>
+              </div>
             </td>
             <td><NInput v-model:value="variant.size" maxlength="30" clearable placeholder="可空" /></td>
             <td>
               <div class="color-input">
                 <span class="color-swatch" :style="{ backgroundColor: variant.color }" />
-                <NInput v-model:value="variant.color" maxlength="50" placeholder="#000000" />
+                <div class="field-with-hint">
+                  <NInput v-model:value="variant.color" maxlength="50" placeholder="#000000" />
+                  <small class="field-hint">必填，最多 50 个字符。</small>
+                </div>
               </div>
             </td>
-            <td><NInput v-model:value="variant.price" maxlength="12" placeholder="0.00" /></td>
-            <td><NInputNumber v-model:value="variant.warehouseVolume" :min="0" :precision="0" /></td>
+            <td>
+              <div class="field-with-hint">
+                <NInput v-model:value="variant.price" maxlength="12" placeholder="0.00" />
+                <small class="field-hint">大于 0；整数最多 8 位，小数最多 2 位。</small>
+              </div>
+            </td>
+            <td>
+              <div class="field-with-hint">
+                <NInputNumber v-model:value="variant.warehouseVolume" :min="0" :precision="0" />
+                <small class="field-hint">必须为非负整数。</small>
+              </div>
+            </td>
             <td>
               <NSelect
                 v-model:value="variant.status"
@@ -188,7 +204,7 @@ function numericValue(value: string): number | null {
   border-right: 1px solid #e5e7eb;
   border-bottom: 1px solid #e5e7eb;
   text-align: left;
-  vertical-align: middle;
+  vertical-align: top;
 }
 
 .variant-table th {
@@ -215,6 +231,20 @@ function numericValue(value: string): number | null {
 
 .variant-table tbody tr:last-child td {
   border-bottom: 0;
+}
+
+.field-with-hint {
+  width: 100%;
+  min-width: 0;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 5px;
+  color: #8c8c8c;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .color-input,

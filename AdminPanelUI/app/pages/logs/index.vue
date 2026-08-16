@@ -226,7 +226,7 @@ function normalizedLoggerOverrides(): LoggerOverride[] | null {
     level: item.level,
   }))
   if (normalized.some(item => !LOGGER_NAME_PATTERN.test(item.logger_name))) {
-    message.error('logger 名称必须是合法的包名或类名')
+    message.error('logger 名称必须由点分隔的 Java 标识符组成；每段以字母、下划线或 $ 开头，后续可包含字母、数字、下划线或 $')
     return null
   }
   if (normalized.some(item => item.logger_name.length > 200)) {
@@ -936,13 +936,16 @@ onBeforeUnmount(() => {
             <NEmpty v-if="settingsForm.loggerOverrides.length === 0" size="small" description="暂无 logger 覆盖" class="override-empty" />
             <div v-else class="override-list">
               <div v-for="(override, index) in settingsForm.loggerOverrides" :key="index" class="override-row">
-                <NInput
-                  v-model:value="override.logger_name"
-                  maxlength="200"
-                  placeholder="top.foxball.shopmall.service"
-                  spellcheck="false"
-                  :disabled="settingsLoading || settingsSaving"
-                />
+                <div class="field-with-hint">
+                  <NInput
+                    v-model:value="override.logger_name"
+                    maxlength="200"
+                    placeholder="top.foxball.shopmall.service"
+                    spellcheck="false"
+                    :disabled="settingsLoading || settingsSaving"
+                  />
+                  <small class="field-hint">由点分隔的 Java 标识符组成，每段以字母、_ 或 $ 开头，最多 200 个字符；不可重复或使用 ROOT 与审计 logger。</small>
+                </div>
                 <NSelect
                   v-model:value="override.level"
                   :options="levelOptions"
@@ -1340,7 +1343,20 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) 130px 34px;
   gap: 9px;
-  align-items: center;
+  align-items: start;
+}
+
+.field-with-hint {
+  width: 100%;
+  min-width: 0;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 5px;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .override-empty {

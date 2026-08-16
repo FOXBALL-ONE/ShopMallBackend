@@ -313,7 +313,7 @@ function validateForm() {
     const section = form.sections[sectionIndex]!
     const label = `第 ${sectionIndex + 1} 个楼层`
     const code = section.code.trim().toLowerCase()
-    if (!/^[a-z][a-z0-9_]*$/.test(code)) return `${label}编码只能使用小写字母、数字和下划线，且必须以字母开头`
+    if (!/^[a-z][a-z0-9_]*$/.test(code)) return `${label}编码必须以字母开头，且只能包含字母、数字和下划线；字母会在保存时转为小写`
     if (sectionCodes.has(code)) return `楼层编码“${code}”重复`
     sectionCodes.add(code)
     if (code === HERO_CAROUSEL_CODE) {
@@ -336,7 +336,7 @@ function validateForm() {
       const group = section.groups[groupIndex]!
       const groupLabel = `${label}的第 ${groupIndex + 1} 个商品组`
       const groupCode = group.code.trim().toLowerCase()
-      if (!/^[a-z][a-z0-9_]*$/.test(groupCode)) return `${groupLabel}编码格式不正确`
+      if (!/^[a-z][a-z0-9_]*$/.test(groupCode)) return `${groupLabel}编码必须以字母开头，且只能包含字母、数字和下划线；字母会在保存时转为小写`
       if (groupCodes.has(groupCode)) return `${label}商品组编码“${groupCode}”重复`
       groupCodes.add(groupCode)
       if (section.displayStyle === 'TABS' && !group.title.trim()) return `${groupLabel}在页签模式下必须填写标题`
@@ -523,7 +523,12 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
               <NCard size="small" embedded class="section-card" :class="{ 'hero-section-card': isHeroSection(section) }">
                 <NAlert v-if="isHeroSection(section)" type="warning" :bordered="false" class="hero-section-alert">按人工商品列表顺序轮播，使用每个商品的第一张图片；客户点击轮播图、标题或按钮后会进入对应商品详情页。最多配置 {{ HERO_CAROUSEL_MAX_ITEMS }} 个商品。</NAlert>
                 <NGrid cols="1 m:2" responsive="screen" :x-gap="16">
-                  <NFormItemGi label="楼层编码"><NInput v-model:value="section.code" maxlength="64" placeholder="例如 whats_hot" :disabled="isHeroSection(section)" /></NFormItemGi>
+                  <NFormItemGi label="楼层编码">
+                    <div class="field-with-hint">
+                      <NInput v-model:value="section.code" maxlength="64" placeholder="例如 whats_hot" :disabled="isHeroSection(section)" />
+                      <small class="field-hint">以字母开头，只能包含字母、数字和下划线，最多 64 个字符；保存时转为小写。</small>
+                    </div>
+                  </NFormItemGi>
                   <NFormItemGi label="展示形态"><NSelect v-model:value="section.displayStyle" :options="HOME_RECOMMENDATION_DISPLAY_STYLE_OPTIONS" :disabled="isHeroSection(section)" /></NFormItemGi>
                   <NFormItemGi label="眉题"><NInput v-model:value="section.eyebrow" maxlength="80" /></NFormItemGi>
                   <NFormItemGi label="楼层标题"><NInput v-model:value="section.title" maxlength="120" /></NFormItemGi>
@@ -547,7 +552,12 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
                     <NButton quaternary circle size="small" type="error" :disabled="isHeroSection(section)" @click="removeGroup(section, groupIndex)"><template #icon><Trash2 :size="15" /></template></NButton>
                   </NSpace></template>
                   <NGrid cols="1 m:2 l:3" responsive="screen" :x-gap="16">
-                    <NFormItemGi label="商品组编码"><NInput v-model:value="group.code" maxlength="64" :disabled="isHeroSection(section)" /></NFormItemGi>
+                    <NFormItemGi label="商品组编码">
+                      <div class="field-with-hint">
+                        <NInput v-model:value="group.code" maxlength="64" :disabled="isHeroSection(section)" />
+                        <small class="field-hint">以字母开头，只能包含字母、数字和下划线，最多 64 个字符；保存时转为小写。</small>
+                      </div>
+                    </NFormItemGi>
                     <NFormItemGi label="页签标题"><NInput v-model:value="group.title" maxlength="80" :placeholder="section.displayStyle === 'TABS' ? '必填' : '可选'" /></NFormItemGi>
                     <NFormItemGi label="选品方式"><NSelect v-model:value="group.selectionMode" :options="HOME_RECOMMENDATION_SELECTION_MODE_OPTIONS" :disabled="isHeroSection(section)" /></NFormItemGi>
                     <NFormItemGi label="自动策略"><NSelect v-model:value="group.strategy" :options="HOME_RECOMMENDATION_STRATEGY_OPTIONS" :disabled="isHeroSection(section)" /></NFormItemGi>
@@ -638,6 +648,8 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
 .group-toolbar { padding: 12px 0; border-top: 1px solid #e5e7eb; }
 .group-card + .group-card { margin-top: 12px; }
 .manual-products { padding-top: 14px; margin-top: 4px; border-top: 1px dashed #d1d5db; }
+.field-with-hint { width: 100%; min-width: 0; }
+.field-hint { display: block; margin-top: 5px; color: #8c8c8c; font-size: 12px; line-height: 1.4; }
 .manual-heading { margin-bottom: 12px; }
 .manual-list { display: flex; flex-direction: column; gap: 8px; }
 .manual-item { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(180px, 260px) auto auto; gap: 12px; align-items: center; padding: 9px; border: 1px solid #e5e7eb; border-radius: 8px; }

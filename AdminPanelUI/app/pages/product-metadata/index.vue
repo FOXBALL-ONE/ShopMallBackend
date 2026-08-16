@@ -116,7 +116,7 @@ function openEditType(type: ProductType) {
 
 async function submitType() {
   if (!/^[A-Z][A-Z0-9_]*$/.test(typeForm.code.trim()) || !typeForm.name.trim()) {
-    message.warning('请填写有效的类型 code 和名称')
+    message.warning('类型 code 必须以大写字母开头，且只能包含大写字母、数字和下划线；名称不能为空')
     return
   }
   submitting.value = true
@@ -180,7 +180,7 @@ function openEditDefinition(definition: AttributeDefinition) {
 
 async function submitDefinition() {
   if (selectedTypeId.value == null || !/^[a-z][a-z0-9_]*$/.test(definitionForm.code.trim()) || !definitionForm.name.trim()) {
-    message.warning('请填写有效的属性 code 和名称')
+    message.warning('属性 code 必须以小写字母开头，且只能包含小写字母、数字和下划线；名称不能为空')
     return
   }
   if (definitionForm.valueType === 'ENUM' && definitionForm.allowedValues.length === 0) {
@@ -247,7 +247,7 @@ function openEditCategory(category: ProductCategory) {
 
 async function submitCategory() {
   if (!/^[a-z][a-z0-9-]*$/.test(categoryForm.code.trim()) || !categoryForm.name.trim()) {
-    message.warning('请填写有效的分类 code 和名称')
+    message.warning('分类 code 必须以小写字母开头，且只能包含小写字母、数字和连字符；名称不能为空')
     return
   }
   submitting.value = true
@@ -401,8 +401,18 @@ onMounted(async () => {
 
     <NModal v-model:show="typeModalOpen" preset="card" :title="editingTypeId == null ? '新增商品类型' : '编辑商品类型'" :style="{ width: 'min(520px, calc(100vw - 32px))' }">
       <NForm label-placement="top">
-        <NFormItem label="Code" required><NInput v-model:value="typeForm.code" :disabled="editingTypeId !== null" maxlength="64" /></NFormItem>
-        <NFormItem label="名称" required><NInput v-model:value="typeForm.name" maxlength="100" /></NFormItem>
+        <NFormItem label="Code" required>
+          <div class="field-with-hint">
+            <NInput v-model:value="typeForm.code" :disabled="editingTypeId !== null" maxlength="64" />
+            <small class="field-hint">以大写字母开头，只能包含大写字母、数字和下划线，最多 64 个字符。</small>
+          </div>
+        </NFormItem>
+        <NFormItem label="名称" required>
+          <div class="field-with-hint">
+            <NInput v-model:value="typeForm.name" maxlength="100" />
+            <small class="field-hint">必填，最多 100 个字符。</small>
+          </div>
+        </NFormItem>
         <NFormItem label="说明"><NInput v-model:value="typeForm.description" type="textarea" maxlength="1000" /></NFormItem>
         <NGrid cols="2" :x-gap="16">
           <NFormItemGi label="排序"><NInputNumber v-model:value="typeForm.displayOrder" :min="0" :precision="0" /></NFormItemGi>
@@ -415,14 +425,29 @@ onMounted(async () => {
     <NModal v-model:show="definitionModalOpen" preset="card" :title="editingDefinitionId == null ? '新增属性定义' : '编辑属性定义'" :style="{ width: 'min(620px, calc(100vw - 32px))' }">
       <NForm label-placement="top">
         <NGrid cols="1 s:2" :x-gap="16" responsive="screen">
-          <NFormItemGi label="Code" required><NInput v-model:value="definitionForm.code" :disabled="editingDefinitionId !== null" maxlength="64" /></NFormItemGi>
-          <NFormItemGi label="名称" required><NInput v-model:value="definitionForm.name" maxlength="100" /></NFormItemGi>
+          <NFormItemGi label="Code" required>
+            <div class="field-with-hint">
+              <NInput v-model:value="definitionForm.code" :disabled="editingDefinitionId !== null" maxlength="64" />
+              <small class="field-hint">以小写字母开头，只能包含小写字母、数字和下划线，最多 64 个字符。</small>
+            </div>
+          </NFormItemGi>
+          <NFormItemGi label="名称" required>
+            <div class="field-with-hint">
+              <NInput v-model:value="definitionForm.name" maxlength="100" />
+              <small class="field-hint">必填，最多 100 个字符。</small>
+            </div>
+          </NFormItemGi>
           <NFormItemGi label="作用域"><NSelect v-model:value="definitionForm.scope" :options="scopeOptions" :disabled="editingDefinitionUsed" /></NFormItemGi>
           <NFormItemGi label="值类型"><NSelect v-model:value="definitionForm.valueType" :options="valueTypeOptions" :disabled="editingDefinitionUsed" /></NFormItemGi>
           <NFormItemGi label="最大长度"><NInputNumber v-model:value="definitionForm.maxLength" :min="1" :max="1000" :disabled="editingDefinitionUsed || definitionForm.valueType !== 'STRING'" /></NFormItemGi>
           <NFormItemGi label="排序"><NInputNumber v-model:value="definitionForm.displayOrder" :min="0" :precision="0" /></NFormItemGi>
         </NGrid>
-        <NFormItem v-if="definitionForm.valueType === 'ENUM'" label="允许值" required><NDynamicTags v-model:value="definitionForm.allowedValues" :disabled="editingDefinitionUsed" /></NFormItem>
+        <NFormItem v-if="definitionForm.valueType === 'ENUM'" label="允许值" required>
+          <div class="field-with-hint">
+            <NDynamicTags v-model:value="definitionForm.allowedValues" :disabled="editingDefinitionUsed" />
+            <small class="field-hint">至少添加一个允许值，保存时会转为大写。</small>
+          </div>
+        </NFormItem>
         <NSpace :size="24">
           <NCheckbox v-model:checked="definitionForm.required" :disabled="editingDefinitionUsed">必填</NCheckbox>
           <NCheckbox v-model:checked="definitionForm.filterable">可筛选</NCheckbox>
@@ -434,8 +459,18 @@ onMounted(async () => {
 
     <NModal v-model:show="categoryModalOpen" preset="card" :title="editingCategoryId == null ? '新增商品分类' : '编辑商品分类'" :style="{ width: 'min(520px, calc(100vw - 32px))' }">
       <NForm label-placement="top">
-        <NFormItem label="Code" required><NInput v-model:value="categoryForm.code" :disabled="editingCategoryId !== null" maxlength="64" /></NFormItem>
-        <NFormItem label="名称" required><NInput v-model:value="categoryForm.name" maxlength="100" /></NFormItem>
+        <NFormItem label="Code" required>
+          <div class="field-with-hint">
+            <NInput v-model:value="categoryForm.code" :disabled="editingCategoryId !== null" maxlength="64" />
+            <small class="field-hint">以小写字母开头，只能包含小写字母、数字和连字符，最多 64 个字符。</small>
+          </div>
+        </NFormItem>
+        <NFormItem label="名称" required>
+          <div class="field-with-hint">
+            <NInput v-model:value="categoryForm.name" maxlength="100" />
+            <small class="field-hint">必填，最多 100 个字符。</small>
+          </div>
+        </NFormItem>
         <NFormItem label="说明"><NInput v-model:value="categoryForm.description" type="textarea" maxlength="1000" /></NFormItem>
         <NFormItem label="上级分类"><NSelect v-model:value="categoryForm.parentId" :options="parentOptions" clearable /></NFormItem>
         <NGrid cols="2" :x-gap="16">
@@ -550,6 +585,19 @@ onMounted(async () => {
 .table-actions {
   width: 84px;
   white-space: nowrap;
+}
+
+.field-with-hint {
+  width: 100%;
+  min-width: 0;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 5px;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 @media (max-width: 840px) {

@@ -390,7 +390,7 @@ function validateCreateForm(): boolean {
     !Number.isInteger(allocation.orderItemId) || !allocation.orderItemId || allocation.orderItemId < 1
       || !Number.isInteger(allocation.quantity) || !allocation.quantity || allocation.quantity < 1
   ))) {
-    message.warning('请填写有效的订单商品行 ID 和发货数量')
+    message.warning('订单商品行 ID 和发货数量必须为大于 0 的整数')
     return false
   }
   const itemIds = createForm.allocations.map(allocation => allocation.orderItemId)
@@ -914,24 +914,30 @@ onMounted(() => {
         <div class="allocation-list">
           <div v-for="(allocation, index) in createForm.allocations" :key="index" class="allocation-row">
             <NFormItem label="订单商品行 ID" :show-feedback="false">
-              <NSelect
-                v-model:value="allocation.orderItemId"
-                :options="allocationOptions"
-                :disabled="creating"
-                placeholder="选择可发货商品"
-                @update:value="(value: number | null) => selectAllocationItem(allocation, value)"
-              />
+              <div class="field-with-hint">
+                <NSelect
+                  v-model:value="allocation.orderItemId"
+                  :options="allocationOptions"
+                  :disabled="creating"
+                  placeholder="选择可发货商品"
+                  @update:value="(value: number | null) => selectAllocationItem(allocation, value)"
+                />
+                <small class="field-hint">必须选择 ID 大于 0 的订单商品行。</small>
+              </div>
             </NFormItem>
             <NFormItem label="发货数量" :show-feedback="false">
-              <NInputNumber
-                v-model:value="allocation.quantity"
-                :min="1"
-                :precision="0"
-                :show-button="false"
-                disabled
-                placeholder="数量"
-                style="width: 100%"
-              />
+              <div class="field-with-hint">
+                <NInputNumber
+                  v-model:value="allocation.quantity"
+                  :min="1"
+                  :precision="0"
+                  :show-button="false"
+                  disabled
+                  placeholder="数量"
+                  style="width: 100%"
+                />
+                <small class="field-hint">必须为大于 0 的整数。</small>
+              </div>
             </NFormItem>
             <NButton
               class="allocation-remove"
@@ -1080,12 +1086,25 @@ onMounted(() => {
 .allocation-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  align-items: end;
+  align-items: start;
   gap: 12px;
 }
 
 .allocation-remove {
-  margin-bottom: 6px;
+  margin-top: 30px;
+}
+
+.field-with-hint {
+  width: 100%;
+  min-width: 0;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 5px;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 :deep(.table-actions) {
@@ -1109,7 +1128,7 @@ onMounted(() => {
   }
 
   .allocation-remove {
-    margin-bottom: 0;
+    margin-top: 0;
   }
 }
 </style>

@@ -235,13 +235,13 @@ function validateDynamicFields(): string | null {
   const skus = new Set<string>()
   for (const variant of model.variants) {
     const sku = variant.sku.trim().toUpperCase()
-    if (!sku || !/^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(sku)) return 'SKU 格式无效'
+    if (!sku || !/^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(sku)) return 'SKU 必须为 1 到 64 个字符，只能包含字母、数字、点、下划线和连字符，且首字符必须为字母或数字'
     if (skus.has(sku)) return `SKU 重复：${sku}`
     skus.add(sku)
     if (!variant.color.trim()) return `SKU ${sku} 缺少颜色`
     const price = Number(variant.price)
-    if (!Number.isFinite(price) || price <= 0 || !/^\d{1,8}(?:\.\d{1,2})?$/.test(variant.price.trim())) return `SKU ${sku} 的 USD 价格无效`
-    if (!Number.isInteger(variant.warehouseVolume) || variant.warehouseVolume < 0) return `SKU ${sku} 的库存无效`
+    if (!Number.isFinite(price) || price <= 0 || !/^\d{1,8}(?:\.\d{1,2})?$/.test(variant.price.trim())) return `SKU ${sku} 的 USD 价格必须大于 0，整数部分最多 8 位，小数部分最多 2 位`
+    if (!Number.isInteger(variant.warehouseVolume) || variant.warehouseVolume < 0) return `SKU ${sku} 的库存必须为非负整数`
     for (const definition of variantDefinitions.value) {
       if (definition.required && !variant.attributes.find(attribute => attribute.code === definition.code)?.value.trim()) {
         return `SKU ${sku} 缺少 ${definition.name}`
@@ -253,7 +253,7 @@ function validateDynamicFields(): string | null {
   if (model.images.some(image => !image.url.trim())) return '图片地址不能为空'
   if (model.materials.length > 0) {
     const total = model.materials.reduce((sum, item) => sum + Number(item.percentage), 0)
-    if (model.materials.some(item => !item.name.trim() || !Number.isFinite(Number(item.percentage)) || Number(item.percentage) <= 0)) return '面料信息无效'
+    if (model.materials.some(item => !item.name.trim() || !Number.isFinite(Number(item.percentage)) || Number(item.percentage) <= 0)) return '每项面料名称都不能为空，且占比必须为大于 0 的数值'
     if (Math.abs(total - 100) > 0.001) return '面料占比合计必须为 100%'
   }
   return null
@@ -409,8 +409,14 @@ async function submit() {
               <NButton size="small" secondary @click="addMaterial">添加面料</NButton>
             </div>
             <div v-for="(material, index) in model.materials" :key="index" class="material-row">
-              <NInput v-model:value="material.name" maxlength="100" placeholder="面料名称" />
-              <NInput v-model:value="material.percentage" maxlength="6" placeholder="百分比" />
+              <div class="field-with-hint">
+                <NInput v-model:value="material.name" maxlength="100" placeholder="面料名称" />
+                <small class="field-hint">名称不能为空。</small>
+              </div>
+              <div class="field-with-hint">
+                <NInput v-model:value="material.percentage" maxlength="6" placeholder="百分比" />
+                <small class="field-hint">大于 0，所有面料占比合计须为 100%。</small>
+              </div>
               <NButton quaternary circle type="error" aria-label="删除面料" @click="model.materials.splice(index, 1)"><Trash2 :size="15" /></NButton>
             </div>
             <NEmpty v-if="model.materials.length === 0" description="暂无面料" size="small" />
@@ -499,6 +505,7 @@ async function submit() {
 
 .material-row {
   grid-template-columns: minmax(180px, 1fr) 140px 34px;
+  align-items: start;
 }
 
 .image-row {
@@ -508,6 +515,19 @@ async function submit() {
 .image-actions {
   display: flex;
   align-items: center;
+}
+
+.field-with-hint {
+  width: 100%;
+  min-width: 0;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 5px;
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 @media (max-width: 720px) {

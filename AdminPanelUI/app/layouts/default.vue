@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, Boxes, ClipboardList, Gauge, LayoutDashboard, LifeBuoy, LogOut, Megaphone, Package, RefreshCw, ScrollText, Sparkles, Truck, Users } from '@lucide/vue'
+import { Activity, Boxes, Cloud, ClipboardList, Gauge, LayoutDashboard, LifeBuoy, LogOut, Megaphone, Package, RefreshCw, ScrollText, Sparkles, Truck, Users } from '@lucide/vue'
 import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Component } from 'vue'
 import type { MenuOption } from 'naive-ui'
@@ -22,6 +22,7 @@ const menuOptions: MenuOption[] = [
   { label: '公告管理', key: 'announcements', icon: renderMenuIcon(Megaphone) },
   { label: '首页推荐', key: 'home-recommendations', icon: renderMenuIcon(Sparkles) },
   { label: '系统监控', key: 'system-status', icon: renderMenuIcon(Activity) },
+  { label: 'Cloudflare 节点', key: 'cloudflare-trace', icon: renderMenuIcon(Cloud) },
   { label: '限速设置', key: 'rate-limits', icon: renderMenuIcon(Gauge) },
   { label: '日志中心', key: 'logs', icon: renderMenuIcon(ScrollText) },
 ]
@@ -36,6 +37,7 @@ const activeMenuKey = computed(() => {
   if (route.path.startsWith('/announcements')) return 'announcements'
   if (route.path.startsWith('/home-recommendations')) return 'home-recommendations'
   if (route.path.startsWith('/system-status')) return 'system-status'
+  if (route.path.startsWith('/cloudflare-trace')) return 'cloudflare-trace'
   if (route.path.startsWith('/rate-limits')) return 'rate-limits'
   if (route.path.startsWith('/logs')) return 'logs'
   return 'dashboard'
@@ -62,6 +64,8 @@ function handleMenuSelect(key: string) {
     navigateTo('/home-recommendations')
   } else if (key === 'system-status') {
     navigateTo('/system-status')
+  } else if (key === 'cloudflare-trace') {
+    navigateTo('/cloudflare-trace')
   } else if (key === 'rate-limits') {
     navigateTo('/rate-limits')
   } else if (key === 'logs') {
