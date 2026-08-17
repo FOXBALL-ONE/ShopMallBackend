@@ -19,7 +19,9 @@ type RawRecommendationProduct = RawProduct & {
   }
 }
 
-type RawRecommendationResponse = Omit<HomeRecommendationResponse, 'sections'> & {
+type RawRecommendationResponse = Omit<HomeRecommendationResponse, 'categories_configured' | 'categories' | 'sections'> & {
+  categories_configured?: boolean
+  categories?: HomeRecommendationResponse['categories'] | null
   sections?: Array<Omit<HomeRecommendationSection, 'groups'> & {
     groups?: Array<Omit<HomeRecommendationGroup, 'products'> & {
       products?: RawRecommendationProduct[] | null
@@ -37,6 +39,8 @@ export function useHomeRecommendationApi() {
     })
     return {
       ...response,
+      categories_configured: response.categories_configured ?? false,
+      categories: response.categories ?? [],
       sections: (response.sections ?? []).map(section => ({
         ...section,
         groups: (section.groups ?? []).map(group => ({

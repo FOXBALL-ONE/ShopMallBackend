@@ -4,13 +4,16 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import top.foxball.shopmall.entity.jdbc.HomeRecommendationCategory
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationGroup
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationPlan
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationSection
 import top.foxball.shopmall.entity.jdbc.Product
+import top.foxball.shopmall.entity.jdbc.ProductCategory
 import top.foxball.shopmall.entity.jdbc.ProductVariant
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.repository.HomeRecommendationPlanRepository
+import top.foxball.shopmall.repository.ProductCategoryRepository
 import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.service.HomeRecommendationCache
 import top.foxball.shopmall.service.HomeRecommendationService
@@ -24,6 +27,7 @@ import java.util.UUID
 class HomeRecommendationServiceImpl(
     private val planRepository: HomeRecommendationPlanRepository,
     private val productRepository: ProductRepository,
+    private val productCategoryRepository: ProductCategoryRepository,
     private val homeRecommendationCache: HomeRecommendationCache,
     private val clock: Clock,
     @Value("\${shopmall.home-recommendation.time-zone:Asia/Shanghai}") recommendationTimeZone: String,
@@ -100,6 +104,25 @@ class HomeRecommendationServiceImpl(
                 .associateBy { requireNotNull(it.id) }
         }
         val globallySeen = linkedSetOf<Long>()
+        val configuredCategoryIds = plan.categories.map { it.categoryId }.distinct()
+        val configuredCategories = if (configuredCategoryIds.isEmpty()) emptyMap() else {
+            productCategoryRepository.findAllById(configuredCategoryIds)
+                .filter { it.status == ProductCategory.Status.ACTIVE && it.parent == null }
+                .associateBy { requireNotNull(it.id) }
+        }
+        val categories = plan.categories.sortedWith(
+            compareBy(HomeRecommendationCategory::sortOrder).thenBy(HomeRecommendationCategory::id),
+        ).mapNotNull { recommendationCategory ->
+            val category = configuredCategories[recommendationCategory.categoryId] ?: return@mapNotNull null
+            HomeRecommendationService.ResolvedCategory(
+                id = recommendationCategory.id,
+                categoryId = recommendationCategory.categoryId,
+                code = category.code,
+                name = category.name,
+                imageUrl = recommendationCategory.imageUrl,
+                altText = recommendationCategory.altText,
+            )
+        }
         val sections = mutableListOf<HomeRecommendationService.ResolvedSection>()
         plan.sections.sortedWith(compareBy(HomeRecommendationSection::sortOrder, HomeRecommendationSection::id))
             .take(sectionLimit)
@@ -138,9 +161,12 @@ class HomeRecommendationServiceImpl(
                         groups = groups,
                     )
                 }
-            }
+        }
         if (sections.isEmpty() && plan.fallbackEnabled && !fallback && useDefaultFallback) {
-            return resolveDefault(sectionLimit, productLimitPerGroup, currentTime)
+            return resolveDefault(sectionLimit, productLimitPerGroup, currentTime).copy(
+                categoriesConfigured = plan.categories.isNotEmpty(),
+                categories = categories,
+            )
         }
         return HomeRecommendationService.ResolvedPlan(
             planId = plan.id,
@@ -148,6 +174,8 @@ class HomeRecommendationServiceImpl(
             requestId = requestId,
             generatedAt = currentTime,
             expiresAt = currentTime.plusSeconds(cacheTtlSeconds.coerceAtLeast(1)),
+            categoriesConfigured = plan.categories.isNotEmpty(),
+            categories = categories,
             sections = sections,
             fallback = fallback,
         )
@@ -415,6 +443,7 @@ class HomeRecommendationServiceImpl(
             }
 
     private fun initializePlan(plan: HomeRecommendationPlan) {
+        plan.categories.size
         plan.sections.forEach { section ->
             section.groups.forEach { group -> group.items.size }
         }

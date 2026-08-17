@@ -45,6 +45,14 @@ export interface HomeRecommendationItemDetail {
   sort_order: number
 }
 
+export interface HomeRecommendationCategoryDetail {
+  id: number
+  category_id: number
+  image_url: string
+  alt_text?: string | null
+  sort_order: number
+}
+
 export interface HomeRecommendationGroupDetail {
   id: number
   code: string
@@ -95,7 +103,14 @@ export interface HomeRecommendationPlanDetail {
   archived_at?: string | null
   created_at?: string | null
   updated_at?: string | null
+  categories: HomeRecommendationCategoryDetail[]
   sections: HomeRecommendationSectionDetail[]
+}
+
+export interface HomeRecommendationCategoryInput {
+  categoryId: number
+  imageUrl: string
+  altText: string
 }
 
 export interface HomeRecommendationItemInput {
@@ -140,6 +155,7 @@ export interface HomeRecommendationFormInput {
   effectiveUntil: string | null
   fallbackEnabled: boolean
   deduplicateAcrossSections: boolean
+  categories: HomeRecommendationCategoryInput[]
   sections: HomeRecommendationSectionInput[]
 }
 
@@ -181,5 +197,12 @@ export interface HomeRecommendationPreview {
   plan_id?: number | null
   request_id: string
   generated_at?: string
+  categories: Array<{
+    category_id: number
+    code: string
+    name: string
+    image_url: string
+    alt_text?: string | null
+  }>
   sections: HomeRecommendationPreviewSection[]
 }

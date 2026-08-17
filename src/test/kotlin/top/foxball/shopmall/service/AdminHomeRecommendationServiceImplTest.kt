@@ -10,6 +10,7 @@ import top.foxball.shopmall.entity.jdbc.HomeRecommendationItem
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationPlan
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationSection
 import top.foxball.shopmall.entity.jdbc.Product
+import top.foxball.shopmall.entity.jdbc.ProductCategory
 import top.foxball.shopmall.handler.HomeRecommendationScheduleConflictException
 import top.foxball.shopmall.handler.HomeRecommendationVersionConflictException
 import top.foxball.shopmall.handler.ParamErrorException
@@ -49,6 +50,58 @@ class AdminHomeRecommendationServiceImplTest {
         Clock.fixed(Instant.parse("2026-08-12T12:00:00Z"), ZoneOffset.UTC),
         "UTC",
     )
+
+    @Test
+    fun `create stores ordered homepage categories with normalized image metadata`() {
+        val category = ProductCategory(id = 2, code = "swimwear", name = "Swimwear")
+        `when`(productCategoryRepository.findAllById(setOf(2L))).thenReturn(listOf(category))
+        `when`(planRepository.saveAndFlush(org.mockito.ArgumentMatchers.any(HomeRecommendationPlan::class.java)))
+            .thenAnswer { invocation -> invocation.arguments[0] as HomeRecommendationPlan }
+
+        val created = service.create(
+            99,
+            createCommand(
+                categories = listOf(
+                    AdminHomeRecommendationService.CategoryCommand(
+                        categoryId = 2,
+                        imageUrl = " http://localhost:8080/api/product-images/file-id?signature=test ",
+                        altText = " Swimwear collection ",
+                        sortOrder = 0,
+                    ),
+                ),
+                sections = listOf(sectionCommand()),
+            ),
+        )
+
+        assertEquals(listOf(2L), created.categories.map { it.categoryId })
+        assertEquals("http://localhost:8080/api/product-images/file-id?signature=test", created.categories.single().imageUrl)
+        assertEquals("Swimwear collection", created.categories.single().altText)
+    }
+
+    @Test
+    fun `homepage categories reject inactive or nested catalog categories`() {
+        val inactive = ProductCategory(
+            id = 2,
+            code = "inactive",
+            name = "Inactive",
+            status = ProductCategory.Status.INACTIVE,
+        )
+        `when`(productCategoryRepository.findAllById(setOf(2L))).thenReturn(listOf(inactive))
+
+        val error = assertFailsWith<ParamErrorException> {
+            service.create(
+                99,
+                createCommand(
+                    categories = listOf(
+                        AdminHomeRecommendationService.CategoryCommand(2, "/images/inactive.jpg", null, 0),
+                    ),
+                    sections = listOf(sectionCommand()),
+                ),
+            )
+        }
+
+        assertEquals("首页展示分类必须是启用中的顶级分类：Inactive", error.message)
+    }
 
     @Test
     fun `stale update version reports the current version before validation`() {
@@ -423,13 +476,17 @@ class AdminHomeRecommendationServiceImplTest {
         fallbackStrategy = HomeRecommendationGroup.FallbackStrategy.NONE,
     )
 
-    private fun createCommand(sections: List<AdminHomeRecommendationService.SectionCommand>) =
+    private fun createCommand(
+        sections: List<AdminHomeRecommendationService.SectionCommand>,
+        categories: List<AdminHomeRecommendationService.CategoryCommand> = emptyList(),
+    ) =
         AdminHomeRecommendationService.CreateCommand(
             name = "Homepage",
             effectiveFrom = currentTime,
             effectiveUntil = currentTime.plusDays(1),
             fallbackEnabled = true,
             deduplicateAcrossSections = true,
+            categories = categories,
             sections = sections,
         )
 

@@ -8,10 +8,12 @@ import org.springframework.data.domain.Sort
 import org.springframework.data.jpa.domain.Specification
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import top.foxball.shopmall.entity.jdbc.HomeRecommendationCategory
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationGroup
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationItem
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationPlan
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationSection
+import top.foxball.shopmall.entity.jdbc.ProductCategory
 import top.foxball.shopmall.handler.HomeRecommendationScheduleConflictException
 import top.foxball.shopmall.handler.HomeRecommendationVersionConflictException
 import top.foxball.shopmall.handler.ParamErrorException
@@ -112,6 +114,7 @@ class AdminHomeRecommendationServiceImpl(
             createdBy = adminId,
             updatedBy = adminId,
         )
+        plan.replaceCategories(buildCategories(command.categories))
         plan.replaceSections(buildSections(command.sections))
         return planRepository.saveAndFlush(plan).also(::initializePlan)
     }
@@ -135,16 +138,23 @@ class AdminHomeRecommendationServiceImpl(
                 effectiveUntil = command.effectiveUntil,
                 fallbackEnabled = command.fallbackEnabled,
                 deduplicateAcrossSections = command.deduplicateAcrossSections,
+                categories = command.categories,
                 sections = command.sections,
             ),
         )
+        val categories = buildCategories(command.categories)
+        val sections = buildSections(command.sections)
+        plan.replaceCategories(emptyList())
+        plan.replaceSections(emptyList())
+        planRepository.flush()
         plan.name = command.name.trim()
         plan.effectiveFrom = command.effectiveFrom
         plan.effectiveUntil = command.effectiveUntil
         plan.fallbackEnabled = command.fallbackEnabled
         plan.deduplicateAcrossSections = command.deduplicateAcrossSections
         plan.updatedBy = adminId
-        plan.replaceSections(buildSections(command.sections))
+        plan.replaceCategories(categories)
+        plan.replaceSections(sections)
         return planRepository.saveAndFlush(plan).also(::initializePlan)
     }
 
@@ -164,6 +174,17 @@ class AdminHomeRecommendationServiceImpl(
             deduplicateAcrossSections = source.deduplicateAcrossSections,
             createdBy = adminId,
             updatedBy = adminId,
+        )
+        clone.replaceCategories(
+            source.categories.sortedWith(compareBy(HomeRecommendationCategory::sortOrder, HomeRecommendationCategory::id))
+                .map { category ->
+                    HomeRecommendationCategory(
+                        categoryId = category.categoryId,
+                        imageUrl = category.imageUrl,
+                        altText = category.altText,
+                        sortOrder = category.sortOrder,
+                    )
+                },
         )
         clone.replaceSections(
             source.sections.sortedWith(compareBy(HomeRecommendationSection::sortOrder, HomeRecommendationSection::id))
@@ -400,6 +421,17 @@ class AdminHomeRecommendationServiceImpl(
             }
         }
 
+    private fun buildCategories(
+        commands: List<AdminHomeRecommendationService.CategoryCommand>,
+    ): List<HomeRecommendationCategory> = commands.map { command ->
+        HomeRecommendationCategory(
+            categoryId = command.categoryId,
+            imageUrl = normalizedImageUrl(command.imageUrl),
+            altText = command.altText?.trim()?.takeIf(String::isNotEmpty),
+            sortOrder = command.sortOrder,
+        )
+    }
+
     private fun validateCommand(command: AdminHomeRecommendationService.CreateCommand) {
         if (command.name.trim().isEmpty()) throw ParamErrorException("方案名称不能为空")
         if (command.name.trim().length > 120) throw ParamErrorException("方案名称不能超过 120 个字符")
@@ -409,11 +441,26 @@ class AdminHomeRecommendationServiceImpl(
         if (command.sections.isEmpty() || command.sections.size > 10) {
             throw ParamErrorException("方案必须包含 1 到 10 个推荐楼层")
         }
+        if (command.categories.size > 8) throw ParamErrorException("首页展示分类不能超过 8 个")
         val sectionCodes = mutableSetOf<String>()
         val referencedProductIds = mutableSetOf<Long>()
         val referencedCategoryIds = mutableSetOf<Long>()
         val referencedProductTypes = mutableSetOf<String>()
         val referencedTagIds = mutableSetOf<Long>()
+        val configuredCategoryIds = mutableSetOf<Long>()
+        command.categories.forEachIndexed { index, category ->
+            val location = "第 ${index + 1} 个首页展示分类"
+            if (category.categoryId < 1) throw ParamErrorException("$location 的分类 ID 无效")
+            if (!configuredCategoryIds.add(category.categoryId)) {
+                throw ParamErrorException("首页展示分类不能重复选择分类 #${category.categoryId}")
+            }
+            normalizedImageUrl(category.imageUrl)
+            if ((category.altText?.trim()?.length ?: 0) > 255) {
+                throw ParamErrorException("$location 的图片替代文本不能超过 255 个字符")
+            }
+            if (category.sortOrder < 0) throw ParamErrorException("$location 的排序值不能小于 0")
+            referencedCategoryIds += category.categoryId
+        }
         command.sections.forEachIndexed { sectionIndex, section ->
             val location = "第 ${sectionIndex + 1} 个楼层"
             val code = section.code.trim().lowercase()
@@ -517,9 +564,15 @@ class AdminHomeRecommendationServiceImpl(
             if (missingIds.isNotEmpty()) throw ParamErrorException("商品不存在：${missingIds.sorted().joinToString()}")
         }
         if (referencedCategoryIds.isNotEmpty()) {
-            val existingIds = productCategoryRepository.findAllById(referencedCategoryIds).mapNotNull { it.id }.toSet()
+            val existingCategories = productCategoryRepository.findAllById(referencedCategoryIds)
+            val existingIds = existingCategories.mapNotNull { it.id }.toSet()
             val missingIds = referencedCategoryIds - existingIds
             if (missingIds.isNotEmpty()) throw ParamErrorException("商品分类不存在：${missingIds.sorted().joinToString()}")
+            existingCategories.filter { it.id in configuredCategoryIds }.firstOrNull {
+                it.status != ProductCategory.Status.ACTIVE || it.parent != null
+            }?.let { category ->
+                throw ParamErrorException("首页展示分类必须是启用中的顶级分类：${category.name}")
+            }
         }
         referencedProductTypes.sorted().firstOrNull { !productTypeRepository.existsByCode(it) }?.let { code ->
             throw ParamErrorException("商品类型不存在：$code")
@@ -539,6 +592,14 @@ class AdminHomeRecommendationServiceImpl(
                 effectiveUntil = plan.effectiveUntil,
                 fallbackEnabled = plan.fallbackEnabled,
                 deduplicateAcrossSections = plan.deduplicateAcrossSections,
+                categories = plan.categories.map { category ->
+                    AdminHomeRecommendationService.CategoryCommand(
+                        categoryId = category.categoryId,
+                        imageUrl = category.imageUrl,
+                        altText = category.altText,
+                        sortOrder = category.sortOrder,
+                    )
+                },
                 sections = plan.sections.map { section ->
                     AdminHomeRecommendationService.SectionCommand(
                         code = section.code,
@@ -624,6 +685,31 @@ class AdminHomeRecommendationServiceImpl(
         return normalized
     }
 
+    private fun normalizedImageUrl(imageUrl: String): String {
+        val normalized = imageUrl.trim()
+        if (normalized.isEmpty()) throw ParamErrorException("首页展示分类图片地址不能为空")
+        if (normalized.length > 512 || containsUnsafeUrlCharacters(normalized)) {
+            throw ParamErrorException("首页展示分类图片地址不能超过 512 个字符且不能包含控制字符或反斜杠")
+        }
+        val uri = runCatching { URI(normalized) }.getOrNull()
+            ?: throw ParamErrorException("首页展示分类图片地址必须是站内 / 路径或 HTTPS 地址")
+        if (!uri.isAbsolute) {
+            val rawPath = uri.rawPath ?: throw ParamErrorException("首页展示分类图片地址必须以单个 / 开头")
+            if (uri.authority != null || !rawPath.startsWith("/") || rawPath.startsWith("//")) {
+                throw ParamErrorException("首页展示分类图片地址必须以单个 / 开头")
+            }
+            ensureDecodedPathIsSafe(rawPath)
+            return normalized
+        }
+        val localDevelopmentHttp = uri.scheme.equals("http", ignoreCase = true) &&
+            uri.host?.lowercase() in setOf("localhost", "127.0.0.1", "::1", "[::1]")
+        if ((!uri.scheme.equals("https", ignoreCase = true) && !localDevelopmentHttp) || uri.host.isNullOrBlank() || uri.userInfo != null) {
+            throw ParamErrorException("首页展示分类的站外图片只允许使用 HTTPS 地址；本地开发可使用 localhost、127.0.0.1 或 ::1 的 HTTP 地址")
+        }
+        uri.rawPath?.let(::ensureDecodedPathIsSafe)
+        return normalized
+    }
+
     private fun ensureDecodedPathIsSafe(rawPath: String) {
         var decoded = rawPath
         repeat(3) {
@@ -651,6 +737,7 @@ class AdminHomeRecommendationServiceImpl(
     }
 
     private fun initializePlan(plan: HomeRecommendationPlan) {
+        plan.categories.size
         plan.sections.forEach { section -> section.groups.forEach { group -> group.items.size } }
     }
 

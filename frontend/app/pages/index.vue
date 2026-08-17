@@ -19,6 +19,8 @@ const {
       generated_at: '',
       expires_at: '',
       fallback: true,
+      categories_configured: false,
+      categories: [],
       sections: []
     })
   }
@@ -87,16 +89,29 @@ const categoryImages = [
   '/lingerie/lace-green.jpg'
 ]
 
-const categories = computed(() => catalogCategories.value
-  .filter(category => category.parent_id === null)
-  .map((category, index) => ({
-    id: category.id,
-    label: catalogCategoryName(category.code, category.name),
-    title: catalogCategoryName(category.code, category.name),
-    image: categoryImages[index % categoryImages.length] ?? '/lingerie/hero-corset.jpg',
-    to: `/collections/${category.code}`
-  }))
-)
+const hasConfiguredCategories = computed(() => recommendations.value?.categories_configured === true)
+const categories = computed(() => {
+  if (hasConfiguredCategories.value) {
+    return recommendations.value!.categories.map(category => ({
+      id: category.category_id,
+      label: catalogCategoryName(category.code, category.name),
+      title: catalogCategoryName(category.code, category.name),
+      image: category.image_url,
+      imageAlt: category.alt_text?.trim() || catalogCategoryName(category.code, category.name),
+      to: `/collections/${category.code}`
+    }))
+  }
+  return catalogCategories.value
+    .filter(category => category.parent_id === null)
+    .map((category, index) => ({
+      id: category.id,
+      label: catalogCategoryName(category.code, category.name),
+      title: catalogCategoryName(category.code, category.name),
+      image: categoryImages[index % categoryImages.length] ?? '/lingerie/hero-corset.jpg',
+      imageAlt: catalogCategoryName(category.code, category.name),
+      to: `/collections/${category.code}`
+    }))
+})
 const firstCategoryLink = computed(() => categories.value[0]?.to ?? '/collections/shop')
 const locationOptions = computed<StoreLocation[]>(() => {
   const displayNames = new Intl.DisplayNames([currentLocale.value], { type: 'region' })
@@ -420,26 +435,26 @@ onBeforeUnmount(() => {
         <p>{{ t('home.categoryCopy') }}</p>
       </div>
       <div class="category-grid">
-        <template v-if="categoryRequestStatus === 'pending'">
+        <template v-if="!hasConfiguredCategories && categoryRequestStatus === 'pending'">
           <div v-for="index in 4" :key="index" class="category-card category-skeleton" aria-hidden="true">
             <div class="category-image" />
             <div class="category-caption"><span /><strong /></div>
           </div>
         </template>
-        <div v-else-if="categoryRequestError" class="category-state" role="alert">
+        <div v-else-if="!hasConfiguredCategories && categoryRequestError" class="category-state" role="alert">
           <UIcon name="i-lucide-cloud-alert" />
           <p>{{ t('home.categoriesUnavailable') }}</p>
           <button type="button" @click="refreshCategories()">{{ t('common.actions.retry') }}</button>
         </div>
         <NuxtLink v-for="category in categories" v-else :key="category.id" class="category-card" :to="category.to">
-          <div class="category-image" :style="{ backgroundImage: `url(${category.image})` }" />
+          <img class="category-image" :src="category.image" :alt="category.imageAlt">
           <div class="category-caption">
             <span>{{ category.label }}</span>
             <strong>{{ category.title }}</strong>
             <UIcon name="i-lucide-arrow-up-right" />
           </div>
         </NuxtLink>
-        <div v-if="categoryRequestStatus === 'success' && !categories.length" class="category-state">
+        <div v-if="!categories.length && (hasConfiguredCategories || categoryRequestStatus === 'success')" class="category-state">
           <UIcon name="i-lucide-folder-open" />
           <p>{{ t('home.noCategories') }}</p>
         </div>
@@ -676,7 +691,7 @@ a { color: inherit; text-decoration: none; }
 .centered { text-align: center; }
 .category-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 48px; }
 .category-card { overflow: hidden; display: block; background: var(--linen); }
-.category-image { aspect-ratio: .76; background-size: cover; transition: transform .45s ease; }
+.category-image { width: 100%; aspect-ratio: .76; display: block; object-fit: cover; background-size: cover; transition: transform .45s ease; }
 .category-card:hover .category-image { transform: scale(1.045); }
 .category-skeleton .category-image,
 .category-skeleton .category-caption span,

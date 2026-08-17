@@ -53,6 +53,12 @@ export function useHomeRecommendationApi() {
     if (input.effectiveUntil) data.append('effective_until', input.effectiveUntil)
     data.append('fallback_enabled', String(input.fallbackEnabled))
     data.append('deduplicate_across_sections', String(input.deduplicateAcrossSections))
+    data.append('categories', JSON.stringify(input.categories.map((category, categoryIndex) => ({
+      category_id: category.categoryId,
+      image_url: category.imageUrl.trim(),
+      alt_text: category.altText.trim() || null,
+      sort_order: categoryIndex,
+    }))))
     data.append('sections', JSON.stringify(input.sections.map((section, sectionIndex) => ({
       code: section.code.trim().toLowerCase(),
       eyebrow: section.eyebrow.trim() || null,

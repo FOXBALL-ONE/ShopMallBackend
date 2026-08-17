@@ -110,6 +110,17 @@ class HomeRecommendationControllerTest {
                 requestId = "rec_test",
                 generatedAt = generatedAt,
                 expiresAt = generatedAt.plusMinutes(1),
+                categoriesConfigured = true,
+                categories = listOf(
+                    HomeRecommendationService.ResolvedCategory(
+                        id = 4,
+                        categoryId = 6,
+                        code = "swimwear",
+                        name = "Swimwear",
+                        imageUrl = "/images/swimwear.jpg",
+                        altText = "Swimwear collection",
+                    ),
+                ),
                 sections = listOf(
                     HomeRecommendationService.ResolvedSection(
                         id = 2,
@@ -135,6 +146,10 @@ class HomeRecommendationControllerTest {
             .andExpect(jsonPath("$.data.plan_id").value(9))
             .andExpect(jsonPath("$.data.plan_version").value(2))
             .andExpect(jsonPath("$.data.generated_at").value("2026-08-12T12:30:15"))
+            .andExpect(jsonPath("$.data.categories_configured").value(true))
+            .andExpect(jsonPath("$.data.categories[0].category_id").value(6))
+            .andExpect(jsonPath("$.data.categories[0].image_url").value("/images/swimwear.jpg"))
+            .andExpect(jsonPath("$.data.categories[0].alt_text").value("Swimwear collection"))
             .andExpect(jsonPath("$.data.sections[0].display_style").value("TABS"))
             .andExpect(jsonPath("$.data.sections[0].desktop_columns").value(4))
             .andExpect(jsonPath("$.data.sections[0].groups[0].selection_mode").value("AUTO"))

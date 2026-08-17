@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import tools.jackson.databind.ObjectMapper
+import top.foxball.shopmall.entity.jdbc.HomeRecommendationCategory
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationGroup
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationItem
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationPlan
@@ -112,6 +113,13 @@ class AdminHomeRecommendationController(
         @AuthenticationPrincipal adminId: Long,
         @PathVariable("plan_id") @Min(1) planId: Long,
     ): ResponseEntity<Response> {
+        data class CategoryData(
+            val id: Long,
+            @param:JsonProperty("category_id") val categoryId: Long,
+            @param:JsonProperty("image_url") val imageUrl: String,
+            @param:JsonProperty("alt_text") val altText: String?,
+            @param:JsonProperty("sort_order") val sortOrder: Int,
+        )
         data class ItemData(
             val id: Long,
             @param:JsonProperty("product_id") val productId: Long,
@@ -167,6 +175,7 @@ class AdminHomeRecommendationController(
             @param:JsonProperty("archived_at") val archivedAt: LocalDateTime?,
             @param:JsonProperty("created_at") val createdAt: LocalDateTime?,
             @param:JsonProperty("updated_at") val updatedAt: LocalDateTime?,
+            val categories: List<CategoryData>,
             val sections: List<SectionData>,
         )
 
@@ -188,6 +197,16 @@ class AdminHomeRecommendationController(
             archivedAt = plan.archivedAt,
             createdAt = plan.createdAt,
             updatedAt = plan.updatedAt,
+            categories = plan.categories.sortedWith(compareBy(HomeRecommendationCategory::sortOrder, HomeRecommendationCategory::id))
+                .map { category ->
+                    CategoryData(
+                        id = requireNotNull(category.id),
+                        categoryId = category.categoryId,
+                        imageUrl = category.imageUrl,
+                        altText = category.altText,
+                        sortOrder = category.sortOrder,
+                    )
+                },
             sections = plan.sections.sortedWith(compareBy(HomeRecommendationSection::sortOrder, HomeRecommendationSection::id))
                 .map { section ->
                     SectionData(
@@ -253,10 +272,23 @@ class AdminHomeRecommendationController(
         effectiveUntil: LocalDateTime?,
         @RequestParam("fallback_enabled", defaultValue = "true") fallbackEnabled: Boolean,
         @RequestParam("deduplicate_across_sections", defaultValue = "true") deduplicateAcrossSections: Boolean,
+        @RequestParam("categories", defaultValue = "[]") @Size(max = 20_000) categories: String,
         @RequestParam("sections") @NotBlank @Size(max = 100_000) sections: String,
     ): ResponseEntity<Response> {
         data class Response(val id: Long, val version: Long, val status: String)
 
+        val categoriesNode = runCatching { objectMapper.readTree(categories) }
+            .getOrElse { throw ParamErrorException("categories 必须是有效的 JSON 数组") }
+        if (!categoriesNode.isArray) throw ParamErrorException("categories 必须是 JSON 数组")
+        val categoryCommands = categoriesNode.mapIndexed { categoryIndex, categoryNode ->
+            if (!categoryNode.isObject) throw ParamErrorException("第 ${categoryIndex + 1} 个首页展示分类必须是 JSON 对象")
+            AdminHomeRecommendationService.CategoryCommand(
+                categoryId = categoryNode.get("category_id")?.asString()?.toLongOrNull() ?: 0,
+                imageUrl = categoryNode.get("image_url")?.asString() ?: "",
+                altText = categoryNode.get("alt_text")?.takeUnless { it.isNull }?.asString(),
+                sortOrder = categoryNode.get("sort_order")?.asString()?.toIntOrNull() ?: categoryIndex,
+            )
+        }
         val sectionsNode = runCatching { objectMapper.readTree(sections) }
             .getOrElse { throw ParamErrorException("sections 必须是有效的 JSON 数组") }
         if (!sectionsNode.isArray) throw ParamErrorException("sections 必须是 JSON 数组")
@@ -331,6 +363,7 @@ class AdminHomeRecommendationController(
                 effectiveUntil = effectiveUntil,
                 fallbackEnabled = fallbackEnabled,
                 deduplicateAcrossSections = deduplicateAcrossSections,
+                categories = categoryCommands,
                 sections = sectionCommands,
             ),
         )
@@ -351,10 +384,23 @@ class AdminHomeRecommendationController(
         @RequestParam("fallback_enabled", defaultValue = "true") fallbackEnabled: Boolean,
         @RequestParam("deduplicate_across_sections", defaultValue = "true") deduplicateAcrossSections: Boolean,
         @RequestParam("expected_version") @Min(0) expectedVersion: Long,
+        @RequestParam("categories", defaultValue = "[]") @Size(max = 20_000) categories: String,
         @RequestParam("sections") @NotBlank @Size(max = 100_000) sections: String,
     ): ResponseEntity<Response> {
         data class Response(val id: Long, val version: Long, val status: String)
 
+        val categoriesNode = runCatching { objectMapper.readTree(categories) }
+            .getOrElse { throw ParamErrorException("categories 必须是有效的 JSON 数组") }
+        if (!categoriesNode.isArray) throw ParamErrorException("categories 必须是 JSON 数组")
+        val categoryCommands = categoriesNode.mapIndexed { categoryIndex, categoryNode ->
+            if (!categoryNode.isObject) throw ParamErrorException("第 ${categoryIndex + 1} 个首页展示分类必须是 JSON 对象")
+            AdminHomeRecommendationService.CategoryCommand(
+                categoryId = categoryNode.get("category_id")?.asString()?.toLongOrNull() ?: 0,
+                imageUrl = categoryNode.get("image_url")?.asString() ?: "",
+                altText = categoryNode.get("alt_text")?.takeUnless { it.isNull }?.asString(),
+                sortOrder = categoryNode.get("sort_order")?.asString()?.toIntOrNull() ?: categoryIndex,
+            )
+        }
         val sectionsNode = runCatching { objectMapper.readTree(sections) }
             .getOrElse { throw ParamErrorException("sections 必须是有效的 JSON 数组") }
         if (!sectionsNode.isArray) throw ParamErrorException("sections 必须是 JSON 数组")
@@ -430,6 +476,7 @@ class AdminHomeRecommendationController(
                 effectiveUntil = effectiveUntil,
                 fallbackEnabled = fallbackEnabled,
                 deduplicateAcrossSections = deduplicateAcrossSections,
+                categories = categoryCommands,
                 sections = sectionCommands,
                 expectedVersion = expectedVersion,
             ),
@@ -501,6 +548,13 @@ class AdminHomeRecommendationController(
         @PathVariable("plan_id") @Min(1) planId: Long,
         @RequestParam("product_limit_per_group", required = false) @Min(1) @Max(24) productLimitPerGroup: Int?,
     ): ResponseEntity<Response> {
+        data class CategoryData(
+            @param:JsonProperty("category_id") val categoryId: Long,
+            val code: String,
+            val name: String,
+            @param:JsonProperty("image_url") val imageUrl: String,
+            @param:JsonProperty("alt_text") val altText: String?,
+        )
         data class ProductData(
             val id: Long,
             val name: String,
@@ -522,6 +576,7 @@ class AdminHomeRecommendationController(
             @param:JsonProperty("plan_id") val planId: Long?,
             @param:JsonProperty("request_id") val requestId: String,
             @param:JsonProperty("generated_at") val generatedAt: LocalDateTime,
+            val categories: List<CategoryData>,
             val sections: List<SectionData>,
         )
 
@@ -531,6 +586,15 @@ class AdminHomeRecommendationController(
             planId = preview.planId,
             requestId = preview.requestId,
             generatedAt = preview.generatedAt,
+            categories = preview.categories.map { category ->
+                CategoryData(
+                    categoryId = category.categoryId,
+                    code = category.code,
+                    name = category.name,
+                    imageUrl = category.imageUrl,
+                    altText = category.altText,
+                )
+            },
             sections = preview.sections.map { section ->
                 SectionData(
                     code = section.code,

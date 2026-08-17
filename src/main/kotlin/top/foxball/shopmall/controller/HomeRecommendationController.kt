@@ -26,6 +26,14 @@ class HomeRecommendationController(
         @RequestParam("section_limit", defaultValue = "10") @Min(1) @Max(20) sectionLimit: Int,
         @RequestParam("product_limit_per_group", required = false) @Min(1) @Max(24) productLimitPerGroup: Int?,
     ): ResponseEntity<Response> {
+        data class CategoryData(
+            val id: Long?,
+            @param:JsonProperty("category_id") val categoryId: Long,
+            val code: String,
+            val name: String,
+            @param:JsonProperty("image_url") val imageUrl: String,
+            @param:JsonProperty("alt_text") val altText: String?,
+        )
         data class AttributeData(val code: String, val value: String)
         data class MaterialData(val name: String, val percentage: String)
         data class ImageData(
@@ -104,6 +112,8 @@ class HomeRecommendationController(
             @param:JsonProperty("generated_at") val generatedAt: LocalDateTime,
             @param:JsonProperty("expires_at") val expiresAt: LocalDateTime,
             val fallback: Boolean,
+            @param:JsonProperty("categories_configured") val categoriesConfigured: Boolean,
+            val categories: List<CategoryData>,
             val sections: List<SectionData>,
         )
 
@@ -115,6 +125,17 @@ class HomeRecommendationController(
             generatedAt = recommendation.generatedAt,
             expiresAt = recommendation.expiresAt,
             fallback = recommendation.fallback,
+            categoriesConfigured = recommendation.categoriesConfigured,
+            categories = recommendation.categories.map { category ->
+                CategoryData(
+                    id = category.id,
+                    categoryId = category.categoryId,
+                    code = category.code,
+                    name = category.name,
+                    imageUrl = category.imageUrl,
+                    altText = category.altText,
+                )
+            },
             sections = recommendation.sections.map { section ->
                 SectionData(
                     id = section.id,

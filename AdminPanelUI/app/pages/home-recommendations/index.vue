@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, Plus, RefreshCw, Save, Search, Sparkles, Trash2 } from '@lucide/vue'
+import { ArrowDown, ArrowUp, ImagePlus, Plus, RefreshCw, Save, Search, Sparkles, Trash2 } from '@lucide/vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import type { DataTableColumns, FormInst, SelectOption, TagProps } from 'naive-ui'
+import type { DataTableColumns, FormInst, SelectOption, TagProps, UploadCustomRequestOptions } from 'naive-ui'
 import { NButton, NTag, useMessage } from 'naive-ui'
 import {
   HOME_RECOMMENDATION_DISPLAY_STYLE_OPTIONS,
@@ -15,6 +15,7 @@ import { useProductApi } from '~/composables/useProductApi'
 import type { Product, ProductCategory, ProductType, Tag } from '~/types/product'
 import type {
   HomeRecommendationDisplayStyle,
+  HomeRecommendationCategoryInput,
   HomeRecommendationFormInput,
   HomeRecommendationGroupInput,
   HomeRecommendationPlanDetail,
@@ -52,9 +53,11 @@ const plans = ref<HomeRecommendationPlanListItem[]>([])
 const productSearchLoading = ref(false)
 const productOptions = ref<SelectOption[]>([])
 const productCache = reactive<Record<number, Product>>({})
-const categories = ref<ProductCategory[]>([])
+const catalogCategories = ref<ProductCategory[]>([])
 const productTypes = ref<ProductType[]>([])
 const tags = ref<Tag[]>([])
+const categoryToAdd = ref<number | null>(null)
+const pendingCategoryUploads = ref(0)
 const filters = reactive({ keyword: '', status: null as HomeRecommendationStatus | null })
 const pagination = reactive({ page: 1, pageSize: 25, pageCount: 1, total: 0 })
 
@@ -119,13 +122,22 @@ function isHeroSection(section: EditableSection) {
 
 const form = reactive<EditableForm>({
   name: '首页默认推荐', effectiveFrom: localDateTimeNow(), effectiveUntil: null, fallbackEnabled: true,
-  deduplicateAcrossSections: true, sections: [defaultHeroSection(), defaultSection()],
+  deduplicateAcrossSections: true, categories: [], sections: [defaultHeroSection(), defaultSection()],
 })
 const editorTitle = computed(() => editing.value ? `编辑推荐方案 #${editing.value.id}` : '新建首页推荐方案')
 const publishedCount = computed(() => plans.value.filter(item => item.status === 'PUBLISHED').length)
 const scheduledCount = computed(() => plans.value.filter(item => item.status === 'SCHEDULED').length)
 const hasHeroSection = computed(() => form.sections.some(isHeroSection))
-const categoryOptions = computed<SelectOption[]>(() => categories.value.filter(item => item.status === 'ACTIVE').map(item => ({ label: `${item.name}（${item.code}）`, value: item.id })))
+const categoryOptions = computed<SelectOption[]>(() => catalogCategories.value
+  .filter(item => item.status === 'ACTIVE')
+  .map(item => ({ label: `${item.name}（${item.code}）`, value: item.id })))
+const homepageCategoryOptions = computed<SelectOption[]>(() => catalogCategories.value
+  .filter(item => item.status === 'ACTIVE' && item.parentId == null)
+  .map(item => ({
+    label: `${item.name}（${item.code}）`,
+    value: item.id,
+    disabled: form.categories.some(category => category.categoryId === item.id),
+  })))
 const productTypeOptions = computed<SelectOption[]>(() => productTypes.value.filter(item => item.active).map(item => ({ label: `${item.name}（${item.code}）`, value: item.code })))
 const tagOptions = computed<SelectOption[]>(() => tags.value.filter(item => item.active).map(item => ({ label: item.name, value: item.id })))
 
@@ -151,7 +163,7 @@ function displayStyleLabel(style: HomeRecommendationDisplayStyle) { return HOME_
 
 function resetForm() {
   form.name = '首页默认推荐'; form.effectiveFrom = localDateTimeNow(); form.effectiveUntil = null
-  form.fallbackEnabled = true; form.deduplicateAcrossSections = true; form.sections = [defaultHeroSection(), defaultSection()]
+  form.fallbackEnabled = true; form.deduplicateAcrossSections = true; form.categories = []; form.sections = [defaultHeroSection(), defaultSection()]
   editing.value = null; productOptions.value = []
 }
 
@@ -161,6 +173,11 @@ function assignDetail(detail: HomeRecommendationPlanDetail) {
   form.effectiveUntil = detail.effective_until ? datetimeInputValue(detail.effective_until) : null
   form.fallbackEnabled = detail.fallback_enabled
   form.deduplicateAcrossSections = detail.deduplicate_across_sections
+  form.categories = (detail.categories ?? []).slice().sort((a, b) => a.sort_order - b.sort_order).map(category => ({
+    categoryId: category.category_id,
+    imageUrl: category.image_url,
+    altText: category.alt_text ?? '',
+  }))
   const sections: EditableSection[] = detail.sections.slice().sort((a, b) => a.sort_order - b.sort_order).map(section => ({
     code: section.code, eyebrow: section.eyebrow ?? '', title: section.title, subtitle: section.subtitle ?? '',
     displayStyle: section.display_style, desktopColumns: section.desktop_columns, mobileColumns: section.mobile_columns,
@@ -213,7 +230,7 @@ async function loadPlans() {
 
 async function loadMetadata() {
   const [categoryResult, productTypeResult, tagResult] = await Promise.allSettled([productApi.listCategories(), productApi.listProductTypes(), productApi.listTags()])
-  if (categoryResult.status === 'fulfilled') categories.value = categoryResult.value
+  if (categoryResult.status === 'fulfilled') catalogCategories.value = categoryResult.value
   if (productTypeResult.status === 'fulfilled') productTypes.value = productTypeResult.value
   if (tagResult.status === 'fulfilled') tags.value = tagResult.value
 }
@@ -284,6 +301,41 @@ function moveSection(index: number, direction: -1 | 1) {
   move(form.sections, index, direction)
 }
 
+function addCategory(categoryId: number | null) {
+  if (categoryId == null) return
+  if (form.categories.length >= 8) { message.warning('首页最多展示 8 个分类'); categoryToAdd.value = null; return }
+  if (form.categories.some(category => category.categoryId === categoryId)) {
+    message.warning('该分类已添加'); categoryToAdd.value = null; return
+  }
+  const category = catalogCategories.value.find(item => item.id === categoryId)
+  if (!category) { message.warning('未找到所选分类'); categoryToAdd.value = null; return }
+  form.categories.push({ categoryId, imageUrl: '', altText: category.name })
+  categoryToAdd.value = null
+}
+
+function categoryLabel(categoryId: number) {
+  const category = catalogCategories.value.find(item => item.id === categoryId)
+  return category ? `${category.name}（${category.code}）` : `分类 #${categoryId}`
+}
+
+async function uploadCategoryImage(category: HomeRecommendationCategoryInput, options: UploadCustomRequestOptions) {
+  const file = options.file.file
+  if (!file) { options.onError(); return }
+  pendingCategoryUploads.value += 1
+  try {
+    const [uploaded] = await productApi.uploadImages([file])
+    if (!uploaded) throw new Error('上传响应缺少图片地址')
+    category.imageUrl = uploaded.stableUrl
+    if (!category.altText.trim()) category.altText = file.name
+    options.onFinish()
+  } catch (error) {
+    message.error(`分类图片上传失败：${errorMessage(error)}`)
+    options.onError()
+  } finally {
+    pendingCategoryUploads.value -= 1
+  }
+}
+
 async function searchProducts(keyword: string) {
   productSearchLoading.value = true
   try {
@@ -307,6 +359,21 @@ function validateForm() {
   if (form.name.trim().length > 120) return '方案名称不能超过 120 个字符'
   if (!form.effectiveFrom) return '请选择生效时间'
   if (form.effectiveUntil && form.effectiveUntil <= form.effectiveFrom) return '失效时间必须晚于生效时间'
+  if (form.categories.length > 8) return '首页展示分类数量必须在 0 到 8 之间'
+  const configuredCategoryIds = new Set<number>()
+  for (let categoryIndex = 0; categoryIndex < form.categories.length; categoryIndex += 1) {
+    const category = form.categories[categoryIndex]!
+    const label = `第 ${categoryIndex + 1} 个首页展示分类`
+    if (configuredCategoryIds.has(category.categoryId)) return `${label}与前面的分类重复，请删除重复项`
+    configuredCategoryIds.add(category.categoryId)
+    const imageUrl = category.imageUrl.trim()
+    if (!imageUrl) return `${label}必须上传图片或填写图片地址`
+    if (imageUrl.length > 512) return `${label}的图片地址不能超过 512 个字符`
+    const localDevelopmentImage = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(imageUrl)
+    if (!imageUrl.startsWith('/') && !/^https:\/\/[^\s]+$/i.test(imageUrl) && !localDevelopmentImage) return `${label}的图片地址必须是站内 / 路径或 HTTPS 地址；本地开发可使用 localhost、127.0.0.1 或 ::1 的 HTTP 地址`
+    if (imageUrl.startsWith('//') || imageUrl.includes('\\')) return `${label}的图片地址必须以单个 / 开头且不能包含反斜杠`
+    if (category.altText.trim().length > 255) return `${label}的图片替代文本不能超过 255 个字符`
+  }
   if (form.sections.length < 1 || form.sections.length > 10) return '楼层数量必须在 1 到 10 之间'
   const sectionCodes = new Set<string>()
   for (let sectionIndex = 0; sectionIndex < form.sections.length; sectionIndex += 1) {
@@ -365,6 +432,7 @@ function formInput(): HomeRecommendationFormInput {
   return {
     name: form.name, effectiveFrom: form.effectiveFrom, effectiveUntil: form.effectiveUntil || null,
     fallbackEnabled: form.fallbackEnabled, deduplicateAcrossSections: form.deduplicateAcrossSections,
+    categories: form.categories.map(category => ({ ...category })),
     sections: form.sections.map(section => ({
       code: section.code, eyebrow: section.eyebrow, title: section.title, subtitle: section.subtitle,
       displayStyle: section.displayStyle, desktopColumns: section.desktopColumns, mobileColumns: section.mobileColumns,
@@ -505,6 +573,63 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
             </NGrid>
           </NCard>
 
+          <section class="category-config-section">
+            <div class="section-toolbar category-toolbar">
+              <div>
+                <h2>首页分类展示</h2>
+                <span>最多 8 个启用中的顶级分类；列表顺序就是客户首页 “Made for every moment.” 区域的展示顺序。</span>
+              </div>
+              <NSelect
+                v-model:value="categoryToAdd"
+                filterable
+                clearable
+                :options="homepageCategoryOptions"
+                :disabled="form.categories.length >= 8"
+                placeholder="选择并添加顶级分类"
+                style="width: min(360px, 100%)"
+                @update:value="value => addCategory(value as number | null)"
+              />
+            </div>
+            <NAlert v-if="form.categories.length === 0" type="default" :bordered="false">
+              未配置分类时，现有方案会继续按商品分类默认顺序和默认图片展示。
+            </NAlert>
+            <div v-else class="category-editor-list">
+              <div v-for="(category, categoryIndex) in form.categories" :key="category.categoryId" class="category-editor-item">
+                <div class="category-image-preview">
+                  <NImage v-if="category.imageUrl" :src="category.imageUrl" object-fit="cover" preview-disabled />
+                  <ImagePlus v-else :size="24" />
+                </div>
+                <div class="category-editor-fields">
+                  <strong>{{ categoryIndex + 1 }}. {{ categoryLabel(category.categoryId) }}</strong>
+                  <div class="field-with-hint">
+                    <NInput v-model:value="category.imageUrl" maxlength="512" placeholder="/images/category.jpg 或 https://..." />
+                    <small class="field-hint">必填；支持上传，或填写以单个 / 开头的站内路径、HTTPS 地址；本地开发允许 localhost、127.0.0.1 或 ::1 的 HTTP 地址；最多 512 个字符。</small>
+                  </div>
+                  <div class="field-with-hint">
+                    <NInput v-model:value="category.altText" maxlength="255" show-count placeholder="图片替代文本" />
+                    <small class="field-hint">可选，最多 255 个字符；建议描述分类和画面内容。</small>
+                  </div>
+                </div>
+                <div class="category-editor-actions">
+                  <NUpload
+                    :show-file-list="false"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    :custom-request="options => uploadCategoryImage(category, options)"
+                  >
+                    <NButton secondary size="small" :loading="pendingCategoryUploads > 0">
+                      <template #icon><ImagePlus :size="15" /></template>上传
+                    </NButton>
+                  </NUpload>
+                  <NSpace :wrap="false">
+                    <NButton quaternary circle size="small" aria-label="分类上移" :disabled="categoryIndex === 0" @click="move(form.categories, categoryIndex, -1)"><template #icon><ArrowUp :size="15" /></template></NButton>
+                    <NButton quaternary circle size="small" aria-label="分类下移" :disabled="categoryIndex === form.categories.length - 1" @click="move(form.categories, categoryIndex, 1)"><template #icon><ArrowDown :size="15" /></template></NButton>
+                    <NButton quaternary circle size="small" type="error" aria-label="删除分类展示" @click="form.categories.splice(categoryIndex, 1)"><template #icon><Trash2 :size="15" /></template></NButton>
+                  </NSpace>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <div class="section-toolbar">
             <div><h2>推荐楼层</h2><span>按顺序渲染到客户首页，最多 10 个楼层。</span></div>
             <NSpace>
@@ -604,8 +729,18 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
     <NModal v-model:show="previewOpen" preset="card" title="首页推荐实时预览" style="width: min(1100px, 96vw)" :bordered="false">
       <NSpin :show="previewLoading">
         <NAlert v-if="preview" type="info" :bordered="false" class="preview-meta">服务端实时解析 · 请求 ID：{{ preview.request_id }}<span v-if="preview.generated_at"> · 生成时间：{{ formatDate(preview.generated_at) }}</span></NAlert>
-        <NEmpty v-if="!previewLoading && (!preview || preview.sections.length === 0)" description="当前规则未解析出可展示商品" />
+        <NEmpty v-if="!previewLoading && (!preview || (!preview.categories?.length && preview.sections.length === 0))" description="当前规则未解析出可展示内容" />
         <div v-else-if="preview" class="preview-sections">
+          <section v-if="preview.categories?.length" class="preview-categories">
+            <div class="preview-section-heading"><span>MADE FOR EVERY MOMENT</span><h2>首页分类展示</h2></div>
+            <div class="preview-category-grid">
+              <div v-for="category in preview.categories" :key="category.category_id" class="preview-category">
+                <NImage :src="category.image_url" :alt="category.alt_text || category.name" object-fit="cover" lazy />
+                <strong>{{ category.name }}</strong>
+                <span>{{ category.code }}</span>
+              </div>
+            </div>
+          </section>
           <section v-for="section in preview.sections" :key="section.code" class="preview-section" :class="{ 'hero-preview': section.code === HERO_CAROUSEL_CODE }">
             <div class="preview-section-heading"><span>{{ section.eyebrow }}</span><h2>{{ section.title }}</h2><p>{{ section.subtitle }}</p><NTag size="small" :bordered="false">{{ displayStyleLabel(section.display_style) }}</NTag></div>
             <div v-for="group in section.groups" :key="group.code" class="preview-group">
@@ -641,6 +776,14 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
 .section-toolbar { margin: 24px 0 12px; }
 .section-toolbar h2 { margin: 0 0 4px; font-size: 20px; }
 .section-toolbar span, .group-toolbar span, .manual-heading span { display: block; color: #777; font-size: 13px; }
+.category-config-section { padding: 0 2px 22px; border-bottom: 1px solid #e5e7eb; }
+.category-toolbar { margin-top: 0; }
+.category-editor-list { display: flex; flex-direction: column; gap: 10px; }
+.category-editor-item { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; align-items: start; gap: 14px; padding: 12px 0; border-top: 1px solid #e5e7eb; }
+.category-image-preview { width: 112px; aspect-ratio: .76; display: grid; place-items: center; overflow: hidden; color: #999; background: #f3f4f6; }
+.category-image-preview :deep(.n-image), .category-image-preview :deep(img) { width: 100%; height: 100%; }
+.category-editor-fields { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.category-editor-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 .collapse-header, .group-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .section-card { margin-bottom: 8px; }
 .hero-section-card { border-color: rgba(240, 160, 32, .45); }
@@ -668,6 +811,13 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
 .preview-group-title { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
 .preview-group-title span { color: #777; font-size: 13px; }
 .preview-products { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.preview-category-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.preview-category { min-width: 0; background: #f7f7f8; }
+.preview-category :deep(.n-image) { width: 100%; aspect-ratio: .76; display: block; }
+.preview-category :deep(img) { width: 100%; height: 100%; }
+.preview-category strong, .preview-category span { display: block; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-category strong { padding-top: 9px; }
+.preview-category span { padding-top: 3px; padding-bottom: 10px; color: #777; font-size: 12px; }
 .hero-preview .preview-section-heading { text-align: left; }
 .hero-preview .preview-products { display: flex; overflow-x: auto; padding-bottom: 8px; }
 .hero-preview .preview-product { min-width: min(360px, 72vw); }
@@ -681,6 +831,6 @@ onMounted(() => { void loadPlans(); void loadMetadata(); void searchProducts('')
 :deep(.plan-title-cell strong), :deep(.plan-title-cell span), :deep(.date-cell span) { display: block; }
 :deep(.plan-title-cell span), :deep(.date-cell span) { color: #777; font-size: 12px; margin-top: 3px; }
 :deep(.table-actions) { display: flex; flex-wrap: wrap; gap: 6px; }
-@media (max-width: 900px) { .manual-item { grid-template-columns: 1fr auto; } .badge-input { grid-column: 1 / -1; grid-row: 2; } .preview-products { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .page-heading, .section-toolbar, .group-toolbar, .manual-heading { align-items: stretch; flex-direction: column; } .page-heading h1 { font-size: 23px; } .pagination-bar { align-items: flex-start; flex-direction: column; gap: 12px; } .manual-item { grid-template-columns: 1fr; } .badge-input { grid-column: auto; grid-row: auto; } .preview-products { grid-template-columns: 1fr 1fr; gap: 8px; } }
+@media (max-width: 900px) { .category-editor-item { grid-template-columns: 96px minmax(0, 1fr); } .category-image-preview { width: 96px; } .category-editor-actions { grid-column: 2; flex-direction: row; justify-content: space-between; align-items: center; } .manual-item { grid-template-columns: 1fr auto; } .badge-input { grid-column: 1 / -1; grid-row: 2; } .preview-products, .preview-category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .page-heading, .section-toolbar, .group-toolbar, .manual-heading { align-items: stretch; flex-direction: column; } .page-heading h1 { font-size: 23px; } .pagination-bar { align-items: flex-start; flex-direction: column; gap: 12px; } .category-editor-item { grid-template-columns: 72px minmax(0, 1fr); } .category-image-preview { width: 72px; } .manual-item { grid-template-columns: 1fr; } .badge-input { grid-column: auto; grid-row: auto; } .preview-products, .preview-category-grid { grid-template-columns: 1fr 1fr; gap: 8px; } }
 </style>

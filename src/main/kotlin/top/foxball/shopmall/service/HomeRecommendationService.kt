@@ -9,6 +9,15 @@ import java.math.BigDecimal
 import java.time.LocalDateTime
 
 interface HomeRecommendationService {
+    data class ResolvedCategory(
+        val id: Long?,
+        val categoryId: Long,
+        val code: String,
+        val name: String,
+        val imageUrl: String,
+        val altText: String?,
+    )
+
     data class RecommendationContext(
         val requestId: String,
         val planId: Long?,
@@ -105,6 +114,8 @@ interface HomeRecommendationService {
         val requestId: String,
         val generatedAt: LocalDateTime,
         val expiresAt: LocalDateTime,
+        val categoriesConfigured: Boolean = false,
+        val categories: List<ResolvedCategory> = emptyList(),
         val sections: List<ResolvedSection>,
         val fallback: Boolean,
     )
@@ -140,6 +151,13 @@ interface AdminHomeRecommendationService {
         val productId: Long,
         val pinned: Boolean = false,
         val customBadge: String? = null,
+        val sortOrder: Int,
+    )
+
+    data class CategoryCommand(
+        val categoryId: Long,
+        val imageUrl: String,
+        val altText: String?,
         val sortOrder: Int,
     )
 
@@ -181,6 +199,7 @@ interface AdminHomeRecommendationService {
         val effectiveUntil: LocalDateTime?,
         val fallbackEnabled: Boolean,
         val deduplicateAcrossSections: Boolean,
+        val categories: List<CategoryCommand> = emptyList(),
         val sections: List<SectionCommand>,
     )
 
@@ -190,6 +209,7 @@ interface AdminHomeRecommendationService {
         val effectiveUntil: LocalDateTime?,
         val fallbackEnabled: Boolean,
         val deduplicateAcrossSections: Boolean,
+        val categories: List<CategoryCommand> = emptyList(),
         val sections: List<SectionCommand>,
         val expectedVersion: Long,
     )

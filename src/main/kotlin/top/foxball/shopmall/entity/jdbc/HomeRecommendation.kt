@@ -94,11 +94,23 @@ class HomeRecommendationPlan(
     @BatchSize(size = 50)
     var sections: MutableList<@Valid HomeRecommendationSection> = mutableListOf()
 
+    @OneToMany(mappedBy = "plan", fetch = FetchType.LAZY, cascade = [CascadeType.ALL], orphanRemoval = true)
+    @BatchSize(size = 20)
+    var categories: MutableList<@Valid HomeRecommendationCategory> = mutableListOf()
+
     fun replaceSections(values: Collection<HomeRecommendationSection>) {
         sections.clear()
         values.forEach { section ->
             section.plan = this
             sections += section
+        }
+    }
+
+    fun replaceCategories(values: Collection<HomeRecommendationCategory>) {
+        categories.clear()
+        values.forEach { category ->
+            category.plan = this
+            categories += category
         }
     }
 
@@ -115,6 +127,41 @@ class HomeRecommendationPlan(
         CUSTOMER_WEB,
     }
 }
+
+/** 首页分类入口；名称和路由代码来自商品分类，图片和顺序由推荐方案独立配置。 */
+@Entity
+@Table(
+    name = "home_recommendation_categories",
+    indexes = [Index(name = "idx_home_rec_category_plan_order", columnList = "plan_id,sort_order")],
+    uniqueConstraints = [
+        UniqueConstraint(name = "uk_home_rec_category_plan_category", columnNames = ["plan_id", "category_id"]),
+    ],
+)
+class HomeRecommendationCategory(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    var id: Long? = null,
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "plan_id", nullable = false)
+    var plan: HomeRecommendationPlan? = null,
+
+    @Column(name = "category_id", nullable = false)
+    var categoryId: Long = 0,
+
+    @field:NotBlank
+    @field:Size(max = 512)
+    @Column(name = "image_url", nullable = false, length = 512)
+    var imageUrl: String = "",
+
+    @field:Size(max = 255)
+    @Column(name = "alt_text", length = 255)
+    var altText: String? = null,
+
+    @field:Min(0)
+    @Column(name = "sort_order", nullable = false)
+    var sortOrder: Int = 0,
+)
 
 /** 首页推荐方案中的一个可视楼层。 */
 @Entity

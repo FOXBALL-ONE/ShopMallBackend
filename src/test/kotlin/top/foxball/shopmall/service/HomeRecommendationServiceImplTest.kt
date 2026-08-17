@@ -5,15 +5,18 @@ import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.springframework.data.domain.PageRequest
+import top.foxball.shopmall.entity.jdbc.HomeRecommendationCategory
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationGroup
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationItem
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationPlan
 import top.foxball.shopmall.entity.jdbc.HomeRecommendationSection
 import top.foxball.shopmall.entity.jdbc.Product
+import top.foxball.shopmall.entity.jdbc.ProductCategory
 import top.foxball.shopmall.entity.jdbc.ProductImage
 import top.foxball.shopmall.entity.jdbc.ProductType
 import top.foxball.shopmall.entity.jdbc.ProductVariant
 import top.foxball.shopmall.repository.HomeRecommendationPlanRepository
+import top.foxball.shopmall.repository.ProductCategoryRepository
 import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.service.impl.HomeRecommendationServiceImpl
 import java.math.BigDecimal
@@ -27,16 +30,41 @@ import kotlin.test.assertTrue
 class HomeRecommendationServiceImplTest {
     private val planRepository = mock(HomeRecommendationPlanRepository::class.java)
     private val productRepository = mock(ProductRepository::class.java)
+    private val productCategoryRepository = mock(ProductCategoryRepository::class.java)
     private val currentInstant = Instant.parse("2026-08-12T04:00:00Z")
     private val homeRecommendationCache = HomeRecommendationCache()
     private val service = HomeRecommendationServiceImpl(
         planRepository,
         productRepository,
+        productCategoryRepository,
         homeRecommendationCache,
         Clock.fixed(currentInstant, ZoneOffset.UTC),
         "UTC",
         60,
     )
+
+    @Test
+    fun `configured homepage categories keep plan order and exclude inactive categories`() {
+        val plan = recommendationPlan(automaticGroup("featured")).apply {
+            replaceCategories(
+                listOf(
+                    HomeRecommendationCategory(categoryId = 2, imageUrl = "/images/two.jpg", altText = "Two", sortOrder = 0),
+                    HomeRecommendationCategory(categoryId = 1, imageUrl = "/images/one.jpg", altText = "One", sortOrder = 1),
+                ),
+            )
+        }
+        `when`(productCategoryRepository.findAllById(listOf(2L, 1L))).thenReturn(
+            listOf(
+                ProductCategory(id = 1, code = "one", name = "One", status = ProductCategory.Status.INACTIVE),
+                ProductCategory(id = 2, code = "two", name = "Two", status = ProductCategory.Status.ACTIVE),
+            ),
+        )
+
+        val resolved = service.resolve(plan, useDefaultFallback = false)
+
+        assertEquals(listOf(2L), resolved.categories.map { it.categoryId })
+        assertEquals(listOf("/images/two.jpg"), resolved.categories.map { it.imageUrl })
+    }
 
     @Test
     fun `missing published plan resolves the system default tabs`() {

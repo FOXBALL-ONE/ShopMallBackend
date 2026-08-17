@@ -4,6 +4,15 @@ export type HomeRecommendationDisplayStyle = 'GRID' | 'CAROUSEL' | 'TABS'
 export type HomeRecommendationSelectionMode = 'MANUAL' | 'AUTO' | 'HYBRID'
 export type HomeRecommendationStrategy = 'NEW_ARRIVALS' | 'BEST_SELLERS' | 'HIGH_RATED' | 'EDITOR_PICKS'
 
+export interface HomeRecommendationCategory {
+  id?: number | null
+  category_id: number
+  code: string
+  name: string
+  image_url: string
+  alt_text?: string | null
+}
+
 export interface HomeRecommendationContext {
   request_id: string
   plan_id?: number | null
@@ -47,5 +56,7 @@ export interface HomeRecommendationResponse {
   generated_at: string
   expires_at: string
   fallback: boolean
+  categories_configured: boolean
+  categories: HomeRecommendationCategory[]
   sections: HomeRecommendationSection[]
 }
