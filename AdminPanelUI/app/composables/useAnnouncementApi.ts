@@ -49,6 +49,7 @@ export const useAnnouncementApi = () => {
       data.append('auto_show_cooldown_hours', String(input.autoShowCooldownHours))
     }
     if (input.actionUrl.trim()) data.append('action_url', input.actionUrl.trim())
+    if (input.publishedAt) data.append('published_at', input.publishedAt)
     data.append('effective_from', input.effectiveFrom)
     if (input.effectiveUntil) data.append('effective_until', input.effectiveUntil)
     if (expectedVersion !== undefined) data.append('expected_version', String(expectedVersion))

@@ -66,6 +66,7 @@ export interface AnnouncementFormInput {
   autoShowMode: AnnouncementAutoShowMode
   autoShowCooldownHours: number | null
   actionUrl: string
+  publishedAt: string | null
   effectiveFrom: string
   effectiveUntil: string | null
 }

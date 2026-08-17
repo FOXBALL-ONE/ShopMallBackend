@@ -2,7 +2,7 @@
 import { Megaphone, Plus, RefreshCw } from '@lucide/vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import type { DataTableColumns, FormInst, FormRules, TagProps } from 'naive-ui'
-import { NButton, NTag, useMessage } from 'naive-ui'
+import { NButton, NDatePicker, NTag, useMessage } from 'naive-ui'
 import {
   ANNOUNCEMENT_AUTO_SHOW_MODE_OPTIONS,
   ANNOUNCEMENT_STATUS_OPTIONS,
@@ -51,10 +51,10 @@ function localDateTimeNow() {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: announcementTimeZone,
     year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
   }).formatToParts(new Date())
   const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
-  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}:${values.second}`
 }
 
 const form = reactive({
@@ -62,7 +62,9 @@ const form = reactive({
   publicHistory: true, autoShowEnabled: false,
   autoShowMode: 'ONCE_PER_ANNOUNCEMENT' as AnnouncementAutoShowMode,
   autoShowCooldownHours: null as number | null, actionUrl: '',
-  effectiveFrom: localDateTimeNow(), effectiveUntil: '',
+  publishedAt: null as string | null,
+  effectiveFrom: localDateTimeNow() as string | null,
+  effectiveUntil: null as string | null,
 })
 
 const formRules: FormRules = {
@@ -70,7 +72,12 @@ const formRules: FormRules = {
   summary: [{ required: true, message: '请输入公告摘要', trigger: ['blur', 'input'] }],
   content: [{ required: true, message: '请输入公告正文', trigger: ['blur', 'input'] }],
   priority: [{ required: true, type: 'number', min: 0, max: 100, message: '优先级必须在 0 到 100 之间', trigger: ['blur', 'change'] }],
-  effectiveFrom: [{ required: true, message: '请选择生效时间', trigger: ['blur', 'change'] }],
+  effectiveFrom: [{ required: true, message: `请选择生效时间，时间按 ${announcementTimeZone} 解释`, trigger: ['blur', 'change'] }],
+  effectiveUntil: [{
+    validator: (_rule, value: string | null) => !value || !form.effectiveFrom || value > form.effectiveFrom,
+    message: '结束时间必须晚于生效时间；如公告长期有效，请将结束时间留空',
+    trigger: ['blur', 'change'],
+  }],
 }
 
 const editorTitle = computed(() => editing.value ? `编辑公告 #${editing.value.id}` : '新建公告草稿')
@@ -122,13 +129,13 @@ function operatorLabel(operatorId: number) {
 }
 
 function datetimeInputValue(value: string | null | undefined) {
-  return value ? value.slice(0, 16) : ''
+  return value ? value.slice(0, 19) : null
 }
 
 function resetForm() {
   form.title = ''; form.summary = ''; form.content = ''; form.type = 'GENERAL'; form.priority = 50
   form.publicHistory = true; form.autoShowEnabled = false; form.autoShowMode = 'ONCE_PER_ANNOUNCEMENT'
-  form.autoShowCooldownHours = null; form.actionUrl = ''; form.effectiveFrom = localDateTimeNow(); form.effectiveUntil = ''
+  form.autoShowCooldownHours = null; form.actionUrl = ''; form.publishedAt = null; form.effectiveFrom = localDateTimeNow(); form.effectiveUntil = null
   formRef.value?.restoreValidation()
 }
 
@@ -136,7 +143,7 @@ function fillForm(item: AdminAnnouncementDetail) {
   form.title = item.title; form.summary = item.summary; form.content = item.content; form.type = item.type
   form.priority = item.priority; form.publicHistory = item.public_history; form.autoShowEnabled = item.auto_show_enabled
   form.autoShowMode = item.auto_show_mode; form.autoShowCooldownHours = item.auto_show_cooldown_hours
-  form.actionUrl = item.action_url || ''; form.effectiveFrom = datetimeInputValue(item.effective_from)
+  form.actionUrl = item.action_url || ''; form.publishedAt = datetimeInputValue(item.published_at); form.effectiveFrom = datetimeInputValue(item.effective_from)
   form.effectiveUntil = datetimeInputValue(item.effective_until)
   formRef.value?.restoreValidation()
 }
@@ -147,7 +154,8 @@ function formInput(): AnnouncementFormInput {
     priority: Number(form.priority), publicHistory: form.publicHistory, autoShowEnabled: form.autoShowEnabled,
     autoShowMode: form.autoShowMode,
     autoShowCooldownHours: form.autoShowMode === 'COOLDOWN' ? form.autoShowCooldownHours : null,
-    actionUrl: form.actionUrl.trim(), effectiveFrom: form.effectiveFrom, effectiveUntil: form.effectiveUntil || null,
+    actionUrl: form.actionUrl.trim(), publishedAt: form.publishedAt,
+    effectiveFrom: form.effectiveFrom || '', effectiveUntil: form.effectiveUntil,
   }
 }
 
@@ -188,7 +196,7 @@ async function save() {
   try { await formRef.value?.validate() } catch { return }
   const input = formInput()
   if (!input.title) { message.error('请输入公告标题'); return }
-  if (input.effectiveUntil && input.effectiveUntil <= input.effectiveFrom) { message.error('失效时间必须晚于生效时间'); return }
+  if (input.effectiveUntil && input.effectiveUntil <= input.effectiveFrom) { message.error('结束时间必须晚于生效时间；如公告长期有效，请将结束时间留空'); return }
   if (input.autoShowEnabled && !input.publicHistory) { message.error('开启主动展示时必须允许公开保留历史公告'); return }
   if (input.autoShowMode === 'COOLDOWN' && (!input.autoShowCooldownHours || input.autoShowCooldownHours < 1 || input.autoShowCooldownHours > 720)) {
     message.error('冷却展示模式必须设置 1 到 720 小时的冷却时间'); return
@@ -243,7 +251,7 @@ const columns: DataTableColumns<AdminAnnouncementListItem> = [
   { title: '状态', key: 'status', width: 100, render: row => h(NTag, { size: 'small', type: statusTagType(row.status), bordered: false }, { default: () => statusLabel(row.status) }) },
   { title: '类型 / 优先级', key: 'priority', width: 150, render: row => h('div', { class: 'priority-cell' }, [h('span', typeLabel(row.type)), h(NTag, { size: 'small', type: priorityTagType(row.priority), bordered: false }, { default: () => String(row.priority) })]) },
   { title: '主动展示', key: 'auto_show_enabled', width: 155, render: row => row.auto_show_enabled ? h('div', { class: 'auto-show-cell' }, [h(NTag, { size: 'small', type: 'success', bordered: false }, { default: () => '已开启' }), h('span', row.auto_show_mode === 'COOLDOWN' ? `${autoShowModeLabel(row.auto_show_mode)}（${row.auto_show_cooldown_hours}h）` : autoShowModeLabel(row.auto_show_mode))]) : h(NTag, { size: 'small', bordered: false }, { default: () => '未开启' }) },
-  { title: '有效期', key: 'effective_from', width: 190, render: row => h('div', { class: 'date-cell' }, [h('span', `起：${formatDate(row.effective_from)}`), h('span', `止：${formatDate(row.effective_until)}`)]) },
+  { title: '展示时间', key: 'effective_from', width: 210, render: row => h('div', { class: 'date-cell' }, [h('span', `发布：${formatDate(row.published_at)}`), h('span', `生效：${formatDate(row.effective_from)}`), h('span', `结束：${formatDate(row.effective_until)}`)]) },
   { title: '更新时间', key: 'updated_at', width: 170, render: row => formatDate(row.updated_at) },
   { title: '操作', key: 'actions', width: 280, fixed: 'right', render: row => h('div', { class: 'table-actions' }, [
     h(NButton, { size: 'small', tertiary: true, type: 'primary', onClick: () => void openEdit(row) }, { default: () => '编辑' }),
@@ -265,8 +273,20 @@ onMounted(() => { void loadAnnouncements() })
         <div><div class="eyebrow"><Megaphone :size="17" /> 客户网站内容运营</div><h2>公告管理</h2><NText depth="3">设置优先级、有效期和加载完成后的主动展示规则，并保留完整审计历史。</NText></div>
         <NSpace><NButton :loading="loading" @click="loadAnnouncements(true)"><template #icon><RefreshCw :size="16" /></template>刷新</NButton><NButton type="primary" @click="openCreate"><template #icon><Plus :size="17" /></template>新建公告</NButton></NSpace>
       </div>
-      <NGrid cols="1 s:3" :x-gap="12" :y-gap="12" responsive="screen"><NCard size="small" :bordered="false" class="stat-card"><NStatistic label="本页公告" :value="announcements.length" /></NCard><NCard size="small" :bordered="false" class="stat-card"><NStatistic label="当前已发布" :value="activeCount" /></NCard><NCard size="small" :bordered="false" class="stat-card"><NStatistic label="主动展示开启" :value="autoShowCount" /></NCard></NGrid>
-      <NCard size="small" :bordered="false"><NGrid cols="1 s:2 m:5" :x-gap="12" :y-gap="10" responsive="screen"><NFormItem label="关键词"><NInput v-model:value="filters.keyword" clearable placeholder="标题或摘要" @keyup.enter="search" /></NFormItem><NFormItem label="状态"><NSelect v-model:value="filters.status" clearable :options="ANNOUNCEMENT_STATUS_OPTIONS" /></NFormItem><NFormItem label="类型"><NSelect v-model:value="filters.type" clearable :options="ANNOUNCEMENT_TYPE_OPTIONS" /></NFormItem><NFormItem label="主动展示"><NSelect v-model:value="filters.autoShowEnabled" clearable :options="[{ label: '已开启', value: 'true' }, { label: '未开启', value: 'false' }]" /></NFormItem><NFormItem label="筛选"><NSpace><NButton type="primary" @click="search">查询</NButton><NButton @click="resetFilters">重置</NButton></NSpace></NFormItem></NGrid></NCard>
+      <NGrid cols="1 s:3" :x-gap="12" :y-gap="12" responsive="screen">
+        <NGridItem><NCard size="small" :bordered="false" class="stat-card"><NStatistic label="本页公告" :value="announcements.length" /></NCard></NGridItem>
+        <NGridItem><NCard size="small" :bordered="false" class="stat-card"><NStatistic label="当前已发布" :value="activeCount" /></NCard></NGridItem>
+        <NGridItem><NCard size="small" :bordered="false" class="stat-card"><NStatistic label="主动展示开启" :value="autoShowCount" /></NCard></NGridItem>
+      </NGrid>
+      <NCard size="small" :bordered="false">
+        <NGrid cols="1 s:2 m:5" :x-gap="12" :y-gap="10" responsive="screen">
+          <NFormItemGi label="关键词"><NInput v-model:value="filters.keyword" clearable placeholder="标题或摘要" @keyup.enter="search" /></NFormItemGi>
+          <NFormItemGi label="状态"><NSelect v-model:value="filters.status" clearable :options="ANNOUNCEMENT_STATUS_OPTIONS" /></NFormItemGi>
+          <NFormItemGi label="类型"><NSelect v-model:value="filters.type" clearable :options="ANNOUNCEMENT_TYPE_OPTIONS" /></NFormItemGi>
+          <NFormItemGi label="主动展示"><NSelect v-model:value="filters.autoShowEnabled" clearable :options="[{ label: '已开启', value: 'true' }, { label: '未开启', value: 'false' }]" /></NFormItemGi>
+          <NFormItemGi label="筛选"><NSpace><NButton type="primary" @click="search">查询</NButton><NButton @click="resetFilters">重置</NButton></NSpace></NFormItemGi>
+        </NGrid>
+      </NCard>
       <NCard size="small" :bordered="false" content-style="padding: 0"><NDataTable :columns="columns" :data="announcements" :loading="loading" :scroll-x="1300" :single-line="false" /><div class="table-footer"><NText depth="3">共 {{ pagination.total }} 条公告</NText><NPagination v-model:page="pagination.page" :page-count="pagination.pageCount" :page-size="pagination.pageSize" show-size-picker :page-sizes="[10, 25, 50, 100]" @update:page="changePage" @update:page-size="changePageSize" /></div></NCard>
     </NSpace>
 
@@ -291,12 +311,63 @@ onMounted(() => { void loadAnnouncements() })
             />
           </NFormItem>
           <NFormItem label="公告类型" path="type"><NSelect v-model:value="form.type" :options="ANNOUNCEMENT_TYPE_OPTIONS" /></NFormItem>
+          <NDivider>发布时间与有效期</NDivider>
+          <NAlert type="info" :bordered="false" class="time-alert">发布时间用于客户侧显示；生效时间和结束时间决定客户是否能看到公告。编辑已发布、已排期或已过期公告后，状态会按新有效期立即重新计算。</NAlert>
+          <NGrid cols="1 m:3" :x-gap="14" responsive="screen">
+            <NFormItemGi :label="`发布时间（${announcementTimeZone}，可选）`" path="publishedAt">
+              <div class="datetime-field">
+                <NDatePicker
+                  v-model:formatted-value="form.publishedAt"
+                  type="datetime"
+                  format="yyyy-MM-dd HH:mm:ss"
+                  value-format="yyyy-MM-dd'T'HH:mm:ss"
+                  time-picker-format="HH:mm:ss"
+                  :actions="['now', 'clear', 'confirm']"
+                  clearable
+                  placeholder="选择发布时间"
+                  style="width: 100%"
+                />
+                <NText depth="3" class="field-hint">用户端显示的发布时间；可留空，首次发布时由后端自动记录。提交格式为 YYYY-MM-DDTHH:mm:ss。</NText>
+              </div>
+            </NFormItemGi>
+            <NFormItemGi :label="`生效时间（${announcementTimeZone}）`" path="effectiveFrom" required>
+              <div class="datetime-field">
+                <NDatePicker
+                  v-model:formatted-value="form.effectiveFrom"
+                  type="datetime"
+                  format="yyyy-MM-dd HH:mm:ss"
+                  value-format="yyyy-MM-dd'T'HH:mm:ss"
+                  time-picker-format="HH:mm:ss"
+                  :actions="['now', 'confirm']"
+                  placeholder="选择生效时间"
+                  style="width: 100%"
+                />
+                <NText depth="3" class="field-hint">必填，提交格式为 YYYY-MM-DDTHH:mm:ss；公告从此时间点开始生效。</NText>
+              </div>
+            </NFormItemGi>
+            <NFormItemGi :label="`结束时间（${announcementTimeZone}，可选）`" path="effectiveUntil">
+              <div class="datetime-field">
+                <NDatePicker
+                  v-model:formatted-value="form.effectiveUntil"
+                  type="datetime"
+                  format="yyyy-MM-dd HH:mm:ss"
+                  value-format="yyyy-MM-dd'T'HH:mm:ss"
+                  time-picker-format="HH:mm:ss"
+                  :actions="['now', 'clear', 'confirm']"
+                  clearable
+                  placeholder="选择结束时间"
+                  style="width: 100%"
+                />
+                <NText depth="3" class="field-hint">可留空；填写时提交格式为 YYYY-MM-DDTHH:mm:ss，且必须晚于生效时间。</NText>
+              </div>
+            </NFormItemGi>
+          </NGrid>
           <NFormItem label="公告摘要" path="summary"><NInput v-model:value="form.summary" type="textarea" :autosize="{ minRows: 2, maxRows: 3 }" maxlength="255" show-count /></NFormItem>
           <NFormItem label="公告正文（纯文本安全渲染）" path="content"><NInput v-model:value="form.content" type="textarea" :autosize="{ minRows: 7, maxRows: 14 }" maxlength="20000" show-count /></NFormItem>
-          <NGrid cols="1 s:2 m:4" :x-gap="14" responsive="screen"><NFormItem label="优先级" path="priority"><NInputNumber v-model:value="form.priority" :min="0" :max="100" style="width: 100%" /></NFormItem><NFormItem :label="`生效时间（${announcementTimeZone}）`" path="effectiveFrom"><input v-model="form.effectiveFrom" class="datetime-input" type="datetime-local"></NFormItem><NFormItem :label="`失效时间（${announcementTimeZone}）`"><input v-model="form.effectiveUntil" class="datetime-input" type="datetime-local"></NFormItem><NFormItem label="跳转链接"><NInput v-model:value="form.actionUrl" placeholder="/collections/new 或 https://…" maxlength="512" /></NFormItem></NGrid>
+          <NGrid cols="1 m:2" :x-gap="14" responsive="screen"><NFormItemGi label="优先级" path="priority"><NInputNumber v-model:value="form.priority" :min="0" :max="100" style="width: 100%" /></NFormItemGi><NFormItemGi label="跳转链接"><NInput v-model:value="form.actionUrl" placeholder="/collections/new 或 https://…" maxlength="512" /></NFormItemGi></NGrid>
           <NDivider>历史与主动展示</NDivider>
-          <NGrid cols="1 m:2" :x-gap="18" responsive="screen"><NFormItem label="公开历史公告"><NSwitch v-model:value="form.publicHistory"><template #checked>公开</template><template #unchecked>不公开</template></NSwitch></NFormItem><NFormItem label="网站加载完成后主动展示"><NSwitch v-model:value="form.autoShowEnabled"><template #checked>开启</template><template #unchecked>关闭</template></NSwitch></NFormItem></NGrid>
-          <NGrid v-if="form.autoShowEnabled" cols="1 m:2" :x-gap="14" responsive="screen"><NFormItem label="主动展示模式"><NSelect v-model:value="form.autoShowMode" :options="ANNOUNCEMENT_AUTO_SHOW_MODE_OPTIONS" /></NFormItem><NFormItem v-if="cooldownRequired" label="冷却时间（小时）"><NInputNumber v-model:value="form.autoShowCooldownHours" :min="1" :max="720" style="width: 100%" /></NFormItem></NGrid>
+          <NGrid cols="1 m:2" :x-gap="18" responsive="screen"><NFormItemGi label="公开历史公告"><NSwitch v-model:value="form.publicHistory"><template #checked>公开</template><template #unchecked>不公开</template></NSwitch></NFormItemGi><NFormItemGi label="网站加载完成后主动展示"><NSwitch v-model:value="form.autoShowEnabled"><template #checked>开启</template><template #unchecked>关闭</template></NSwitch></NFormItemGi></NGrid>
+          <NGrid v-if="form.autoShowEnabled" cols="1 m:2" :x-gap="14" responsive="screen"><NFormItemGi label="主动展示模式"><NSelect v-model:value="form.autoShowMode" :options="ANNOUNCEMENT_AUTO_SHOW_MODE_OPTIONS" /></NFormItemGi><NFormItemGi v-if="cooldownRequired" label="冷却时间（小时）"><NInputNumber v-model:value="form.autoShowCooldownHours" :min="1" :max="720" style="width: 100%" /></NFormItemGi></NGrid>
           <NAlert v-if="form.autoShowEnabled && form.autoShowMode === 'EVERY_LOAD'" type="warning" :show-icon="true">每次加载都会由客户端请求候选，适合紧急公告；请谨慎使用。</NAlert>
         </NForm>
         <template #footer><NSpace justify="end"><NButton :disabled="saving" @click="editorOpen = false">取消</NButton><NButton type="primary" :loading="saving" @click="save">保存</NButton></NSpace></template>
@@ -318,7 +389,9 @@ onMounted(() => { void loadAnnouncements() })
 .priority-cell { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .table-actions { display: flex; flex-wrap: wrap; gap: 5px; }
 .table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid rgba(0, 0, 0, .07); }
-.datetime-input { width: 100%; min-height: 34px; box-sizing: border-box; padding: 6px 10px; border: 1px solid rgb(224, 224, 230); border-radius: 3px; color: rgb(51, 54, 57); }
+.time-alert { margin-bottom: 14px; }
+.datetime-field { width: 100%; }
+.field-hint { display: block; margin-top: 6px; font-size: 12px; line-height: 1.5; }
 .audit-modal { width: min(820px, calc(100vw - 30px)); max-height: calc(100vh - 44px); overflow: auto; }
 @media (max-width: 700px) { .page-heading, .table-footer { align-items: stretch; flex-direction: column; } }
 </style>

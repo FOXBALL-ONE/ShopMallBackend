@@ -58,7 +58,9 @@ class AnnouncementControllerTest {
             .andExpect(jsonPath("$.data.items[0].auto_show_mode").value("COOLDOWN"))
             .andExpect(jsonPath("$.data.items[0].auto_show_cooldown_hours").value(12))
             .andExpect(jsonPath("$.data.items[0].action_url").value("/collections/new"))
+            .andExpect(jsonPath("$.data.items[0].published_at").value("2026-08-11T12:30:15"))
             .andExpect(jsonPath("$.data.items[0].effective_from").value("2026-08-11T12:30:15"))
+            .andExpect(jsonPath("$.data.items[0].effective_until").value("2026-08-12T12:30:15"))
             .andExpect(jsonPath("$.data.items[0].is_read").value(false))
     }
 

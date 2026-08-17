@@ -113,6 +113,7 @@ class AnnouncementServiceImpl(
             autoShowMode = command.autoShowMode,
             autoShowCooldownHours = normalizedCooldown(command.autoShowMode, command.autoShowCooldownHours),
             actionUrl = normalizedActionUrl(command.actionUrl),
+            publishedAt = command.publishedAt,
             effectiveFrom = command.effectiveFrom,
             effectiveUntil = command.effectiveUntil,
             createdBy = adminId,
@@ -132,7 +133,6 @@ class AnnouncementServiceImpl(
         adminAccessService.requireAdmin(adminId)
         val announcement = announcementRepository.findById(announcementId).orElse(null) ?: return null
         requireExpectedVersion(announcement, command.expectedVersion)
-        ensureEditable(announcement)
         validateCommand(
             AnnouncementService.CreateCommand(
                 title = command.title,
@@ -145,6 +145,7 @@ class AnnouncementServiceImpl(
                 autoShowMode = command.autoShowMode,
                 autoShowCooldownHours = command.autoShowCooldownHours,
                 actionUrl = command.actionUrl,
+                publishedAt = command.publishedAt,
                 effectiveFrom = command.effectiveFrom,
                 effectiveUntil = command.effectiveUntil,
             ),
@@ -160,10 +161,16 @@ class AnnouncementServiceImpl(
         announcement.autoShowMode = command.autoShowMode
         announcement.autoShowCooldownHours = normalizedCooldown(command.autoShowMode, command.autoShowCooldownHours)
         announcement.actionUrl = normalizedActionUrl(command.actionUrl)
+        announcement.publishedAt = command.publishedAt
         announcement.effectiveFrom = command.effectiveFrom
         announcement.effectiveUntil = command.effectiveUntil
         announcement.updatedBy = adminId
-        if (announcement.status in setOf(Announcement.Status.SCHEDULED, Announcement.Status.PUBLISHED)) {
+        if (announcement.status in setOf(
+                Announcement.Status.SCHEDULED,
+                Announcement.Status.PUBLISHED,
+                Announcement.Status.EXPIRED,
+            )
+        ) {
             announcement.status = lifecycleStatus(announcement.effectiveFrom, announcement.effectiveUntil, now())
         }
         val saved = announcementRepository.saveAndFlush(announcement)
@@ -191,6 +198,7 @@ class AnnouncementServiceImpl(
                 autoShowMode = announcement.autoShowMode,
                 autoShowCooldownHours = announcement.autoShowCooldownHours,
                 actionUrl = announcement.actionUrl,
+                publishedAt = announcement.publishedAt,
                 effectiveFrom = announcement.effectiveFrom,
                 effectiveUntil = announcement.effectiveUntil,
             ),
@@ -198,7 +206,7 @@ class AnnouncementServiceImpl(
         val before = snapshot(announcement)
         val currentTime = now()
         announcement.status = lifecycleStatus(announcement.effectiveFrom, announcement.effectiveUntil, currentTime)
-        announcement.publishedAt = currentTime
+        if (announcement.publishedAt == null) announcement.publishedAt = currentTime
         announcement.updatedBy = adminId
         val saved = announcementRepository.saveAndFlush(announcement)
         appendAudit(saved, adminId, AnnouncementAuditLog.Action.PUBLISHED, before, snapshot(saved), null)
@@ -539,12 +547,6 @@ class AnnouncementServiceImpl(
                 ) || (effectiveUntil != null && effectiveUntil <= currentTime)
             )
         return current || history
-    }
-
-    private fun ensureEditable(announcement: Announcement) {
-        if (announcement.status in setOf(Announcement.Status.EXPIRED, Announcement.Status.ARCHIVED)) {
-            throw ParamErrorException("已过期或已归档公告不能直接编辑，请复制为新草稿")
-        }
     }
 
     private fun validateCommand(command: AnnouncementService.CreateCommand) {

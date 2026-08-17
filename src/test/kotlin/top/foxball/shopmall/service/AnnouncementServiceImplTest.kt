@@ -187,6 +187,7 @@ class AnnouncementServiceImplTest {
             autoShowMode = Announcement.AutoShowMode.ONCE_PER_ANNOUNCEMENT,
             autoShowCooldownHours = null,
             actionUrl = null,
+            publishedAt = null,
             effectiveFrom = currentTime,
             effectiveUntil = currentTime.plusDays(1),
             expectedVersion = 3,
@@ -199,6 +200,52 @@ class AnnouncementServiceImplTest {
         assertEquals(4, error.actualVersion)
         verify(adminAccessService).requireAdmin(99)
         verify(announcementRepository, never()).saveAndFlush(draft)
+    }
+
+    @Test
+    fun `admin update stores all managed times and can reschedule an expired announcement`() {
+        val expired = announcement(9, 50, Announcement.AutoShowMode.ONCE_PER_ANNOUNCEMENT).apply {
+            version = 6
+            status = Announcement.Status.EXPIRED
+            effectiveUntil = currentTime
+        }
+        val managedPublishedAt = currentTime.minusDays(2)
+        val managedEffectiveFrom = currentTime.plusHours(3)
+        val managedEffectiveUntil = currentTime.plusDays(2)
+        `when`(announcementRepository.findById(9)).thenReturn(Optional.of(expired))
+        `when`(announcementRepository.saveAndFlush(any(Announcement::class.java))).thenAnswer {
+            it.arguments[0] as Announcement
+        }
+        `when`(objectMapper.writeValueAsString(any())).thenReturn("{}")
+
+        val updated = service.update(
+            99,
+            9,
+            AnnouncementService.UpdateCommand(
+                title = expired.title,
+                summary = expired.summary,
+                content = expired.content,
+                type = expired.type,
+                priority = expired.priority,
+                publicHistory = expired.publicHistory,
+                autoShowEnabled = expired.autoShowEnabled,
+                autoShowMode = expired.autoShowMode,
+                autoShowCooldownHours = expired.autoShowCooldownHours,
+                actionUrl = expired.actionUrl,
+                publishedAt = managedPublishedAt,
+                effectiveFrom = managedEffectiveFrom,
+                effectiveUntil = managedEffectiveUntil,
+                expectedVersion = 6,
+            ),
+        )
+
+        assertNotNull(updated)
+        assertEquals(managedPublishedAt, updated.publishedAt)
+        assertEquals(managedEffectiveFrom, updated.effectiveFrom)
+        assertEquals(managedEffectiveUntil, updated.effectiveUntil)
+        assertEquals(Announcement.Status.SCHEDULED, updated.status)
+        verify(announcementRepository).saveAndFlush(expired)
+        verify(auditLogRepository).save(any(AnnouncementAuditLog::class.java))
     }
 
 
@@ -345,6 +392,7 @@ class AnnouncementServiceImplTest {
         autoShowMode = Announcement.AutoShowMode.ONCE_PER_ANNOUNCEMENT,
         autoShowCooldownHours = null,
         actionUrl = actionUrl,
+        publishedAt = null,
         effectiveFrom = currentTime,
         effectiveUntil = currentTime.plusDays(1),
     )

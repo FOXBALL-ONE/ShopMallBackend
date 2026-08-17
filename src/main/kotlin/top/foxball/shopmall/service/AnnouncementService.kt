@@ -50,6 +50,7 @@ interface AnnouncementService {
         val autoShowMode: Announcement.AutoShowMode,
         val autoShowCooldownHours: Int?,
         val actionUrl: String?,
+        val publishedAt: LocalDateTime?,
         val effectiveFrom: LocalDateTime,
         val effectiveUntil: LocalDateTime?,
     )
@@ -65,6 +66,7 @@ interface AnnouncementService {
         val autoShowMode: Announcement.AutoShowMode,
         val autoShowCooldownHours: Int?,
         val actionUrl: String?,
+        val publishedAt: LocalDateTime?,
         val effectiveFrom: LocalDateTime,
         val effectiveUntil: LocalDateTime?,
         val expectedVersion: Long,

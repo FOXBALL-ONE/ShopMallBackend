@@ -149,6 +149,9 @@ class AdminAnnouncementController(
         @RequestParam("auto_show_cooldown_hours", required = false) @Min(1) @Max(720)
         autoShowCooldownHours: Int?,
         @RequestParam("action_url", required = false) @Size(max = 512) actionUrl: String?,
+        @RequestParam("published_at", required = false)
+        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+        publishedAt: LocalDateTime?,
         @RequestParam("effective_from")
         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
         effectiveFrom: LocalDateTime,
@@ -200,6 +203,7 @@ class AdminAnnouncementController(
                 autoShowMode = autoShowMode,
                 autoShowCooldownHours = autoShowCooldownHours,
                 actionUrl = actionUrl,
+                publishedAt = publishedAt,
                 effectiveFrom = effectiveFrom,
                 effectiveUntil = effectiveUntil,
             ),
@@ -315,6 +319,9 @@ class AdminAnnouncementController(
         @RequestParam("auto_show_cooldown_hours", required = false) @Min(1) @Max(720)
         autoShowCooldownHours: Int?,
         @RequestParam("action_url", required = false) @Size(max = 512) actionUrl: String?,
+        @RequestParam("published_at", required = false)
+        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+        publishedAt: LocalDateTime?,
         @RequestParam("effective_from")
         @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
         effectiveFrom: LocalDateTime,
@@ -366,6 +373,7 @@ class AdminAnnouncementController(
                 autoShowMode = autoShowMode,
                 autoShowCooldownHours = autoShowCooldownHours,
                 actionUrl = actionUrl,
+                publishedAt = publishedAt,
                 effectiveFrom = effectiveFrom,
                 effectiveUntil = effectiveUntil,
                 expectedVersion = expectedVersion,
