@@ -12,6 +12,9 @@ import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.entity.jdbc.AttributeScope
 import top.foxball.shopmall.entity.jdbc.AttributeValueType
+import top.foxball.shopmall.entity.jdbc.Announcement
+import top.foxball.shopmall.entity.jdbc.AnnouncementAuditLog
+import top.foxball.shopmall.entity.jdbc.AnnouncementUserState
 import top.foxball.shopmall.entity.jdbc.BillingAddress
 import top.foxball.shopmall.entity.jdbc.CareInstruction
 import top.foxball.shopmall.entity.jdbc.CartItem
@@ -32,15 +35,17 @@ import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.entity.jdbc.ProductAttribute
 import top.foxball.shopmall.entity.jdbc.ProductAttributeDefinition
 import top.foxball.shopmall.entity.jdbc.ProductCategory
-import top.foxball.shopmall.entity.jdbc.ProductImage
 import top.foxball.shopmall.entity.jdbc.ProductType
 import top.foxball.shopmall.entity.jdbc.ProductVariant
 import top.foxball.shopmall.entity.jdbc.ProductVariantAttribute
 import top.foxball.shopmall.entity.jdbc.ReviewStatus
 import top.foxball.shopmall.entity.jdbc.Role
+import top.foxball.shopmall.entity.jdbc.CarrierCode
+import top.foxball.shopmall.entity.jdbc.NormalizedTrackingStatus
 import top.foxball.shopmall.entity.jdbc.Shipment
 import top.foxball.shopmall.entity.jdbc.ShipmentItem
 import top.foxball.shopmall.entity.jdbc.ShipmentStatus
+import top.foxball.shopmall.entity.jdbc.ShipmentTrack
 import top.foxball.shopmall.entity.jdbc.ShoppingCart
 import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.SupportServiceType
@@ -50,8 +55,12 @@ import top.foxball.shopmall.entity.jdbc.SupportTicketMessageSender
 import top.foxball.shopmall.entity.jdbc.SupportTicketPriority
 import top.foxball.shopmall.entity.jdbc.SupportTicketStatus
 import top.foxball.shopmall.entity.jdbc.Tag
+import top.foxball.shopmall.entity.jdbc.TrackSource
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.entity.jdbc.WeightUnit
+import top.foxball.shopmall.repository.AnnouncementAuditLogRepository
+import top.foxball.shopmall.repository.AnnouncementRepository
+import top.foxball.shopmall.repository.AnnouncementUserStateRepository
 import top.foxball.shopmall.repository.CustomerReviewRepository
 import top.foxball.shopmall.repository.HomeRecommendationPlanRepository
 import top.foxball.shopmall.repository.OrderItemRepository
@@ -64,12 +73,14 @@ import top.foxball.shopmall.repository.ShipmentRepository
 import top.foxball.shopmall.repository.ShoppingCartRepository
 import top.foxball.shopmall.repository.SupportTicketMessageRepository
 import top.foxball.shopmall.repository.SupportTicketRepository
+import top.foxball.shopmall.repository.ShipmentTrackRepository
 import top.foxball.shopmall.repository.TagRepository
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.OptionSignatureService
 import tools.jackson.databind.ObjectMapper
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -79,6 +90,10 @@ import javax.sql.DataSource
 @Component
 class MockDataInitializer(
     private val userRepository: UserRepository,
+    private val announcementRepository: AnnouncementRepository,
+    private val announcementAuditLogRepository: AnnouncementAuditLogRepository,
+    private val announcementUserStateRepository: AnnouncementUserStateRepository,
+    private val shipmentTrackRepository: ShipmentTrackRepository,
     private val productRepository: ProductRepository,
     private val productTypeRepository: ProductTypeRepository,
     private val productCategoryRepository: ProductCategoryRepository,
@@ -159,34 +174,68 @@ class MockDataInitializer(
 
     /**
      * 生成一套可直接覆盖客户站、管理端、仪表盘、订单履约和客服工作流的演示数据。
-     * 已有任意商品时保持不写入，避免本地真实业务数据被演示数据混入。
+     * 已有真实商品时只对带 MOCK 标识的演示数据做幂等补齐，避免污染本地真实业务数据。
      */
     private fun initializeMockData() {
         val now = LocalDateTime.now(ZoneOffset.UTC).withNano(0)
         val encodedPassword = requireNotNull(passwordEncoder.encode(mockPassword)) { "模拟账号密码编码失败" }
         val admins = ensureMockAdmins(encodedPassword)
+        val adminId = requireNotNull(admins.first().id)
         val priorMockDatasetExists = userRepository.findByUsername(MOCK_CUSTOMER_SENTINEL) != null
+
         if (productRepository.count() > 0) {
-            if (priorMockDatasetExists) {
-                val existingProducts = productRepository.findAll()
-                val existingTags = tagRepository.findAll().associateBy(Tag::name)
-                val recommendationPlanCount = seedHomeRecommendations(
-                    existingProducts,
+            if (!priorMockDatasetExists) {
+                log.info("Mock catalog initialization skipped because products already exist")
+                return
+            }
+
+            val existingProducts = productRepository.findAll()
+            val mockProducts = existingProducts.filter { product ->
+                product.variants.any { it.sku.startsWith("MOCK-") }
+            }
+            val legacyImageCount = mockProducts.sumOf { it.images.size }
+            if (legacyImageCount > 0) {
+                mockProducts.forEach { it.images.clear() }
+                productRepository.saveAllAndFlush(mockProducts)
+            }
+
+            val existingTags = tagRepository.findAll().associateBy(Tag::name)
+            val recommendationPlanCount = if (mockProducts.isEmpty()) {
+                log.warn("Mock recommendation supplement skipped because no mock products remain")
+                0
+            } else {
+                seedHomeRecommendations(
+                    mockProducts,
                     existingTags,
-                    requireNotNull(admins.first().id),
+                    adminId,
                     now,
                 )
-                log.info(
-                    "Mock catalog initialization skipped because products already exist; home recommendation plans initialized={}",
-                    recommendationPlanCount,
-                )
-            } else {
-                log.info("Mock catalog initialization skipped because products already exist")
             }
+            val mockCustomers = userRepository.findAll().filter { it.username.startsWith("mock_customer_") }
+            val mockShipments = shipmentRepository.findAll().filter { it.shipmentNo.startsWith("MOCK-SHP-") }
+            val trackCount = seedShipmentTracks(mockShipments, now)
+            val announcementCounts = seedAnnouncements(mockCustomers, adminId, now)
+            log.info(
+                "Mock dataset already exists; supplements initialized: recommendationPlans={}, shipmentTracks={}, " +
+                    "announcements={}, announcementAudits={}, announcementUserStates={}, legacyImagesCleared={}",
+                recommendationPlanCount,
+                trackCount,
+                announcementCounts.announcements,
+                announcementCounts.auditLogs,
+                announcementCounts.userStates,
+                legacyImageCount,
+            )
             return
         }
+
         if (priorMockDatasetExists) {
-            log.warn("Mock catalog initialization skipped because a prior mock dataset sentinel exists")
+            val mockCustomers = userRepository.findAll().filter { it.username.startsWith("mock_customer_") }
+            val announcementCounts = seedAnnouncements(mockCustomers, adminId, now)
+            log.warn(
+                "Mock catalog initialization skipped because a prior mock dataset sentinel exists; " +
+                    "announcement supplements initialized={}",
+                announcementCounts.announcements,
+            )
             return
         }
 
@@ -197,16 +246,23 @@ class MockDataInitializer(
         val recommendationPlanCount = seedHomeRecommendations(
             products,
             tags,
-            requireNotNull(admins.first().id),
+            adminId,
             now,
         )
         val cartCount = seedCarts(products, customers)
         val orders = seedOrders(products, customers, now)
-        val shipmentCount = seedShipments(orders, requireNotNull(admins.first().id), now)
-        val ticketCounts = seedSupportTickets(orders, customers, requireNotNull(admins.first().id), now)
+        val shipmentCount = seedShipments(orders, adminId, now)
+        val shipmentTracks = seedShipmentTracks(
+            shipmentRepository.findAll().filter { it.shipmentNo.startsWith("MOCK-SHP-") },
+            now,
+        )
+        val announcementCounts = seedAnnouncements(customers, adminId, now)
+        val ticketCounts = seedSupportTickets(orders, customers, adminId, now)
 
         log.info(
-            "Mock data initialized: users={}, tags={}, products={}, variants={}, reviews={}, recommendationPlans={}, carts={}, orders={}, shipments={}, tickets={}, messages={}",
+            "Mock data initialized: users={}, tags={}, products={}, variants={}, reviews={}, recommendationPlans={}, " +
+                "carts={}, orders={}, shipments={}, shipmentTracks={}, announcements={}, announcementAudits={}, " +
+                "announcementUserStates={}, tickets={}, messages={}",
             admins.size + customers.size,
             tags.size,
             products.size,
@@ -216,12 +272,15 @@ class MockDataInitializer(
             cartCount,
             orders.size,
             shipmentCount,
+            shipmentTracks,
+            announcementCounts.announcements,
+            announcementCounts.auditLogs,
+            announcementCounts.userStates,
             ticketCounts.first,
             ticketCounts.second,
         )
     }
 
-    /** 管理员每次启动均同步，确保干净数据库和已有模拟库都存在可登录管理账号。 */
     private fun ensureMockAdmins(encodedPassword: String): List<User> =
         MOCK_ADMIN_DEFINITIONS.map { definition ->
             val user = userRepository.findByUsername(definition.username) ?: User(username = definition.username)
@@ -332,7 +391,8 @@ class MockDataInitializer(
                 materials = definition.materials.map { MaterialComponent(it.name, it.percentage) }.toMutableList(),
                 attributes = definition.attributes.map { ProductAttribute(it.first, it.second) }.toMutableList(),
                 highlights = definition.highlights.toMutableList(),
-                images = productImages(definition.imageKey, definition.name),
+                // 本地 Mock 只覆盖商品业务字段，不创建任何图片或图片 URL。
+                images = mutableListOf(),
                 fitSense = definition.fitSense,
                 description = definition.description,
                 designAndExtras = definition.designAndExtras.toMutableList(),
@@ -353,15 +413,6 @@ class MockDataInitializer(
         )
         return saved
     }
-
-    private fun productImages(imageKey: String, name: String): MutableList<ProductImage> =
-        (1..3).map { number ->
-            ProductImage(
-                url = "https://placehold.co/900x1200/png?text=$imageKey-$number",
-                altText = "$name product view $number",
-                primary = number == 1,
-            )
-        }.toMutableList()
 
     /** 比基尼展示颜色与上下装尺码组合，其余商品展示两个颜色下的常规尺码 SKU。 */
     private fun createVariants(definition: CatalogDefinition, productNumber: Int): List<ProductVariant> =
@@ -480,7 +531,7 @@ class MockDataInitializer(
 
         val sellableProducts = products.filter { product ->
             product.id != null && product.status == Product.Status.ACTIVE && product.deletedAt == null &&
-                product.images.isNotEmpty() && product.variants.any { variant ->
+                product.variants.any { variant ->
                     variant.id != null && variant.status == ProductVariant.Status.ACTIVE &&
                         variant.warehouseVolume > 0 && variant.price.signum() > 0
                 }
@@ -854,7 +905,8 @@ class MockDataInitializer(
                 "currency" to "USD",
                 "attributes" to product.attributes.associate { it.code to it.value },
                 "variantAttributes" to variant.attributes.associate { it.code to it.value },
-                "primaryImage" to product.images.firstOrNull(ProductImage::primary)?.url,
+                // 图片属于外部素材，不在 Mock 数据中伪造；保留字段以兼容订单快照结构。
+                "primaryImage" to null,
             ),
         )
     }
@@ -877,8 +929,8 @@ class MockDataInitializer(
                 shippingAddress = record.order.shippingAddress.copySnapshot(),
                 shippedAt = record.order.shippedAt,
                 deliveredAt = record.order.deliveredAt,
-                carrierLabelUrl = "https://labels.example.test/$trackingNo.pdf",
-                trackingUrl = "https://tracking.example.test/$trackingNo",
+                carrierLabelUrl = null,
+                trackingUrl = null,
                 lastTrackStatus = status.name,
                 lastTrackAt = (record.order.deliveredAt ?: record.order.shippedAt ?: now.toInstant(ZoneOffset.UTC)),
                 lastTrackEventId = "mock-event-${index + 1}",
@@ -900,16 +952,19 @@ class MockDataInitializer(
             )
         }
         shipmentItemRepository.saveAllAndFlush(items)
-        updateCreatedAndUpdated(
-            "shipments",
-            drafts.map { draft ->
-                val updatedAt = draft.order.order.deliveredAt?.atOffset(ZoneOffset.UTC)?.toLocalDateTime()
-                    ?: draft.order.order.shippedAt?.atOffset(ZoneOffset.UTC)?.toLocalDateTime()
-                    ?: draft.order.createdAt.atOffset(ZoneOffset.UTC).toLocalDateTime()
-                    ?: now
-                TimestampRow(requireNotNull(saved.getValue(draft.shipment.shipmentNo).id), draft.order.createdAt.plusHours(2), updatedAt)
-            },
-        )
+        val shipmentTimestamps = drafts.map { draft ->
+            val updatedAt = draft.order.order.deliveredAt?.atOffset(ZoneOffset.UTC)?.toLocalDateTime()
+                ?: draft.order.order.shippedAt?.atOffset(ZoneOffset.UTC)?.toLocalDateTime()
+                ?: draft.order.createdAt.atOffset(ZoneOffset.UTC).toLocalDateTime()
+            TimestampRow(requireNotNull(saved.getValue(draft.shipment.shipmentNo).id), draft.order.createdAt.plusHours(2), updatedAt)
+        }
+        updateCreatedAndUpdated("shipments", shipmentTimestamps)
+        val shipmentCreatedAtByNumber = drafts.associate { draft ->
+            draft.shipment.shipmentNo to draft.order.createdAt.plusHours(2).toInstant(ZoneOffset.UTC)
+        }
+        saved.forEach { (shipmentNo, shipment) ->
+            shipment.createdAt = shipmentCreatedAtByNumber.getValue(shipmentNo)
+        }
         updateCreated(
             "shipment_items",
             items.mapIndexed { index, item ->
@@ -918,6 +973,525 @@ class MockDataInitializer(
         )
         return drafts.size
     }
+
+    private fun seedShipmentTracks(shipments: List<Shipment>, now: LocalDateTime): Int {
+        if (shipments.isEmpty()) return 0
+
+        val existingTracksByShipment = shipments.associate { shipment ->
+            val shipmentId = requireNotNull(shipment.id)
+            shipmentId to shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId)
+        }
+        val tracksToInsert = mutableListOf<ShipmentTrack>()
+
+        shipments.forEachIndexed { index, shipment ->
+            val shipmentId = requireNotNull(shipment.id)
+            val existingTracks = existingTracksByShipment.getValue(shipmentId)
+            val existingEventIds = existingTracks.mapTo(hashSetOf(), ShipmentTrack::carrierEventId)
+            val generatedTracks = mutableListOf<ShipmentTrack>()
+            val nowInstant = now.toInstant(ZoneOffset.UTC)
+            val base = when {
+                shipment.shippedAt != null -> shipment.shippedAt!!.minusSeconds(16L * 60L * 60L)
+                shipment.deliveredAt != null -> shipment.deliveredAt!!.minusSeconds(4L * 24L * 60L * 60L)
+                shipment.createdAt != null -> {
+                    val createdAt = shipment.createdAt!!
+                    val safeCreatedAt = if (createdAt.isAfter(nowInstant)) nowInstant else createdAt
+                    safeCreatedAt.minusSeconds(2L * 60L * 60L)
+                }
+                else -> nowInstant.minusSeconds((index + 1L) * 24L * 60L * 60L)
+            }
+            val origin = shipment.shippingAddress.city.ifBlank { "Origin fulfillment center" }
+            var sequence = 1
+
+            fun appendTrack(
+                statusCode: String,
+                normalizedStatus: NormalizedTrackingStatus,
+                occurredAt: Instant,
+                location: String,
+                description: String,
+            ) {
+                val carrierEventId = "mock-track-${shipment.shipmentNo}-%03d".format(sequence++)
+                generatedTracks += ShipmentTrack(
+                    shipment = shipment,
+                    carrierEventId = carrierEventId,
+                    statusCode = statusCode,
+                    normalizedStatus = normalizedStatus,
+                    source = TrackSource.MANUAL,
+                    location = location,
+                    description = description,
+                    occurredAt = occurredAt,
+                    raw = objectMapper.writeValueAsString(
+                        mapOf(
+                            "event_id" to carrierEventId,
+                            "status" to statusCode,
+                            "location" to location,
+                            "occurred_at" to occurredAt.toString(),
+                        ),
+                    ),
+                )
+            }
+
+            appendTrack(
+                statusCode = "LABEL_CREATED",
+                normalizedStatus = NormalizedTrackingStatus.UNKNOWN,
+                occurredAt = base.plusSeconds(1L * 60L * 60L),
+                location = origin,
+                description = "Shipping label created and shipment information received.",
+            )
+
+            when (shipment.status) {
+                ShipmentStatus.LABEL_CREATED -> Unit
+                ShipmentStatus.IN_TRANSIT, ShipmentStatus.OUT_FOR_DELIVERY, ShipmentStatus.DELIVERED -> {
+                    val shippedAt = shipment.shippedAt ?: base.plusSeconds(16L * 60L * 60L)
+                    val inTransitAt = shippedAt.plusSeconds(12L * 60L * 60L)
+                    appendTrack(
+                        statusCode = "PICKED_UP",
+                        normalizedStatus = NormalizedTrackingStatus.IN_TRANSIT,
+                        occurredAt = shippedAt,
+                        location = origin,
+                        description = "Parcel picked up by the local fulfillment team.",
+                    )
+                    appendTrack(
+                        statusCode = "IN_TRANSIT",
+                        normalizedStatus = NormalizedTrackingStatus.IN_TRANSIT,
+                        occurredAt = inTransitAt,
+                        location = "Regional sort facility",
+                        description = "Parcel departed the regional sort facility.",
+                    )
+                    if (index % 7 == 0) {
+                        appendTrack(
+                            statusCode = "DELIVERY_EXCEPTION",
+                            normalizedStatus = NormalizedTrackingStatus.EXCEPTION,
+                            occurredAt = inTransitAt.plusSeconds(6L * 60L * 60L),
+                            location = "Regional sort facility",
+                            description = "Delivery route was briefly delayed and is under operator review.",
+                        )
+                    }
+                    if (shipment.status == ShipmentStatus.IN_TRANSIT && index % 7 == 0) {
+                        appendTrack(
+                            statusCode = "IN_TRANSIT",
+                            normalizedStatus = NormalizedTrackingStatus.IN_TRANSIT,
+                            occurredAt = inTransitAt.plusSeconds(8L * 60L * 60L),
+                            location = "Regional sort facility",
+                            description = "Parcel released from exception handling and returned to transit.",
+                        )
+                    }
+                    if (shipment.status == ShipmentStatus.OUT_FOR_DELIVERY || shipment.status == ShipmentStatus.DELIVERED) {
+                        val requestedOutAt = shipment.deliveredAt?.minusSeconds(6L * 60L * 60L)
+                            ?: inTransitAt.plusSeconds(24L * 60L * 60L)
+                        val outAt = if (requestedOutAt.isAfter(inTransitAt)) requestedOutAt else inTransitAt.plusSeconds(1L)
+                        appendTrack(
+                            statusCode = "OUT_FOR_DELIVERY",
+                            normalizedStatus = NormalizedTrackingStatus.OUT_FOR_DELIVERY,
+                            occurredAt = outAt,
+                            location = shipment.shippingAddress.city,
+                            description = "Parcel is out for delivery to the recipient address.",
+                        )
+                        if (shipment.status == ShipmentStatus.DELIVERED) {
+                            val requestedDeliveredAt = shipment.deliveredAt ?: outAt.plusSeconds(12L * 60L * 60L)
+                            val deliveredAt = if (requestedDeliveredAt.isAfter(outAt)) {
+                                requestedDeliveredAt
+                            } else {
+                                outAt.plusSeconds(1L)
+                            }
+                            appendTrack(
+                                statusCode = "DELIVERED",
+                                normalizedStatus = NormalizedTrackingStatus.DELIVERED,
+                                occurredAt = deliveredAt,
+                                location = shipment.shippingAddress.city,
+                                description = "Parcel delivered to the recipient.",
+                            )
+                        }
+                    }
+                }
+                ShipmentStatus.CANCELLED -> appendTrack(
+                    statusCode = "CANCELLED",
+                    normalizedStatus = NormalizedTrackingStatus.UNKNOWN,
+                    occurredAt = base.plusSeconds(2L * 60L * 60L),
+                    location = origin,
+                    description = "Shipment cancelled before carrier handoff.",
+                )
+                ShipmentStatus.LABEL_PENDING, ShipmentStatus.CANCEL_PENDING, ShipmentStatus.DELETED -> Unit
+            }
+
+            generatedTracks.filterNot { it.carrierEventId in existingEventIds }.forEach(tracksToInsert::add)
+            val latest = (existingTracks + generatedTracks).maxWithOrNull(
+                compareBy<ShipmentTrack> { it.occurredAt }.thenBy { it.carrierEventId },
+            )
+            shipment.carrierCode = CarrierCode.MANUAL
+            shipment.carrierLabelUrl = null
+            shipment.trackingUrl = null
+            shipment.nextTrackPollAt = null
+            shipment.pollLeaseOwner = null
+            shipment.pollLeaseUntil = null
+            shipment.lastTrackStatus = latest?.statusCode
+            shipment.lastTrackAt = latest?.occurredAt
+            shipment.lastTrackEventId = latest?.carrierEventId
+            shipment.lastTrackLocation = latest?.location
+            shipment.consecutiveTrackFailures = if (index % 17 == 0) 1 else 0
+            shipment.lastTrackError = "Manual tracking update requires operator review".takeIf { index % 17 == 0 }
+        }
+
+        if (tracksToInsert.isNotEmpty()) {
+            shipmentTrackRepository.saveAllAndFlush(tracksToInsert)
+        }
+        shipmentRepository.saveAllAndFlush(shipments)
+        return tracksToInsert.size
+    }
+
+    private fun seedAnnouncements(
+        customers: List<User>,
+        adminId: Long,
+        now: LocalDateTime,
+    ): MockAnnouncementCounts {
+        val definitions = listOf(
+            MockAnnouncementDefinition(
+                title = "Mock Summer Swim Event",
+                summary = "Seasonal swimwear styles are now featured for the summer campaign.",
+                content = "Explore the latest swimwear edit and use the storefront filters to compare fit, support, and coverage. This announcement contains text only so local development does not depend on image assets.",
+                type = Announcement.Type.PROMOTION,
+                priority = 90,
+                status = Announcement.Status.PUBLISHED,
+                publicHistory = true,
+                autoShowEnabled = true,
+                autoShowMode = Announcement.AutoShowMode.ONCE_PER_ANNOUNCEMENT,
+                actionUrl = "/collections/swimwear",
+                effectiveFrom = now.minusDays(3),
+                effectiveUntil = now.plusDays(14),
+                publishedAt = now.minusDays(3),
+                archivedAt = null,
+                auditActions = listOf(AnnouncementAuditLog.Action.CREATED, AnnouncementAuditLog.Action.PUBLISHED),
+            ),
+            MockAnnouncementDefinition(
+                title = "Mock Account Security Reminder",
+                summary = "Review your account security settings before placing your next order.",
+                content = "Keep your email address current, use a unique password, and contact customer support if an account detail looks unfamiliar.",
+                type = Announcement.Type.IMPORTANT,
+                priority = 95,
+                status = Announcement.Status.PUBLISHED,
+                publicHistory = true,
+                autoShowEnabled = true,
+                autoShowMode = Announcement.AutoShowMode.ONCE_PER_BROWSER_SESSION,
+                actionUrl = "/account/security",
+                effectiveFrom = now.minusDays(1),
+                effectiveUntil = now.plusDays(30),
+                publishedAt = now.minusDays(1),
+                archivedAt = null,
+                auditActions = listOf(AnnouncementAuditLog.Action.CREATED, AnnouncementAuditLog.Action.SYSTEM_PUBLISHED),
+            ),
+            MockAnnouncementDefinition(
+                title = "Mock Free Shipping Reminder",
+                summary = "Orders over the free-shipping threshold receive standard delivery at no extra charge.",
+                content = "Add eligible items to your cart and review the shipping estimate at checkout. Promotion terms are shown in the order summary before payment.",
+                type = Announcement.Type.PROMOTION,
+                priority = 55,
+                status = Announcement.Status.PUBLISHED,
+                publicHistory = true,
+                autoShowEnabled = true,
+                autoShowMode = Announcement.AutoShowMode.COOLDOWN,
+                autoShowCooldownHours = 24,
+                actionUrl = "/collections/shop",
+                effectiveFrom = now.minusDays(5),
+                effectiveUntil = now.plusDays(7),
+                publishedAt = now.minusDays(5),
+                archivedAt = null,
+                auditActions = listOf(AnnouncementAuditLog.Action.CREATED, AnnouncementAuditLog.Action.PUBLISHED),
+            ),
+            MockAnnouncementDefinition(
+                title = "Mock Storefront Availability",
+                summary = "Customer support is available during the local business day.",
+                content = "If you need help with sizing, delivery, or returns, open a support ticket from your account and include the order number when applicable.",
+                type = Announcement.Type.GENERAL,
+                priority = 20,
+                status = Announcement.Status.PUBLISHED,
+                publicHistory = true,
+                autoShowEnabled = true,
+                autoShowMode = Announcement.AutoShowMode.EVERY_LOAD,
+                actionUrl = null,
+                effectiveFrom = now.minusHours(12),
+                effectiveUntil = now.plusDays(3),
+                publishedAt = now.minusHours(12),
+                archivedAt = null,
+                auditActions = listOf(AnnouncementAuditLog.Action.CREATED, AnnouncementAuditLog.Action.PUBLISHED),
+            ),
+            MockAnnouncementDefinition(
+                title = "Mock Planned Maintenance Window",
+                summary = "A short maintenance window is scheduled for the order history service.",
+                content = "The customer storefront is expected to remain available. Order history and support pages may briefly show a maintenance notice during the scheduled window.",
+                type = Announcement.Type.MAINTENANCE,
+                priority = 80,
+                status = Announcement.Status.SCHEDULED,
+                publicHistory = false,
+                autoShowEnabled = false,
+                autoShowMode = Announcement.AutoShowMode.ONCE_PER_ANNOUNCEMENT,
+                actionUrl = "/help/status",
+                effectiveFrom = now.plusDays(4),
+                effectiveUntil = now.plusDays(4).plusHours(2),
+                publishedAt = null,
+                archivedAt = null,
+                auditActions = listOf(AnnouncementAuditLog.Action.CREATED, AnnouncementAuditLog.Action.UPDATED),
+            ),
+            MockAnnouncementDefinition(
+                title = "Mock New Collection Draft",
+                summary = "Draft copy for the next resort collection campaign.",
+                content = "This draft is intentionally not visible to customers. An operator can edit the copy, review the effective window, and publish it from the administration panel.",
+                type = Announcement.Type.GENERAL,
+                priority = 30,
+                status = Announcement.Status.DRAFT,
+                publicHistory = false,
+                autoShowEnabled = false,
+                autoShowMode = Announcement.AutoShowMode.ONCE_PER_ANNOUNCEMENT,
+                actionUrl = null,
+                effectiveFrom = now.plusDays(10),
+                effectiveUntil = now.plusDays(20),
+                publishedAt = null,
+                archivedAt = null,
+                auditActions = listOf(AnnouncementAuditLog.Action.CREATED, AnnouncementAuditLog.Action.UPDATED),
+            ),
+            MockAnnouncementDefinition(
+                title = "Mock Fulfillment Delay Notice",
+                summary = "A previous fulfillment notice was manually taken offline after the issue was resolved.",
+                content = "This historical notice remains available to demonstrate the administration and customer-history workflows for an offline announcement.",
+                type = Announcement.Type.IMPORTANT,
+                priority = 70,
+                status = Announcement.Status.OFFLINE,
+                publicHistory = true,
+                autoShowEnabled = false,
+                autoShowMode = Announcement.AutoShowMode.ONCE_PER_ANNOUNCEMENT,
+                actionUrl = "/help/shipping",
+                effectiveFrom = now.minusDays(18),
+                effectiveUntil = now.minusDays(10),
+                publishedAt = now.minusDays(18),
+                archivedAt = null,
+                auditActions = listOf(
+                    AnnouncementAuditLog.Action.CREATED,
+                    AnnouncementAuditLog.Action.PUBLISHED,
+                    AnnouncementAuditLog.Action.OFFLINE,
+                ),
+            ),
+            MockAnnouncementDefinition(
+                title = "Mock Resort Promotion Expired",
+                summary = "A completed promotion retained for historical reporting.",
+                content = "The promotion ended naturally and is retained as an expired announcement so operators can verify reporting and history filters.",
+                type = Announcement.Type.PROMOTION,
+                priority = 40,
+                status = Announcement.Status.EXPIRED,
+                publicHistory = true,
+                autoShowEnabled = false,
+                autoShowMode = Announcement.AutoShowMode.ONCE_PER_ANNOUNCEMENT,
+                actionUrl = "/collections/shop",
+                effectiveFrom = now.minusDays(45),
+                effectiveUntil = now.minusDays(30),
+                publishedAt = now.minusDays(45),
+                archivedAt = null,
+                auditActions = listOf(
+                    AnnouncementAuditLog.Action.CREATED,
+                    AnnouncementAuditLog.Action.PUBLISHED,
+                    AnnouncementAuditLog.Action.SYSTEM_EXPIRED,
+                ),
+            ),
+            MockAnnouncementDefinition(
+                title = "Mock Holiday Campaign Archived",
+                summary = "An archived campaign preserved for administration history.",
+                content = "This archived announcement demonstrates long-term retention after a campaign has completed and is no longer part of the public history feed.",
+                type = Announcement.Type.PROMOTION,
+                priority = 25,
+                status = Announcement.Status.ARCHIVED,
+                publicHistory = false,
+                autoShowEnabled = false,
+                autoShowMode = Announcement.AutoShowMode.ONCE_PER_ANNOUNCEMENT,
+                actionUrl = null,
+                effectiveFrom = now.minusDays(100),
+                effectiveUntil = now.minusDays(80),
+                publishedAt = now.minusDays(100),
+                archivedAt = now.minusDays(70),
+                auditActions = listOf(
+                    AnnouncementAuditLog.Action.CREATED,
+                    AnnouncementAuditLog.Action.PUBLISHED,
+                    AnnouncementAuditLog.Action.SYSTEM_EXPIRED,
+                    AnnouncementAuditLog.Action.ARCHIVED,
+                ),
+            ),
+        )
+        val definitionsByTitle = definitions.associateBy(MockAnnouncementDefinition::title)
+        val existingByTitle = announcementRepository.findAll()
+            .filter { it.title.startsWith(MOCK_ANNOUNCEMENT_PREFIX) }
+            .associateBy(Announcement::title)
+        val savedAnnouncements = announcementRepository.saveAllAndFlush(
+            definitions.map { definition ->
+                val announcement = existingByTitle[definition.title] ?: Announcement(
+                    title = definition.title,
+                    summary = definition.summary,
+                    content = definition.content,
+                    type = definition.type,
+                    priority = definition.priority,
+                    status = definition.status,
+                    publicHistory = definition.publicHistory,
+                    autoShowEnabled = definition.autoShowEnabled,
+                    autoShowMode = definition.autoShowMode,
+                    autoShowCooldownHours = definition.autoShowCooldownHours,
+                    channel = Announcement.Channel.CUSTOMER_WEB,
+                    actionUrl = definition.actionUrl,
+                    effectiveFrom = definition.effectiveFrom,
+                    effectiveUntil = definition.effectiveUntil,
+                    publishedAt = definition.publishedAt,
+                    createdBy = adminId,
+                    updatedBy = adminId,
+                    archivedAt = definition.archivedAt,
+                )
+                announcement.apply {
+                    title = definition.title
+                    summary = definition.summary
+                    content = definition.content
+                    type = definition.type
+                    priority = definition.priority
+                    status = definition.status
+                    publicHistory = definition.publicHistory
+                    autoShowEnabled = definition.autoShowEnabled
+                    autoShowMode = definition.autoShowMode
+                    autoShowCooldownHours = definition.autoShowCooldownHours
+                    channel = Announcement.Channel.CUSTOMER_WEB
+                    actionUrl = definition.actionUrl
+                    effectiveFrom = definition.effectiveFrom
+                    effectiveUntil = definition.effectiveUntil
+                    publishedAt = definition.publishedAt
+                    archivedAt = definition.archivedAt
+                    updatedBy = adminId
+                }
+            },
+        )
+        updateCreatedAndUpdated(
+            "announcements",
+            savedAnnouncements.mapIndexed { index, announcement ->
+                val createdAt = now.minusDays(30L + index * 4L)
+                TimestampRow(requireNotNull(announcement.id), createdAt, createdAt.plusHours((index + 1).toLong()))
+            },
+        )
+
+        val existingAuditKeys = announcementAuditLogRepository.findAll()
+            .map { "${it.announcementId}:${it.action.name}" }
+            .toSet()
+        val auditRows = savedAnnouncements.flatMap { announcement ->
+            val definition = definitionsByTitle.getValue(announcement.title)
+            definition.auditActions.mapNotNull { action ->
+                val key = "${requireNotNull(announcement.id)}:${action.name}"
+                if (key in existingAuditKeys) {
+                    null
+                } else {
+                    val beforeStatus = when (action) {
+                        AnnouncementAuditLog.Action.CREATED -> null
+                        AnnouncementAuditLog.Action.UPDATED -> "DRAFT"
+                        AnnouncementAuditLog.Action.PUBLISHED,
+                        AnnouncementAuditLog.Action.SYSTEM_PUBLISHED,
+                        -> "SCHEDULED"
+                        AnnouncementAuditLog.Action.SYSTEM_EXPIRED,
+                        AnnouncementAuditLog.Action.OFFLINE,
+                        -> "PUBLISHED"
+                        AnnouncementAuditLog.Action.ARCHIVED -> "EXPIRED"
+                        AnnouncementAuditLog.Action.COPIED -> "DRAFT"
+                    }
+                    AnnouncementAuditLog(
+                        announcementId = requireNotNull(announcement.id),
+                        operatorId = adminId,
+                        action = action,
+                        beforeSnapshot = beforeStatus?.let {
+                            objectMapper.writeValueAsString(mapOf("status" to it))
+                        },
+                        afterSnapshot = announcementSnapshot(announcement),
+                        reason = when (action) {
+                            AnnouncementAuditLog.Action.CREATED -> "初始化本地演示公告"
+                            AnnouncementAuditLog.Action.UPDATED -> "补充运营配置"
+                            AnnouncementAuditLog.Action.PUBLISHED -> "运营人员发布公告"
+                            AnnouncementAuditLog.Action.SYSTEM_PUBLISHED -> "到达生效时间后自动发布"
+                            AnnouncementAuditLog.Action.SYSTEM_EXPIRED -> "到达结束时间，系统自动过期"
+                            AnnouncementAuditLog.Action.OFFLINE -> "运营人员下线公告"
+                            AnnouncementAuditLog.Action.ARCHIVED -> "归档历史公告"
+                            AnnouncementAuditLog.Action.COPIED -> "从已有公告复制"
+                        },
+                    )
+                }
+            }
+        }
+        val savedAudits = if (auditRows.isEmpty()) {
+            emptyList()
+        } else {
+            announcementAuditLogRepository.saveAllAndFlush(auditRows)
+        }
+        updateCreated(
+            "announcement_audit_logs",
+            savedAudits.mapIndexed { index, audit ->
+                val createdAt = now.minusDays(24L + index)
+                TimestampRow(requireNotNull(audit.id), createdAt, createdAt)
+            },
+        )
+
+        val existingStateKeys = announcementUserStateRepository.findAll()
+            .map { "${it.announcementId}:${it.userId}" }
+            .toSet()
+        val stateRows = mutableListOf<AnnouncementUserState>()
+        if (customers.isNotEmpty()) {
+            savedAnnouncements
+                .filter { it.status in setOf(Announcement.Status.PUBLISHED, Announcement.Status.OFFLINE, Announcement.Status.EXPIRED) }
+                .forEachIndexed { index, announcement ->
+                    val customerId = customers[index % customers.size].id ?: return@forEachIndexed
+                    val state = when (index % 3) {
+                        0 -> AnnouncementUserState.State.ACKNOWLEDGED
+                        1 -> AnnouncementUserState.State.DISMISSED
+                        else -> AnnouncementUserState.State.SEEN
+                    }
+                    val key = "${requireNotNull(announcement.id)}:$customerId"
+                    if (key !in existingStateKeys) {
+                        val firstSeenAt = now.minusHours(18L + index * 3L)
+                        val lastSeenAt = firstSeenAt.plusMinutes(20)
+                        stateRows += AnnouncementUserState(
+                            announcementId = requireNotNull(announcement.id),
+                            userId = customerId,
+                            state = state,
+                            firstSeenAt = firstSeenAt,
+                            lastSeenAt = lastSeenAt,
+                            dismissedAt = lastSeenAt.takeIf { state == AnnouncementUserState.State.DISMISSED },
+                            acknowledgedAt = lastSeenAt.takeIf { state == AnnouncementUserState.State.ACKNOWLEDGED },
+                        )
+                    }
+                }
+        }
+        val savedStates = if (stateRows.isEmpty()) {
+            emptyList()
+        } else {
+            announcementUserStateRepository.saveAllAndFlush(stateRows)
+        }
+        updateCreatedAndUpdated(
+            "announcement_user_states",
+            savedStates.mapIndexed { index, state ->
+                val createdAt = now.minusDays(12L + index)
+                TimestampRow(requireNotNull(state.id), createdAt, createdAt.plusHours(1))
+            },
+        )
+        return MockAnnouncementCounts(
+            announcements = savedAnnouncements.size,
+            auditLogs = savedAudits.size,
+            userStates = savedStates.size,
+        )
+    }
+
+    private fun announcementSnapshot(announcement: Announcement): String =
+        objectMapper.writeValueAsString(
+            mapOf(
+                "title" to announcement.title,
+                "summary" to announcement.summary,
+                "content_length" to announcement.content.length,
+                "type" to announcement.type.name,
+                "priority" to announcement.priority,
+                "status" to announcement.status.name,
+                "public_history" to announcement.publicHistory,
+                "auto_show_enabled" to announcement.autoShowEnabled,
+                "auto_show_mode" to announcement.autoShowMode.name,
+                "auto_show_cooldown_hours" to announcement.autoShowCooldownHours,
+                "action_url" to announcement.actionUrl,
+                "effective_from" to announcement.effectiveFrom.toString(),
+                "effective_until" to announcement.effectiveUntil?.toString(),
+                "published_at" to announcement.publishedAt?.toString(),
+            ),
+        )
 
     private fun seedSupportTickets(
         orders: List<MockOrderRecord>,
@@ -961,7 +1535,7 @@ class MockDataInitializer(
             MockTicketDraft(ticket, createdAt)
         }
         val savedTickets = supportTicketRepository.saveAllAndFlush(drafts.map(MockTicketDraft::ticket))
-        val messages = drafts.flatMapIndexed { index, draft ->
+        val messages = drafts.flatMapIndexed { index, _ ->
             val ticket = savedTickets[index]
             val customerMessage = SupportTicketMessage(
                 ticket = ticket,
@@ -1140,7 +1714,6 @@ class MockDataInitializer(
         val description: String,
         val designAndExtras: List<String>,
         val tagNames: List<String>,
-        val imageKey: String,
         val status: Product.Status = Product.Status.ACTIVE,
         val deleted: Boolean = false,
     )
@@ -1159,10 +1732,34 @@ class MockDataInitializer(
     )
     private data class MockShipmentDraft(val shipment: Shipment, val order: MockOrderRecord)
     private data class MockTicketDraft(val ticket: SupportTicket, val createdAt: LocalDateTime)
+    private data class MockAnnouncementDefinition(
+        val title: String,
+        val summary: String,
+        val content: String,
+        val type: Announcement.Type,
+        val priority: Int,
+        val status: Announcement.Status,
+        val publicHistory: Boolean,
+        val autoShowEnabled: Boolean,
+        val autoShowMode: Announcement.AutoShowMode,
+        val autoShowCooldownHours: Int? = null,
+        val actionUrl: String?,
+        val effectiveFrom: LocalDateTime,
+        val effectiveUntil: LocalDateTime?,
+        val publishedAt: LocalDateTime?,
+        val archivedAt: LocalDateTime?,
+        val auditActions: List<AnnouncementAuditLog.Action>,
+    )
+    private data class MockAnnouncementCounts(
+        val announcements: Int,
+        val auditLogs: Int,
+        val userStates: Int,
+    )
     private data class TimestampRow(val id: Long, val createdAt: LocalDateTime, val updatedAt: LocalDateTime)
 
     private companion object {
         const val MOCK_CUSTOMER_SENTINEL = "mock_customer_001"
+        const val MOCK_ANNOUNCEMENT_PREFIX = "Mock "
         const val MOCK_ORDER_COUNT = 60
         const val MOCK_TICKET_COUNT = 12
         val ZERO_MONEY: BigDecimal = BigDecimal("0.00")
@@ -1277,7 +1874,6 @@ class MockDataInitializer(
             description = "$name pairs supportive swim construction with a clean, versatile beach-ready silhouette.",
             designAndExtras = listOf("Fully lined construction", "Colorfast fabric", "Adjustable straps"),
             tagNames = tags,
-            imageKey = skuCode.lowercase(),
         )
 
         fun onePiece(
@@ -1324,7 +1920,6 @@ class MockDataInitializer(
             description = "$name is built for reliable support, comfortable movement, and effortless pool-to-beach styling.",
             designAndExtras = listOf("Fully lined body", "Four-way stretch", "Quick-dry finish"),
             tagNames = tags,
-            imageKey = skuCode.lowercase(),
             status = status,
         )
 
@@ -1361,7 +1956,6 @@ class MockDataInitializer(
             description = "$name is a lightweight warm-weather dress designed for resort days, dinners, and travel.",
             designAndExtras = listOf("Soft woven lining", "Finished interior seams", "Packable lightweight fabric"),
             tagNames = tags,
-            imageKey = skuCode.lowercase(),
             status = status,
             deleted = deleted,
         )
@@ -1395,7 +1989,6 @@ class MockDataInitializer(
             description = "$name provides breathable coverage for beach walks, poolside lounging, and resort travel.",
             designAndExtras = listOf("Lightweight fabric", "Quick-dry construction", "Soft finished edges"),
             tagNames = tags,
-            imageKey = skuCode.lowercase(),
             status = status,
             deleted = deleted,
         )

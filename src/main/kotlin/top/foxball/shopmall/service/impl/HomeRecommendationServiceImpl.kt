@@ -256,7 +256,7 @@ class HomeRecommendationServiceImpl(
                 val product = manualProducts[item.productId]
                 if (
                     product != null && item.productId !in excludedIds && item.productId !in selected &&
-                    eligible(product, group.minimumStock)
+                    eligible(product, group.minimumStock, requireImage = false)
                 ) {
                     selected[item.productId] = product to item.customBadge
                 }
@@ -435,9 +435,9 @@ class HomeRecommendationServiceImpl(
         return products
     }
 
-    private fun eligible(product: Product, minimumStock: Int): Boolean =
+    private fun eligible(product: Product, minimumStock: Int, requireImage: Boolean = true): Boolean =
         product.id != null && product.productType != null && product.status == Product.Status.ACTIVE &&
-            product.deletedAt == null && product.images.isNotEmpty() && product.variants.any {
+            product.deletedAt == null && (!requireImage || product.images.isNotEmpty()) && product.variants.any {
                 it.id != null && it.status == ProductVariant.Status.ACTIVE &&
                     it.warehouseVolume >= minimumStock && it.price.signum() > 0
             }
