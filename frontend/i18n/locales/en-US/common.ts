@@ -3,6 +3,7 @@ export default defineI18nLocale(() => ({
     selectorLabel: 'Language',
     english: 'English',
     simplifiedChinese: '简体中文',
+    russian: 'Русский',
   },
   common: {
     actions: {
@@ -19,6 +20,13 @@ export default defineI18nLocale(() => ({
     },
     currency: 'USD',
     region: 'United States',
+    regionPicker: {
+      open: 'Choose country and currency',
+      title: 'Country & currency',
+      country: 'Country',
+      currency: 'Currency',
+      apply: 'Apply selection',
+    },
   },
   catalog: {
     categories: {

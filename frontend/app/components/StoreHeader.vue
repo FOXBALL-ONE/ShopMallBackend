@@ -75,8 +75,7 @@ watch(() => session.userId.value, userId => {
   <div class="store-header-wrap">
     <header class="store-header">
       <div class="store-utility store-container">
-        <span><UIcon name="i-lucide-map-pin"/> {{ t('common.region') }}</span>
-        <span>USD</span>
+        <StoreRegionSwitcher/>
         <StoreLocaleSwitcher/>
         <NuxtLink class="store-notices" to="/announcements">
           <UIcon name="i-lucide-megaphone"/>

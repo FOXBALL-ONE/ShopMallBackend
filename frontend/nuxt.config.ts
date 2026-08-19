@@ -25,7 +25,7 @@ export default defineNuxtConfig({
     host: '0.0.0.0'
   },
   dayjs: {
-    locales: ['en', 'zh-cn'],
+    locales: ['en', 'zh-cn', 'ru'],
     defaultLocale: 'en',
     plugins: ["timezone", "localizedFormat"],
     defaultTimezone: "Asia/Shanghai",
@@ -46,6 +46,7 @@ export default defineNuxtConfig({
           'en-US/catalog.ts',
           'en-US/commerce.ts',
           'en-US/account.ts',
+          'en-US/legal.ts',
         ],
       },
       {
@@ -59,6 +60,21 @@ export default defineNuxtConfig({
           'zh-CN/catalog.ts',
           'zh-CN/commerce.ts',
           'zh-CN/account.ts',
+          'zh-CN/legal.ts',
+        ],
+      },
+      {
+        code: 'ru-RU',
+        language: 'ru-RU',
+        name: 'Русский',
+        files: [
+          'ru-RU/common.ts',
+          'ru-RU/storefront.ts',
+          'ru-RU/auth.ts',
+          'ru-RU/catalog.ts',
+          'ru-RU/commerce.ts',
+          'ru-RU/account.ts',
+          'ru-RU/legal.ts',
         ],
       },
     ],

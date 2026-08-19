@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const {t, catalogCategoryName} = useStorefrontI18n()
+const {countryLabel, currencyCode} = useStorefrontRegion()
 const {data: catalogCategories} = await useCatalogCategories()
 const currentYear = new Date().getFullYear()
 </script>
@@ -52,9 +53,9 @@ const currentYear = new Date().getFullYear()
     <div class="store-container store-footer-bottom">
       <span>{{ t('footer.rights', {year: currentYear}) }}</span>
       <div>
-        <a href="#">{{ t('footer.privacy') }}</a>
-        <a href="#">{{ t('footer.terms') }}</a>
-        <span>{{ t('common.region') }} / USD</span>
+        <NuxtLink to="/privacy-policy">{{ t('footer.privacy') }}</NuxtLink>
+        <NuxtLink to="/terms-of-service">{{ t('footer.terms') }}</NuxtLink>
+        <span>{{ countryLabel }} / {{ currencyCode }}</span>
       </div>
     </div>
   </footer>

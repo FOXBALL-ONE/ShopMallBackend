@@ -42,7 +42,7 @@ async function changeLocale(event: Event) {
 }
 
 .store-locale-switcher select {
-  max-width: 90px;
+  max-width: 100px;
   padding: 0 15px 0 0;
   border: 0;
   outline: 0;
@@ -67,7 +67,7 @@ async function changeLocale(event: Event) {
 
 @media (max-width: 520px) {
   .store-locale-switcher select {
-    max-width: 62px;
+    max-width: 76px;
   }
 }
 </style>

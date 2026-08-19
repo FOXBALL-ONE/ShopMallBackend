@@ -42,7 +42,8 @@ const router = useRouter()
 const session = useCustomerSession()
 const customerCart = useCustomerCart()
 const announcementCenter = useAnnouncementCenter()
-const { catalogCategoryName, currentLocale, t } = useStorefrontI18n()
+const { catalogCategoryName, t } = useStorefrontI18n()
+const { countryCode, currencyCode } = useStorefrontRegion()
 
 useHead(() => ({
   title: t('home.seoTitle'),
@@ -62,16 +63,6 @@ type HeroSlide = {
   image: string
   position: string
   to: string
-}
-
-type StoreLocation = {
-  label: string
-  value: string
-}
-
-type StoreCurrency = {
-  label: string
-  value: string
 }
 
 const navItems = computed(() => [
@@ -113,33 +104,13 @@ const categories = computed(() => {
     }))
 })
 const firstCategoryLink = computed(() => categories.value[0]?.to ?? '/collections/shop')
-const locationOptions = computed<StoreLocation[]>(() => {
-  const displayNames = new Intl.DisplayNames([currentLocale.value], { type: 'region' })
-  return ['US', 'GB', 'CA', 'AU', 'CN'].map(value => ({
-    label: displayNames.of(value) || value,
-    value
-  }))
-})
-
-const currencyOptions = computed<StoreCurrency[]>(() => {
-  const displayNames = new Intl.DisplayNames([currentLocale.value], { type: 'currency' })
-  return ['USD', 'GBP', 'CAD', 'AUD', 'CNY'].map(value => ({
-    label: `${value} - ${displayNames.of(value) || value}`,
-    value
-  }))
-})
-
 const isMenuOpen = ref(false)
 const isSearchOpen = ref(false)
 const isCartOpen = ref(false)
-const isLocationMenuOpen = ref(false)
-const isCurrencyMenuOpen = ref(false)
 const activeSlide = ref(0)
 const email = ref('')
 const searchQuery = ref('')
 const isSubscribed = ref(false)
-const selectedLocation = ref('US')
-const selectedCurrency = ref('USD')
 let carouselTimer: ReturnType<typeof setInterval> | undefined
 
 const heroSection = computed(() => recommendations.value?.sections.find(section => section.code === HERO_CAROUSEL_CODE))
@@ -169,8 +140,6 @@ const heroSlides = computed<HeroSlide[]>(() => {
     }))
 })
 const activeHero = computed<HeroSlide | null>(() => heroSlides.value[activeSlide.value] ?? heroSlides.value[0] ?? null)
-const locationLabel = computed(() => locationOptions.value.find(option => option.value === selectedLocation.value)?.label ?? locationOptions.value[0]!.label)
-const currencyLabel = computed(() => selectedCurrency.value)
 const cartCount = computed(() => customerCart.totalQuantity.value)
 
 function setActiveSlide(index: number) {
@@ -208,8 +177,6 @@ function toggleCart() {
   isCartOpen.value = !isCartOpen.value
   isMenuOpen.value = false
   isSearchOpen.value = false
-  isLocationMenuOpen.value = false
-  isCurrencyMenuOpen.value = false
 }
 
 async function refreshCart(force = false) {
@@ -218,18 +185,6 @@ async function refreshCart(force = false) {
   } catch {
     // The shared cart popover displays refresh failures when opened.
   }
-}
-
-function selectLocation(value: string) {
-  selectedLocation.value = value
-  isLocationMenuOpen.value = false
-  localStorage.setItem('pelissa-location', value)
-}
-
-function selectCurrency(value: string) {
-  selectedCurrency.value = value
-  isCurrencyMenuOpen.value = false
-  localStorage.setItem('pelissa-currency', value)
 }
 
 function subscribe() {
@@ -245,10 +200,6 @@ async function submitSearch() {
 }
 
 onMounted(() => {
-  const savedLocation = localStorage.getItem('pelissa-location')
-  const savedCurrency = localStorage.getItem('pelissa-currency')
-  if (locationOptions.value.some(option => option.value === savedLocation)) selectedLocation.value = savedLocation!
-  if (currencyOptions.value.some(option => option.value === savedCurrency)) selectedCurrency.value = savedCurrency!
   if (session.isAuthenticated.value) void refreshCart()
   restartCarouselTimer()
 })
@@ -274,57 +225,7 @@ onBeforeUnmount(() => {
   <main class="site-shell">
     <header class="site-header">
       <div class="utility-row">
-        <div class="utility-picker location-link">
-          <button
-            class="utility-link"
-            type="button"
-            :aria-label="t('home.chooseLocation')"
-            :aria-expanded="isLocationMenuOpen"
-            @click="isLocationMenuOpen = !isLocationMenuOpen; isCurrencyMenuOpen = false"
-          >
-            <UIcon name="i-lucide-map-pin" /> {{ locationLabel }}
-            <UIcon name="i-lucide-chevron-down" />
-          </button>
-          <div v-if="isLocationMenuOpen" class="utility-menu" role="menu" :aria-label="t('home.shippingLocations')">
-            <button
-              v-for="option in locationOptions"
-              :key="option.value"
-              type="button"
-              role="menuitemradio"
-              :aria-checked="selectedLocation === option.value"
-              :class="{ active: selectedLocation === option.value }"
-              @click="selectLocation(option.value)"
-            >
-              <span>{{ option.label }}</span>
-              <UIcon v-if="selectedLocation === option.value" name="i-lucide-check" />
-            </button>
-          </div>
-        </div>
-        <div class="utility-picker">
-          <button
-            class="utility-link"
-            type="button"
-            :aria-label="t('home.chooseCurrency')"
-            :aria-expanded="isCurrencyMenuOpen"
-            @click="isCurrencyMenuOpen = !isCurrencyMenuOpen; isLocationMenuOpen = false"
-          >
-            {{ currencyLabel }} <UIcon name="i-lucide-chevron-down" />
-          </button>
-          <div v-if="isCurrencyMenuOpen" class="utility-menu currency-menu" role="menu" :aria-label="t('home.currencies')">
-            <button
-              v-for="option in currencyOptions"
-              :key="option.value"
-              type="button"
-              role="menuitemradio"
-              :aria-checked="selectedCurrency === option.value"
-              :class="{ active: selectedCurrency === option.value }"
-              @click="selectCurrency(option.value)"
-            >
-              <span>{{ option.label }}</span>
-              <UIcon v-if="selectedCurrency === option.value" name="i-lucide-check" />
-            </button>
-          </div>
-        </div>
+        <StoreRegionSwitcher />
         <StoreLocaleSwitcher />
         <NuxtLink class="utility-link utility-notices" to="/announcements">
           <UIcon name="i-lucide-megaphone" /> {{ t('header.notices') }}
@@ -587,7 +488,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="page-width footer-bottom">
         <span>{{ t('footer.rights', { year: new Date().getFullYear() }) }}</span>
-        <div><a href="#top">{{ t('footer.privacy') }}</a><a href="#top">{{ t('footer.terms') }}</a><button type="button">{{ locationLabel }} / {{ currencyLabel }}</button></div>
+        <div><NuxtLink to="/privacy-policy">{{ t('footer.privacy') }}</NuxtLink><NuxtLink to="/terms-of-service">{{ t('footer.terms') }}</NuxtLink><button type="button">{{ countryCode }} / {{ currencyCode }}</button></div>
       </div>
     </footer>
   </main>

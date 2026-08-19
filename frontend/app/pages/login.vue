@@ -518,7 +518,12 @@ onBeforeUnmount(() => {
               <label class="choice-row required-choice">
                 <input v-model="registerForm.acceptedTerms" type="checkbox" :disabled="isSubmitting">
                 <span class="choice-box"><UIcon name="i-lucide-check" /></span>
-                <span>{{ t('auth.register.terms') }}</span>
+                <span>
+                  {{ t('auth.register.termsBefore') }}
+                  <NuxtLink to="/terms-of-service">{{ t('auth.register.termsOfUse') }}</NuxtLink>
+                  {{ t('auth.register.termsAnd') }}
+                  <NuxtLink to="/privacy-policy">{{ t('auth.register.privacyPolicy') }}</NuxtLink>.
+                </span>
               </label>
 
               <label class="choice-row">

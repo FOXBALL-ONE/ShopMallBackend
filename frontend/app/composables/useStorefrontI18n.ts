@@ -1,6 +1,7 @@
 export const STOREFRONT_LOCALE_OPTIONS = [
   { code: 'en-US', label: 'English', shortLabel: 'EN' },
   { code: 'zh-CN', label: '简体中文', shortLabel: '中文' },
+  { code: 'ru-RU', label: 'Русский', shortLabel: 'RU' },
 ] as const
 
 export type StorefrontLocale = typeof STOREFRONT_LOCALE_OPTIONS[number]['code']
@@ -12,6 +13,7 @@ export function isStorefrontLocale(value: string | null | undefined): value is S
 export function normalizeStorefrontLocale(value: string | null | undefined): StorefrontLocale {
   if (isStorefrontLocale(value)) return value
   if (value?.toLowerCase().startsWith('zh')) return 'zh-CN'
+  if (value?.toLowerCase().startsWith('ru')) return 'ru-RU'
   return 'en-US'
 }
 
