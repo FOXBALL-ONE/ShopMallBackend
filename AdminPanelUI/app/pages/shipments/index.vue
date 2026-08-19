@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ImageOff } from '@lucide/vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import type { DataTableColumns, TagProps } from 'naive-ui'
 import { NButton, NTag, useMessage } from 'naive-ui'
@@ -20,6 +21,17 @@ type ShipmentAction = 'dispatch' | 'cancel' | 'delivered'
 interface AllocationInput {
   orderItemId: number | null
   quantity: number | null
+}
+
+interface ProductSnapshot {
+  productId?: number | string
+  variantId?: number | string
+  sku?: string
+  name?: string
+  color?: string
+  size?: string
+  primaryImage?: string | null
+  variantAttributes?: Record<string, unknown>
 }
 
 const route = useRoute()
@@ -90,6 +102,31 @@ const actionForm = reactive({
 })
 
 const selected = computed(() => selectedShipment.value?.shipment ?? null)
+const shipmentItemViews = computed(() => selected.value?.items.map((item) => {
+  const snapshot = parseProductSnapshot(item.product_snapshot)
+  const attributes = snapshot?.variantAttributes && typeof snapshot.variantAttributes === 'object' && !Array.isArray(snapshot.variantAttributes)
+    ? snapshot.variantAttributes
+    : {}
+  const topSize = snapshotText(attributes.top_size)
+  const bottomSize = snapshotText(attributes.bottom_size)
+  const size = snapshotText(snapshot?.size) || [topSize, bottomSize].filter(Boolean).join(' / ')
+  const specifications = [
+    snapshotText(snapshot?.color) ? { label: '颜色', value: snapshotText(snapshot?.color) as string } : null,
+    size ? { label: '尺码', value: size } : null,
+    ...Object.entries(attributes)
+      .map(([key, value]) => ({ label: key, value: snapshotText(value) }))
+      .filter((value): value is { label: string; value: string } => !['top_size', 'bottom_size'].includes(value.label) && value.value !== null),
+  ].filter((value): value is { label: string; value: string } => value !== null)
+
+  return {
+    item,
+    snapshot,
+    name: snapshotText(snapshot?.name) || '商品快照无法解析',
+    sku: snapshotText(snapshot?.sku),
+    image: snapshotText(snapshot?.primaryImage),
+    specifications,
+  }
+}) ?? [])
 const availableOrderItems = computed(() => orderDetail.value?.items.filter(item => item.remaining_quantity > 0) ?? [])
 const allocationOptions = computed(() => availableOrderItems.value.map(item => ({
   label: `#${item.id} ${productSnapshotLabel(item.product_snapshot)} (${item.remaining_quantity} 件)`,
@@ -182,15 +219,28 @@ function errorMessage(error: unknown): string {
 }
 
 function productSnapshotLabel(snapshot: string): string {
+  const value = parseProductSnapshot(snapshot)
+  if (!value) return snapshot
+  const topSize = value.variantAttributes?.top_size
+  const bottomSize = value.variantAttributes?.bottom_size
+  return [
+    value.name,
+    value.color,
+    value.size || [topSize, bottomSize].filter(item => typeof item === 'string' && item.trim()).join('/'),
+    value.sku,
+  ].filter(item => typeof item === 'string' && item.trim()).join(' · ') || snapshot
+}
+
+function snapshotText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function parseProductSnapshot(snapshot: string): ProductSnapshot | null {
   try {
-    const value = JSON.parse(snapshot) as { name?: string; color?: string; size?: string; sku?: string; variantAttributes?: Record<string, string> }
-    const topSize = value.variantAttributes?.top_size
-    const bottomSize = value.variantAttributes?.bottom_size
-    return [value.name, value.color, value.size || [topSize, bottomSize].filter(Boolean).join('/'), value.sku]
-      .filter(Boolean)
-      .join(' · ') || snapshot
+    const value: unknown = JSON.parse(snapshot)
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as ProductSnapshot : null
   } catch {
-    return snapshot
+    return null
   }
 }
 
@@ -507,35 +557,6 @@ function openExternalUrl(url: string | null) {
   if (url) window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-const itemColumns: DataTableColumns<ShipmentItem> = [
-  {
-    title: '订单商品行 ID',
-    key: 'order_item_id',
-    width: 130,
-  },
-  {
-    title: '商品快照',
-    key: 'product_snapshot',
-    minWidth: 200,
-    ellipsis: { tooltip: true },
-  },
-  {
-    title: '数量',
-    key: 'quantity',
-    width: 80,
-  },
-  {
-    title: '分配状态',
-    key: 'allocation_status',
-    width: 100,
-    render: row => h(
-      NTag,
-      { size: 'small', bordered: false, type: row.allocation_status === 'ALLOCATED' ? 'success' : 'default' },
-      { default: () => allocationLabel(row.allocation_status) },
-    ),
-  },
-]
-
 const columns: DataTableColumns<AdminShipment> = [
   {
     title: '运单号',
@@ -795,15 +816,54 @@ onMounted(() => {
             </NSpace>
 
             <div>
-              <NText strong>发货商品</NText>
-              <NDataTable
-                class="detail-table"
-                :columns="itemColumns"
-                :data="selected.items"
-                :pagination="false"
-                :row-key="item => item.order_item_id"
-                size="small"
-              />
+              <div class="section-heading">
+                <NText strong>发货商品</NText>
+                <NText depth="3">{{ shipmentItemViews.length }} 个商品行</NText>
+              </div>
+              <NList class="shipment-item-list" bordered>
+                <NListItem v-for="view in shipmentItemViews" :key="view.item.order_item_id">
+                  <div class="shipment-item-row">
+                    <div class="snapshot-image">
+                      <NImage
+                        v-if="view.image"
+                        :src="view.image"
+                        :alt="view.name"
+                        width="72"
+                        height="72"
+                        object-fit="cover"
+                        lazy
+                      />
+                      <ImageOff v-else :size="24" :stroke-width="1.6" aria-hidden="true" />
+                    </div>
+
+                    <div class="snapshot-content">
+                      <div class="snapshot-name">{{ view.name }}</div>
+                      <div v-if="view.sku" class="snapshot-sku">SKU {{ view.sku }}</div>
+                      <div v-if="view.specifications.length" class="snapshot-specifications">
+                        <span v-for="specification in view.specifications" :key="`${specification.label}-${specification.value}`">
+                          <NText depth="3">{{ specification.label }}</NText>
+                          {{ specification.value }}
+                        </span>
+                      </div>
+                      <NText v-if="view.snapshot" depth="3" class="snapshot-identifiers">
+                        商品 #{{ view.snapshot.productId ?? '-' }} · 规格 #{{ view.snapshot.variantId ?? '-' }} · 订单商品行 #{{ view.item.order_item_id }}
+                      </NText>
+                      <NText v-else depth="3" class="snapshot-raw">{{ view.item.product_snapshot }}</NText>
+                    </div>
+
+                    <div class="shipment-item-summary">
+                      <div class="shipment-item-quantity"><strong>{{ view.item.quantity }}</strong> 件</div>
+                      <NTag
+                        size="small"
+                        :type="view.item.allocation_status === 'ALLOCATED' ? 'success' : 'default'"
+                        :bordered="false"
+                      >
+                        {{ allocationLabel(view.item.allocation_status) }}
+                      </NTag>
+                    </div>
+                  </div>
+                </NListItem>
+              </NList>
             </div>
 
             <div>
@@ -1061,8 +1121,96 @@ onMounted(() => {
   word-break: break-all;
 }
 
-.detail-table {
-  margin-top: 12px;
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shipment-item-list {
+  margin-top: 10px;
+}
+
+.shipment-item-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.snapshot-image {
+  display: grid;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid var(--n-border-color);
+  border-radius: 6px;
+  color: var(--n-text-color-3);
+  background: var(--n-color-embedded);
+}
+
+.snapshot-image :deep(.n-image),
+.snapshot-image :deep(img) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.snapshot-content {
+  min-width: 0;
+}
+
+.snapshot-name {
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.snapshot-sku,
+.snapshot-identifiers,
+.snapshot-raw {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.snapshot-sku {
+  color: var(--n-text-color-2);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.snapshot-specifications {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.snapshot-specifications span {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.snapshot-raw {
+  white-space: pre-wrap;
+}
+
+.shipment-item-summary {
+  display: flex;
+  min-width: 72px;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 9px;
+  white-space: nowrap;
+}
+
+.shipment-item-quantity strong {
+  font-size: 18px;
 }
 
 .track-timeline,
@@ -1125,6 +1273,23 @@ onMounted(() => {
   .allocation-row {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .shipment-item-row {
+    grid-template-columns: 56px minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+  }
+
+  .snapshot-image {
+    width: 56px;
+    height: 56px;
+  }
+
+  .shipment-item-summary {
+    grid-column: 2;
+    align-items: center;
+    flex-direction: row;
   }
 
   .allocation-remove {
