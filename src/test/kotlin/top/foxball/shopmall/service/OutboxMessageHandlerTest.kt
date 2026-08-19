@@ -17,7 +17,9 @@ import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.OutboxEventRepository
 import top.foxball.shopmall.service.impl.OutboxMessageHandler
 import top.foxball.shopmall.service.impl.ShipmentOutboxProcessor
+import top.foxball.shopmall.service.payMent.PaymentStatus
 import top.foxball.shopmall.service.payMent.stripe.StripeService
+import top.foxball.shopmall.service.payMent.stripe.StripeCheckoutSession
 import top.foxball.shopmall.shared.PaymentOperationBusyException
 import java.time.Clock
 import java.time.Instant
@@ -133,7 +135,7 @@ class OutboxMessageHandlerTest {
     }
 
     @Test
-    fun `paid outbox without a PaymentIntent remains retryable`() {
+    fun `paid outbox without a PaymentIntent sends confirmation without receipt and is acknowledged`() {
         val event = OutboxEvent(id = 10, status = OutboxEvent.Status.SENT)
         val order = OrderEntity(
             id = 23,
@@ -143,12 +145,45 @@ class OutboxMessageHandlerTest {
         `when`(repository.findById(10)).thenReturn(Optional.of(event))
         `when`(orderRepository.findById(23)).thenReturn(Optional.of(order))
 
-        assertFailsWith<IllegalArgumentException> {
-            handler.handle(10, "ORDER", 23, "PAID")
-        }
+        handler.handle(10, "ORDER", 23, "PAID")
 
-        assertEquals(OutboxEvent.Status.SENT, event.status)
-        assertEquals(null, event.acknowledgedAt)
+        verify(stripeService, never()).retrievePaymentReceiptUrl(org.mockito.ArgumentMatchers.anyString())
+        verify(orderMailService).sendPaymentConfirmation(23, null)
+        assertEquals(OutboxEvent.Status.ACKNOWLEDGED, event.status)
+        assertEquals(clock.instant(), event.acknowledgedAt)
+    }
+
+    @Test
+    fun `paid outbox resolves and stores PaymentIntent from Checkout Session`() {
+        val event = OutboxEvent(id = 12, status = OutboxEvent.Status.SENT)
+        val order = OrderEntity(
+            id = 25,
+            orderNo = "ORDER-25",
+            status = OrderStatus.PAID,
+            stripeCheckoutSessionId = "cs_order_25",
+        )
+        val receiptUrl = "https://pay.stripe.com/receipts/payment-25"
+        `when`(repository.findById(12)).thenReturn(Optional.of(event))
+        `when`(orderRepository.findById(25)).thenReturn(Optional.of(order))
+        `when`(stripeService.retrieveCheckoutSession("cs_order_25")).thenReturn(
+            StripeCheckoutSession(
+                id = "cs_order_25",
+                paymentIntentId = "pi_order_25",
+                url = null,
+                status = "complete",
+                expiresAt = null,
+                paymentStatus = "paid",
+                collectionStatus = PaymentStatus.SUCCEEDED,
+            ),
+        )
+        `when`(stripeService.retrievePaymentReceiptUrl("pi_order_25")).thenReturn(receiptUrl)
+
+        handler.handle(12, "ORDER", 25, "PAID")
+
+        verify(orderRepository).attachPaymentIntentToStripeCheckoutSession("cs_order_25", "pi_order_25")
+        verify(orderMailService).sendPaymentConfirmation(25, receiptUrl)
+        assertEquals(OutboxEvent.Status.ACKNOWLEDGED, event.status)
+        assertEquals(clock.instant(), event.acknowledgedAt)
     }
 
     @Test

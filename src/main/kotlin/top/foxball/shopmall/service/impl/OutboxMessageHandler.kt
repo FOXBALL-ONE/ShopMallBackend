@@ -41,12 +41,19 @@ class OutboxMessageHandler(
                     val order = orderRepository.findById(aggregateId).orElseThrow {
                         IllegalStateException("Cannot send payment confirmation for missing order $aggregateId")
                     }
-                    val paymentIntentId = requireNotNull(order.paymentIntentId) {
-                        "Paid order ${order.orderNo} has no Stripe PaymentIntent"
+                    val paymentIntentId = order.paymentIntentId ?: order.stripeCheckoutSessionId?.let { sessionId ->
+                        stripeService.retrieveCheckoutSession(sessionId).paymentIntentId?.also { resolvedPaymentIntentId ->
+                            transactions.executeWithoutResult {
+                                orderRepository.attachPaymentIntentToStripeCheckoutSession(
+                                    sessionId,
+                                    resolvedPaymentIntentId,
+                                )
+                            }
+                        }
                     }
                     orderMailService.sendPaymentConfirmation(
                         aggregateId,
-                        stripeService.retrievePaymentReceiptUrl(paymentIntentId),
+                        paymentIntentId?.let(stripeService::retrievePaymentReceiptUrl),
                     )
                 }
                 "PAYMENT_CANCEL_OR_REFUND" -> paymentService.reconcileCancellation(aggregateId)

@@ -38,16 +38,18 @@ class OrderMailServiceImpl(
         .bufferedReader(StandardCharsets.UTF_8)
         .use { it.readText() }
 
-    override fun sendPaymentConfirmation(orderId: Long, stripeReceiptUrl: String) {
-        val receiptUri = try {
-            URI(stripeReceiptUrl)
-        } catch (ex: Exception) {
-            throw IllegalArgumentException("Stripe receipt URL is invalid", ex)
-        }
-        require(
-            receiptUri.isAbsolute && receiptUri.host != null && receiptUri.scheme.equals("https", ignoreCase = true),
-        ) {
-            "Stripe receipt URL must be an absolute HTTPS URL"
+    override fun sendPaymentConfirmation(orderId: Long, stripeReceiptUrl: String?) {
+        if (stripeReceiptUrl != null) {
+            val receiptUri = try {
+                URI(stripeReceiptUrl)
+            } catch (ex: Exception) {
+                throw IllegalArgumentException("Stripe receipt URL is invalid", ex)
+            }
+            require(
+                receiptUri.isAbsolute && receiptUri.host != null && receiptUri.scheme.equals("https", ignoreCase = true),
+            ) {
+                "Stripe receipt URL must be an absolute HTTPS URL"
+            }
         }
         val order = orderRepository.findById(orderId).orElseThrow {
             IllegalStateException("Cannot send payment confirmation for missing order $orderId")
@@ -148,6 +150,15 @@ class OrderMailServiceImpl(
             """.trimIndent()
         }
         val ordersUrl = storefrontBaseUrl.trimEnd('/') + "/account/orders"
+        val receiptLink = stripeReceiptUrl?.let {
+            """
+            <tr>
+              <td style="padding-top:12px;">
+                <a href="${HtmlUtils.htmlEscape(it)}" target="_blank" rel="noopener noreferrer" style="font-family:Arial, sans-serif; font-size:12px; line-height:18px; color:#9a4055; text-decoration:underline;">View Stripe receipt&nbsp; ↗</a>
+              </td>
+            </tr>
+            """.trimIndent()
+        }.orEmpty()
         var html = paymentConfirmationTemplate
         mapOf(
             "{{customer_name}}" to HtmlUtils.htmlEscape(customerName),
@@ -163,7 +174,7 @@ class OrderMailServiceImpl(
             "{{shipping_address}}" to shippingAddressLines.joinToString("<br>") { HtmlUtils.htmlEscape(it) },
             "{{order_notes}}" to orderNotes,
             "{{orders_url}}" to HtmlUtils.htmlEscape(ordersUrl),
-            "{{stripe_receipt_url}}" to HtmlUtils.htmlEscape(stripeReceiptUrl),
+            "{{stripe_receipt_link}}" to receiptLink,
         ).forEach { (token, value) -> html = html.replace(token, value) }
         val text = buildString {
             appendLine("PELISSA payment received")
@@ -190,7 +201,7 @@ class OrderMailServiceImpl(
             }
             appendLine()
             appendLine("View your order: $ordersUrl")
-            appendLine("View Stripe receipt: $stripeReceiptUrl")
+            stripeReceiptUrl?.let { appendLine("View Stripe receipt: $it") }
         }
 
         try {

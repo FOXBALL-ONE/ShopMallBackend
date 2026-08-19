@@ -143,6 +143,48 @@ class OrderMailServiceImplTest {
         verify(orderRepository, never()).findById(7)
     }
 
+    @Test
+    fun `payment confirmation without a Stripe receipt omits receipt links`() {
+        val order = OrderEntity(
+            id = 8,
+            orderNo = "PS-20260819-001",
+            customerId = 13,
+            status = OrderStatus.PAID,
+            totalAmount = BigDecimal("0.00"),
+            currency = "USD",
+            shippingAddress = OrderShippingAddress(
+                name = "No Receipt",
+                phone = "+[REDACTED]",
+                country = "US",
+                city = "Seattle",
+                address1 = "1 Test Lane",
+            ),
+            paidAt = Instant.parse("2026-08-19T13:14:00Z"),
+        )
+        val customer = User(
+            id = 13,
+            email = "no-receipt@example.test",
+            username = "no-receipt",
+            password = "[REDACTED]",
+        )
+        val message = MimeMessage(Session.getInstance(Properties()))
+        `when`(orderRepository.findById(8)).thenReturn(Optional.of(order))
+        `when`(userRepository.findById(13)).thenReturn(Optional.of(customer))
+        `when`(orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(8)).thenReturn(emptyList())
+        `when`(mailSender.createMimeMessage()).thenReturn(message)
+
+        service.sendPaymentConfirmation(8, null)
+        message.saveChanges()
+
+        val parts = textParts(message.content)
+        val plaintext = parts.first { it.startsWith("PELISSA payment received") }
+        val html = parts.first { it.contains("<html") }
+        assertFalse(plaintext.contains("View Stripe receipt"))
+        assertFalse(html.contains("View Stripe receipt"))
+        assertFalse(html.contains("{{stripe_receipt_link}}"))
+        verify(mailSender).send(message)
+    }
+
     private fun textParts(content: Any?): List<String> = when (content) {
         is String -> listOf(content)
         is Multipart -> (0 until content.count).flatMap { index -> textParts(content.getBodyPart(index).content) }
