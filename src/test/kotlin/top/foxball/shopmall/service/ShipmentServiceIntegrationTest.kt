@@ -1,10 +1,8 @@
 package top.foxball.shopmall.service
 
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.transaction.annotation.Transactional
 import top.foxball.shopmall.entity.jdbc.CarrierCode
@@ -43,13 +41,7 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
     private val shipmentRepository: ShipmentRepository,
     private val shipmentItemRepository: ShipmentItemRepository,
     private val shipmentTrackRepository: ShipmentTrackRepository,
-    private val jdbcTemplate: JdbcTemplate,
 ) {
-    @BeforeEach
-    fun createShipmentSequence() {
-        jdbcTemplate.execute("CREATE SEQUENCE IF NOT EXISTS shipment_no_seq START WITH 1")
-    }
-
     @Test
     fun `manual shipment is replayed idempotently and dispatches the order`() {
         val fixture = createFixture("dispatch")
