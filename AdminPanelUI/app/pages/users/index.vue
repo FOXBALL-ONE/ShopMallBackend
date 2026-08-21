@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronsUpDown, Pencil, Plus, Trash2 } from '@lucide/vue'
+import { ChevronsUpDown, ImagePlus, Pencil, Plus, Trash2, X } from '@lucide/vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import type {
   AutoCompleteOption,
@@ -9,6 +9,7 @@ import type {
   FormInst,
   FormRules,
   TagProps,
+  UploadCustomRequestOptions,
 } from 'naive-ui'
 import { NButton, NTag, useMessage } from 'naive-ui'
 import type {
@@ -27,6 +28,7 @@ type EditorMode = 'create' | 'edit'
 type BatchAction = 'enable' | 'disable' | 'customer' | 'admin' | 'active' | 'inactive' | 'restore'
 
 const api = useUserApi()
+const productApi = useProductApi()
 const message = useMessage()
 const { confirmDeleteRequest } = useDeleteConfirmation()
 const { user: currentSession } = useHttp()
@@ -34,6 +36,7 @@ const { user: currentSession } = useHttp()
 const loading = ref(false)
 const editorLoading = ref(false)
 const saving = ref(false)
+const pendingAvatarUploads = ref(0)
 const batchLoading = ref(false)
 const deletingUserId = ref<number | null>(null)
 const users = ref<AdminUserListItem[]>([])
@@ -399,10 +402,30 @@ async function openEdit(row: AdminUserListItem) {
 }
 
 function closeEditor() {
-  if (saving.value) return
+  if (saving.value || pendingAvatarUploads.value > 0) return
   editorOpen.value = false
   editingUser.value = null
   resetForm()
+}
+
+async function uploadAvatar(options: UploadCustomRequestOptions) {
+  const file = options.file.file
+  if (!file) {
+    options.onError()
+    return
+  }
+  pendingAvatarUploads.value += 1
+  try {
+    const [uploaded] = await productApi.uploadImages([file])
+    if (!uploaded) throw new Error('上传响应缺少图片地址')
+    form.avatar = uploaded.stableUrl
+    options.onFinish()
+  } catch (error) {
+    message.error(`头像上传失败：${errorMessage(error)}`)
+    options.onError()
+  } finally {
+    pendingAvatarUploads.value -= 1
+  }
 }
 
 function changeFormStatus(status: AdminUserStatus) {
@@ -411,6 +434,10 @@ function changeFormStatus(status: AdminUserStatus) {
 }
 
 async function submitEditor() {
+  if (pendingAvatarUploads.value > 0) {
+    message.info('头像仍在上传，请稍候')
+    return
+  }
   try {
     await formRef.value?.validate()
   } catch {
@@ -831,8 +858,40 @@ onMounted(() => {
                   <template #suffix><ChevronsUpDown class="code-picker-icon" :size="15" /></template>
                 </NAutoComplete>
               </NFormItemGi>
-              <NFormItemGi label="头像 URL" :span="2">
-                <NInput v-model:value="form.avatar" maxlength="512" :disabled="saving" />
+              <NFormItemGi label="头像" :span="2">
+                <div class="avatar-upload-field">
+                  <NImage
+                    v-if="form.avatar"
+                    :src="form.avatar"
+                    width="64"
+                    height="64"
+                    object-fit="cover"
+                    preview-disabled
+                    class="avatar-preview"
+                  />
+                  <NUpload
+                    :show-file-list="false"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    :custom-request="uploadAvatar"
+                    :disabled="saving || editorLoading"
+                  >
+                    <NButton secondary :loading="pendingAvatarUploads > 0" :disabled="saving || editorLoading">
+                      <template #icon><ImagePlus :size="15" /></template>
+                      {{ form.avatar ? '更换头像' : '上传头像' }}
+                    </NButton>
+                  </NUpload>
+                  <NButton
+                    v-if="form.avatar"
+                    quaternary
+                    circle
+                    aria-label="移除头像"
+                    :disabled="saving || editorLoading || pendingAvatarUploads > 0"
+                    @click="form.avatar = ''"
+                  >
+                    <X :size="16" />
+                  </NButton>
+                  <small class="field-hint">支持 JPEG、PNG、WebP、GIF，单个文件不超过 100 MB；上传后自动保存为头像地址。</small>
+                </div>
               </NFormItemGi>
               <NFormItemGi label="角色">
                 <NSelect
@@ -874,8 +933,8 @@ onMounted(() => {
 
         <template #footer>
           <NSpace justify="end">
-            <NButton :disabled="saving" @click="closeEditor">取消</NButton>
-            <NButton type="primary" :loading="saving" :disabled="editorLoading" @click="submitEditor">
+            <NButton :disabled="saving || pendingAvatarUploads > 0" @click="closeEditor">取消</NButton>
+            <NButton type="primary" :loading="saving" :disabled="editorLoading || pendingAvatarUploads > 0" @click="submitEditor">
               {{ editorMode === 'create' ? '创建用户' : '保存修改' }}
             </NButton>
           </NSpace>
@@ -935,6 +994,20 @@ onMounted(() => {
 .field-with-hint {
   width: 100%;
   min-width: 0;
+}
+
+.avatar-upload-field {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+}
+
+.avatar-preview {
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid #e0e0e0;
 }
 
 .field-hint {
