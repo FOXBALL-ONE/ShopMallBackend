@@ -3,6 +3,7 @@ import { Megaphone, Plus, RefreshCw } from '@lucide/vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import type { DataTableColumns, FormInst, FormRules, TagProps } from 'naive-ui'
 import { NButton, NDatePicker, NTag, useMessage } from 'naive-ui'
+import AnnouncementAuditModal from '~/components/AnnouncementAuditModal.vue'
 import {
   ANNOUNCEMENT_AUTO_SHOW_MODE_OPTIONS,
   ANNOUNCEMENT_STATUS_OPTIONS,
@@ -122,10 +123,6 @@ function priorityTagType(priority: number): TagProps['type'] {
 function formatDate(value: string | null | undefined) {
   if (!value) return '-'
   return value.replace('T', ' ').slice(0, 19)
-}
-
-function operatorLabel(operatorId: number) {
-  return operatorId === 0 ? '系统' : `管理员 #${operatorId}`
 }
 
 function datetimeInputValue(value: string | null | undefined) {
@@ -374,7 +371,7 @@ onMounted(() => { void loadAnnouncements() })
       </NDrawerContent>
     </NDrawer>
     <NModal v-model:show="offlineOpen" preset="dialog" title="下线公告" positive-text="确认下线" negative-text="取消" :positive-button-props="{ loading: saving }" @positive-click="offline"><NText>下线后公告会立即从当前公告和主动展示候选中移除。</NText><NInput v-model:value="offlineReason" type="textarea" maxlength="255" show-count placeholder="请填写下线原因" style="margin-top: 14px" /></NModal>
-    <NModal v-model:show="auditOpen" preset="card" :title="auditTarget ? `公告 #${auditTarget.id} 的审计记录` : '审计记录'" class="audit-modal"><NSpin :show="auditLoading"><NEmpty v-if="!auditLoading && auditItems.length === 0" description="暂无审计记录" /><NList v-else bordered><NListItem v-for="item in auditItems" :key="item.id"><NThing><template #header>{{ item.action }} · {{ operatorLabel(item.operator_id) }}</template><template #description>{{ formatDate(item.created_at) }}{{ item.reason ? ` · ${item.reason}` : '' }}</template><NCode :code="item.after_snapshot" language="json" word-wrap /></NThing></NListItem></NList></NSpin></NModal>
+    <AnnouncementAuditModal v-model:show="auditOpen" :announcement="auditTarget" :items="auditItems" :loading="auditLoading" />
   </div>
 </template>
 
@@ -392,6 +389,5 @@ onMounted(() => { void loadAnnouncements() })
 .time-alert { margin-bottom: 14px; }
 .datetime-field { width: 100%; }
 .field-hint { display: block; margin-top: 6px; font-size: 12px; line-height: 1.5; }
-.audit-modal { width: min(820px, calc(100vw - 30px)); max-height: calc(100vh - 44px); overflow: auto; }
 @media (max-width: 700px) { .page-heading, .table-footer { align-items: stretch; flex-direction: column; } }
 </style>
