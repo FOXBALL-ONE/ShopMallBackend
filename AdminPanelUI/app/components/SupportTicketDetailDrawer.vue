@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { TagProps, UploadFileInfo } from 'naive-ui'
 import { useDialog, useMessage } from 'naive-ui'
+import { RefreshCw } from '@lucide/vue'
 import {
   SUPPORT_TICKET_PRIORITY_OPTIONS,
   SUPPORT_TICKET_STATUS_OPTIONS,
@@ -233,6 +234,17 @@ watch([open, () => props.ticketId], ([visible, ticketId]) => {
             <NCard size="small" title="基本信息">
               <template #header-extra>
                 <NSpace size="small">
+                  <NButton
+                    size="small"
+                    quaternary
+                    :loading="loading"
+                    :disabled="saving || sending"
+                    aria-label="刷新当前工单详情"
+                    @click="loadDetail(messagePage)"
+                  >
+                    <template #icon><RefreshCw :size="16" /></template>
+                    刷新
+                  </NButton>
                   <NTag :type="priorityTagType(detail.priority)" size="small">
                     {{ priorityLabel(detail.priority) }}优先级
                   </NTag>
