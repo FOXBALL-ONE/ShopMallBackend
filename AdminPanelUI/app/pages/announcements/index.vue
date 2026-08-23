@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Megaphone, Plus, RefreshCw } from '@lucide/vue'
+import { Megaphone, Plus, RefreshCw, Trash2 } from '@lucide/vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import type { DataTableColumns, FormInst, FormRules, TagProps } from 'naive-ui'
+import type { DataTableColumns, DataTableRowKey, FormInst, FormRules, TagProps } from 'naive-ui'
 import { NButton, NDatePicker, NTag, useMessage } from 'naive-ui'
 import AnnouncementAuditModal from '~/components/AnnouncementAuditModal.vue'
 import {
@@ -24,11 +24,13 @@ definePageMeta({ layout: 'default' })
 
 const api = useAnnouncementApi()
 const message = useMessage()
+const { confirmDeleteRequest } = useDeleteConfirmation()
 const runtimeConfig = useRuntimeConfig()
 const announcementTimeZone = runtimeConfig.public.announcementTimeZone as string
 const formRef = ref<FormInst | null>(null)
 const loading = ref(false)
 const saving = ref(false)
+const deleting = ref(false)
 const editorOpen = ref(false)
 const auditOpen = ref(false)
 const offlineOpen = ref(false)
@@ -39,6 +41,7 @@ const auditLoading = ref(false)
 const offlineTarget = ref<AdminAnnouncementListItem | null>(null)
 const offlineReason = ref('')
 const announcements = ref<AdminAnnouncementListItem[]>([])
+const checkedRowKeys = ref<DataTableRowKey[]>([])
 
 const filters = reactive({
   keyword: '',
@@ -85,6 +88,7 @@ const editorTitle = computed(() => editing.value ? `编辑公告 #${editing.valu
 const activeCount = computed(() => announcements.value.filter(item => item.status === 'PUBLISHED').length)
 const autoShowCount = computed(() => announcements.value.filter(item => item.auto_show_enabled).length)
 const cooldownRequired = computed(() => form.autoShowEnabled && form.autoShowMode === 'COOLDOWN')
+const selectedAnnouncementIds = computed(() => checkedRowKeys.value.map(Number).filter(Number.isInteger))
 
 function errorMessage(error: unknown) {
   if (error && typeof error === 'object') {
@@ -168,6 +172,7 @@ async function loadAnnouncements(showSuccess = false) {
     pagination.page = data.page + 1
     pagination.pageCount = Math.max(data.total_pages, 1)
     pagination.total = data.total_elements
+    checkedRowKeys.value = []
     if (showSuccess) message.success('已刷新公告列表')
   } catch (error) {
     announcements.value = []
@@ -182,6 +187,53 @@ async function resetFilters() {
 }
 async function changePage(page: number) { pagination.page = page; await loadAnnouncements() }
 async function changePageSize(size: number) { pagination.pageSize = size; pagination.page = 1; await loadAnnouncements() }
+
+function confirmDelete(row: AdminAnnouncementListItem) {
+  confirmDeleteRequest({
+    title: '删除公告',
+    content: `确认删除“${row.title}”？删除后公告将从管理列表和客户可见内容中移除，且不能恢复。`,
+    positiveText: '删除',
+    tone: 'error',
+    onConfirm: async () => {
+      deleting.value = true
+      try {
+        await api.deleteOne(row.id)
+        message.success(`公告“${row.title}”已删除`)
+        await loadAnnouncements()
+      } catch (error) {
+        message.error(`删除公告失败：${errorMessage(error)}`)
+      } finally {
+        deleting.value = false
+      }
+    },
+  })
+}
+
+function confirmBatchDelete() {
+  const ids = selectedAnnouncementIds.value
+  if (ids.length === 0) {
+    message.info('请先选择要删除的公告')
+    return
+  }
+  confirmDeleteRequest({
+    title: '批量删除公告',
+    content: `确认删除选中的 ${ids.length} 条公告？删除后公告将从管理列表和客户可见内容中移除，且不能恢复。`,
+    positiveText: '批量删除',
+    tone: 'error',
+    onConfirm: async () => {
+      deleting.value = true
+      try {
+        const result = await api.deleteBatch(ids)
+        message.success(`已删除 ${result.deleted} 条公告`)
+        await loadAnnouncements()
+      } catch (error) {
+        message.error(`批量删除公告失败：${errorMessage(error)}`)
+      } finally {
+        deleting.value = false
+      }
+    },
+  })
+}
 
 function openCreate() { editing.value = null; resetForm(); editorOpen.value = true }
 async function openEdit(row: AdminAnnouncementListItem) {
@@ -244,6 +296,7 @@ async function openAudit(row: AdminAnnouncementListItem) {
 }
 
 const columns: DataTableColumns<AdminAnnouncementListItem> = [
+  { type: 'selection' },
   { title: '公告', key: 'title', minWidth: 220, render: row => h('div', { class: 'title-cell' }, [h('strong', row.title), h('span', row.summary)]) },
   { title: '状态', key: 'status', width: 100, render: row => h(NTag, { size: 'small', type: statusTagType(row.status), bordered: false }, { default: () => statusLabel(row.status) }) },
   { title: '类型 / 优先级', key: 'priority', width: 150, render: row => h('div', { class: 'priority-cell' }, [h('span', typeLabel(row.type)), h(NTag, { size: 'small', type: priorityTagType(row.priority), bordered: false }, { default: () => String(row.priority) })]) },
@@ -257,6 +310,7 @@ const columns: DataTableColumns<AdminAnnouncementListItem> = [
     row.status !== 'ARCHIVED' ? h(NButton, { size: 'small', tertiary: true, onClick: () => void archive(row) }, { default: () => '归档' }) : null,
     h(NButton, { size: 'small', tertiary: true, onClick: () => void copyAnnouncement(row) }, { default: () => '复制' }),
     h(NButton, { size: 'small', tertiary: true, onClick: () => void openAudit(row) }, { default: () => '审计' }),
+    h(NButton, { size: 'small', tertiary: true, type: 'error', disabled: deleting.value, onClick: () => confirmDelete(row) }, { default: () => [h(Trash2, { size: 14 }), '删除'] }),
   ]) },
 ]
 
@@ -284,7 +338,38 @@ onMounted(() => { void loadAnnouncements() })
           <NFormItemGi label="筛选"><NSpace><NButton type="primary" @click="search">查询</NButton><NButton @click="resetFilters">重置</NButton></NSpace></NFormItemGi>
         </NGrid>
       </NCard>
-      <NCard size="small" :bordered="false" content-style="padding: 0"><NDataTable :columns="columns" :data="announcements" :loading="loading" :scroll-x="1300" :single-line="false" /><div class="table-footer"><NText depth="3">共 {{ pagination.total }} 条公告</NText><NPagination v-model:page="pagination.page" :page-count="pagination.pageCount" :page-size="pagination.pageSize" show-size-picker :page-sizes="[10, 25, 50, 100]" @update:page="changePage" @update:page-size="changePageSize" /></div></NCard>
+      <NCard size="small" :bordered="false" content-style="padding: 0">
+        <template #header>
+          <div class="table-header">
+            <NSpace align="center">
+              <span>公告列表</span>
+              <NText v-if="checkedRowKeys.length" depth="3">已选 {{ checkedRowKeys.length }} 项</NText>
+            </NSpace>
+            <NButton
+              size="small"
+              type="error"
+              ghost
+              :disabled="selectedAnnouncementIds.length === 0 || deleting"
+              :loading="deleting"
+              @click="confirmBatchDelete"
+            >
+              <template #icon><Trash2 :size="15" /></template>
+              批量删除
+            </NButton>
+          </div>
+        </template>
+        <NDataTable
+          :columns="columns"
+          :data="announcements"
+          :loading="loading || deleting"
+          :row-key="row => row.id"
+          :scroll-x="1400"
+          :single-line="false"
+          :checked-row-keys="checkedRowKeys"
+          @update:checked-row-keys="keys => checkedRowKeys = keys"
+        />
+        <div class="table-footer"><NText depth="3">共 {{ pagination.total }} 条公告</NText><NPagination v-model:page="pagination.page" :page-count="pagination.pageCount" :page-size="pagination.pageSize" show-size-picker :page-sizes="[10, 25, 50, 100]" @update:page="changePage" @update:page-size="changePageSize" /></div>
+      </NCard>
     </NSpace>
 
     <NDrawer
@@ -385,6 +470,7 @@ onMounted(() => { void loadAnnouncements() })
 .title-cell span, .auto-show-cell span, .date-cell { color: rgba(0, 0, 0, .58); font-size: 12px; }
 .priority-cell { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .table-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.table-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid rgba(0, 0, 0, .07); }
 .time-alert { margin-bottom: 14px; }
 .datetime-field { width: 100%; }

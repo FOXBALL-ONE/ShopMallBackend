@@ -1387,6 +1387,7 @@ class MockDataInitializer(
                         AnnouncementAuditLog.Action.OFFLINE,
                         -> "PUBLISHED"
                         AnnouncementAuditLog.Action.ARCHIVED -> "EXPIRED"
+                        AnnouncementAuditLog.Action.DELETED -> "ARCHIVED"
                         AnnouncementAuditLog.Action.COPIED -> "DRAFT"
                     }
                     AnnouncementAuditLog(
@@ -1405,6 +1406,7 @@ class MockDataInitializer(
                             AnnouncementAuditLog.Action.SYSTEM_EXPIRED -> "到达结束时间，系统自动过期"
                             AnnouncementAuditLog.Action.OFFLINE -> "运营人员下线公告"
                             AnnouncementAuditLog.Action.ARCHIVED -> "归档历史公告"
+                            AnnouncementAuditLog.Action.DELETED -> "删除公告"
                             AnnouncementAuditLog.Action.COPIED -> "从已有公告复制"
                         },
                     )

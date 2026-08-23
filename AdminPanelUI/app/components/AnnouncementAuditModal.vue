@@ -36,6 +36,7 @@ const AUDIT_ACTION_LABELS: Record<AnnouncementAuditLog['action'], string> = {
   SYSTEM_EXPIRED: '系统自动过期',
   OFFLINE: '下线公告',
   ARCHIVED: '归档公告',
+  DELETED: '删除公告',
   COPIED: '复制公告',
 }
 const AUDIT_SNAPSHOT_FIELDS: AuditSnapshotField[] = [

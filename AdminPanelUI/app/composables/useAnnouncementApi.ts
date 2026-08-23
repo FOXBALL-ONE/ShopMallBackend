@@ -1,6 +1,8 @@
 import type {
   AdminAnnouncementDetail,
   AnnouncementAuditLogResponse,
+  AnnouncementBatchDeleteResponse,
+  AnnouncementDeleteResponse,
   AnnouncementFormInput,
   AnnouncementListQuery,
   AnnouncementListResponse,
@@ -33,7 +35,7 @@ export const ANNOUNCEMENT_AUTO_SHOW_MODE_OPTIONS = [
 export const useAnnouncementApi = () => {
   const runtimeConfig = useRuntimeConfig()
   const adminApiBase = (runtimeConfig.public.adminApiBase as string) || 'http://127.0.0.1:8080/admin/api'
-  const { get, post, put } = useHttp(adminApiBase)
+  const { get, post, put, delete: remove } = useHttp(adminApiBase)
 
   function formData(input: AnnouncementFormInput, expectedVersion?: number) {
     const data = new FormData()
@@ -83,6 +85,12 @@ export const useAnnouncementApi = () => {
         expected_version: expectedVersion,
         public_history: publicHistory,
       })
+    },
+    deleteOne(id: number) {
+      return remove<AnnouncementDeleteResponse>(`/announcements/${id}`)
+    },
+    deleteBatch(ids: number[]) {
+      return remove<AnnouncementBatchDeleteResponse>('/announcements/batch', { ids })
     },
     copy(id: number, expectedVersion: number) {
       return post<AnnouncementMutationResponse>(`/announcements/${id}/copy`, { expected_version: expectedVersion })

@@ -60,6 +60,7 @@ class AnnouncementAuditLog(
         SYSTEM_EXPIRED,
         OFFLINE,
         ARCHIVED,
+        DELETED,
         COPIED,
     }
 }

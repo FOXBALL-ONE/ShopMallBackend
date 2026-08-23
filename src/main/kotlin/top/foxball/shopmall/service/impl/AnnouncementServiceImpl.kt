@@ -260,6 +260,42 @@ class AnnouncementServiceImpl(
     }
 
     @Transactional
+    override fun delete(adminId: Long, announcementId: Long): Announcement? {
+        adminAccessService.requireAdmin(adminId)
+        val announcement = announcementRepository.findById(announcementId).orElse(null) ?: return null
+        val before = snapshot(announcement)
+        announcementUserStateRepository.deleteAllByAnnouncementIdIn(listOf(announcementId))
+        announcementRepository.delete(announcement)
+        announcementRepository.flush()
+        appendAudit(announcement, adminId, AnnouncementAuditLog.Action.DELETED, before, before, "管理员删除公告")
+        return announcement
+    }
+
+    @Transactional
+    override fun deleteBatch(adminId: Long, announcementIds: Collection<Long>): List<Long>? {
+        adminAccessService.requireAdmin(adminId)
+        val ids = announcementIds.distinct().sorted()
+        val announcements = announcementRepository.findAllById(ids)
+        if (announcements.size != ids.size) return null
+        val snapshots = announcements.associateBy({ requireNotNull(it.id) }, ::snapshot)
+        announcementUserStateRepository.deleteAllByAnnouncementIdIn(ids)
+        announcementRepository.deleteAll(announcements)
+        announcementRepository.flush()
+        announcements.forEach { announcement ->
+            val id = requireNotNull(announcement.id)
+            appendAudit(
+                announcement,
+                adminId,
+                AnnouncementAuditLog.Action.DELETED,
+                snapshots.getValue(id),
+                snapshots.getValue(id),
+                "管理员批量删除公告",
+            )
+        }
+        return ids
+    }
+
+    @Transactional
     override fun copy(adminId: Long, announcementId: Long, expectedVersion: Long): Announcement? {
         adminAccessService.requireAdmin(adminId)
         val source = announcementRepository.findById(announcementId).orElse(null) ?: return null

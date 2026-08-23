@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
@@ -487,6 +488,38 @@ class AdminAnnouncementController(
             publicHistory = announcement.publicHistory,
             archivedAt = announcement.archivedAt,
         )
+        return builder.ok().data(rs).build()
+    }
+
+    @DeleteMapping("/{id}")
+    fun deleteAnnouncement(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("id") id: Long,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            val status: String,
+        )
+
+        val announcement = announcementService.delete(adminId, id)
+            ?: return builder.notFound().message("公告不存在").build()
+        val rs = Response(requireNotNull(announcement.id), "DELETED")
+        return builder.ok().data(rs).build()
+    }
+
+    @DeleteMapping("/batch")
+    fun deleteAnnouncements(
+        @AuthenticationPrincipal adminId: Long,
+        @RequestParam("ids") @Size(min = 1, max = 100) ids: Set<Long>,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val ids: List<Long>,
+            val deleted: Int,
+        )
+
+        val deletedIds = announcementService.deleteBatch(adminId, ids)
+            ?: return builder.notFound().message("部分公告不存在").build()
+        val rs = Response(deletedIds, deletedIds.size)
         return builder.ok().data(rs).build()
     }
 

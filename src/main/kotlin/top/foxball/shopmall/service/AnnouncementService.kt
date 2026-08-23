@@ -99,6 +99,10 @@ interface AnnouncementService {
         publicHistory: Boolean,
     ): Announcement?
 
+    fun delete(adminId: Long, announcementId: Long): Announcement?
+
+    fun deleteBatch(adminId: Long, announcementIds: Collection<Long>): List<Long>?
+
     fun copy(adminId: Long, announcementId: Long, expectedVersion: Long): Announcement?
 
     fun auditLogs(adminId: Long, announcementId: Long, page: Int, size: Int): Page<AnnouncementAuditLog>?

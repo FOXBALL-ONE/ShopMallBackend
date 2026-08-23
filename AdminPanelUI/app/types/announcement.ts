@@ -85,11 +85,21 @@ export interface AnnouncementMutationResponse {
   updated_at?: string | null
 }
 
+export interface AnnouncementDeleteResponse {
+  id: number
+  status: 'DELETED'
+}
+
+export interface AnnouncementBatchDeleteResponse {
+  ids: number[]
+  deleted: number
+}
+
 export interface AnnouncementAuditLog {
   id: number
   announcement_id: number
   operator_id: number
-  action: 'CREATED' | 'UPDATED' | 'PUBLISHED' | 'SYSTEM_PUBLISHED' | 'SYSTEM_EXPIRED' | 'OFFLINE' | 'ARCHIVED' | 'COPIED'
+  action: 'CREATED' | 'UPDATED' | 'PUBLISHED' | 'SYSTEM_PUBLISHED' | 'SYSTEM_EXPIRED' | 'OFFLINE' | 'ARCHIVED' | 'DELETED' | 'COPIED'
   before_snapshot: string | null
   after_snapshot: string
   reason: string | null
