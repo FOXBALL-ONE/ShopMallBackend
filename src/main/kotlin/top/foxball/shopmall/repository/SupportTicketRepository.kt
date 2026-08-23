@@ -4,6 +4,7 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.EntityGraph
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import top.foxball.shopmall.entity.jdbc.SupportServiceType
@@ -12,6 +13,20 @@ import top.foxball.shopmall.entity.jdbc.SupportTicketPriority
 import top.foxball.shopmall.entity.jdbc.SupportTicketStatus
 
 interface SupportTicketRepository : JpaRepository<SupportTicket, Long> {
+    @Query("select t.id from SupportTicket t where t.customerId in :customerIds order by t.id")
+    fun findIdsByCustomerIdIn(@Param("customerIds") customerIds: Collection<Long>): List<Long>
+
+    @Query("select t.id from SupportTicket t where t.order.id in :orderIds order by t.id")
+    fun findIdsByOrderIdIn(@Param("orderIds") orderIds: Collection<Long>): List<Long>
+
+    @Modifying(flushAutomatically = true)
+    @Query("update SupportTicket t set t.handledBy = null where t.handledBy in :userIds")
+    fun clearHandledByIn(@Param("userIds") userIds: Collection<Long>): Int
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from SupportTicket t where t.id in :ticketIds")
+    fun deleteAllByIdIn(@Param("ticketIds") ticketIds: Collection<Long>): Int
+
     fun countByStatus(status: SupportTicketStatus): Long
 
     fun countByPriorityAndStatusIn(
@@ -60,5 +75,4 @@ interface SupportTicketRepository : JpaRepository<SupportTicket, Long> {
         pageable: Pageable,
     ): Page<SupportTicket>
 }
-
 

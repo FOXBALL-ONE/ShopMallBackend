@@ -28,6 +28,7 @@ import top.foxball.shopmall.logistics.Carrier
 import top.foxball.shopmall.logistics.CarrierRegistry
 import top.foxball.shopmall.logistics.TrackingEvent
 import top.foxball.shopmall.repository.FulfillmentQueryRepository
+import top.foxball.shopmall.repository.LogisticsIdempotencyRepository
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ShipmentItemRepository
@@ -53,6 +54,7 @@ class ShipmentServiceImpl(
     private val shipmentRepository: ShipmentRepository,
     private val shipmentItemRepository: ShipmentItemRepository,
     private val shipmentTrackRepository: ShipmentTrackRepository,
+    private val logisticsIdempotencyRepository: LogisticsIdempotencyRepository,
     private val fulfillmentQueryRepository: FulfillmentQueryRepository,
     private val carrierRegistry: CarrierRegistry,
     private val adminAccessService: AdminAccessService,
@@ -323,6 +325,7 @@ class ShipmentServiceImpl(
         val shipmentId = requireNotNull(shipment.id)
         shipmentTrackRepository.deleteAllByShipmentId(shipmentId)
         shipmentItemRepository.deleteAllByShipmentId(shipmentId)
+        logisticsIdempotencyRepository.deleteAllByShipmentId(shipmentId)
         entityManager.clear()
         if (shipmentRepository.deleteByIdAndStatus(shipmentId, ShipmentStatus.DELETED) != 1) {
             throw ShipmentStatusException("只有已逻辑删除的运单才能永久删除")
@@ -399,16 +402,19 @@ class ShipmentServiceImpl(
         val requestHash = idempotencyService.requestHash("$shipmentNo|${note.orEmpty()}")
         val identity = shipmentRepository.findByShipmentNo(shipmentNo) ?: throw ShipmentNotFoundException()
         val order = orderRepository.lockById(identity.orderId) ?: throw OrderNotFoundException()
-        replay(adminId, DISPATCH_SHIPMENT, idempotencyKey, requestHash)?.let {
-            val replayed = shipmentRepository.findById(it).orElse(null) ?: throw ShipmentNotFoundException()
+        val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id))
+            ?: throw ShipmentNotFoundException()
+        requireMutableShipment(shipment)
+        if (replay(adminId, DISPATCH_SHIPMENT, idempotencyKey, requestHash) != null) {
+            val shipmentId = requireNotNull(shipment.id)
             return ShipmentDetails(
-                shipment = replayed,
+                shipment = shipment,
                 orderNo = order.orderNo,
-                items = shipmentItemRepository.findAllByShipment_IdOrderById(it),
-                tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(it),
+                items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+                tracks = shipmentTrackRepository
+                    .findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
             )
         }
-        val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id)) ?: throw ShipmentNotFoundException()
         note?.let { shipment.note = it }
         ensureDispatchedLocked(order, shipment, clock.instant())
         val shipmentId = requireNotNull(shipment.id)
@@ -437,16 +443,19 @@ class ShipmentServiceImpl(
         val requestHash = idempotencyService.requestHash("$shipmentNo|$reason")
         val identity = shipmentRepository.findByShipmentNo(shipmentNo) ?: throw ShipmentNotFoundException()
         val order = orderRepository.lockById(identity.orderId) ?: throw OrderNotFoundException()
-        replay(adminId, CANCEL_SHIPMENT, idempotencyKey, requestHash)?.let {
-            val replayed = shipmentRepository.findById(it).orElse(null) ?: throw ShipmentNotFoundException()
+        val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id))
+            ?: throw ShipmentNotFoundException()
+        requireMutableShipment(shipment)
+        if (replay(adminId, CANCEL_SHIPMENT, idempotencyKey, requestHash) != null) {
+            val shipmentId = requireNotNull(shipment.id)
             return ShipmentDetails(
-                shipment = replayed,
+                shipment = shipment,
                 orderNo = order.orderNo,
-                items = shipmentItemRepository.findAllByShipment_IdOrderById(it),
-                tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(it),
+                items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+                tracks = shipmentTrackRepository
+                    .findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
             )
         }
-        val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id)) ?: throw ShipmentNotFoundException()
         if (shipment.status !in setOf(ShipmentStatus.LABEL_PENDING, ShipmentStatus.LABEL_CREATED)) {
             throw ShipmentStatusException("只有未发出的运单可以取消")
         }
@@ -511,16 +520,19 @@ class ShipmentServiceImpl(
         val requestHash = idempotencyService.requestHash("$shipmentNo|${occurredAt ?: ""}|$reason")
         val identity = shipmentRepository.findByShipmentNo(shipmentNo) ?: throw ShipmentNotFoundException()
         val order = orderRepository.lockById(identity.orderId) ?: throw OrderNotFoundException()
-        replay(adminId, DELIVER_SHIPMENT, idempotencyKey, requestHash)?.let {
-            val replayed = shipmentRepository.findById(it).orElse(null) ?: throw ShipmentNotFoundException()
+        val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id))
+            ?: throw ShipmentNotFoundException()
+        requireMutableShipment(shipment)
+        if (replay(adminId, DELIVER_SHIPMENT, idempotencyKey, requestHash) != null) {
+            val shipmentId = requireNotNull(shipment.id)
             return ShipmentDetails(
-                shipment = replayed,
+                shipment = shipment,
                 orderNo = order.orderNo,
-                items = shipmentItemRepository.findAllByShipment_IdOrderById(it),
-                tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(it),
+                items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+                tracks = shipmentTrackRepository
+                    .findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
             )
         }
-        val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id)) ?: throw ShipmentNotFoundException()
         if (shipment.carrierCode != CarrierCode.MANUAL) {
             throw ShipmentStatusException("该入口仅支持 MANUAL 运单签收")
         }
@@ -590,6 +602,14 @@ class ShipmentServiceImpl(
             return
         }
         val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(shipmentIdentity.id)) ?: return
+        if (shipment.status == ShipmentStatus.DELETED) {
+            logger.warn(
+                "Ignoring tracking event {} for logically deleted shipment {}",
+                event.carrierEventId,
+                shipment.shipmentNo,
+            )
+            return
+        }
         applyTrackingEventLocked(order, shipment, event, source)
     }
 
@@ -605,6 +625,7 @@ class ShipmentServiceImpl(
         event: TrackingEvent,
         source: TrackSource,
     ) {
+        requireMutableShipment(shipment)
         val shipmentId = requireNotNull(shipment.id)
         val inserted = shipmentTrackRepository.insertOnConflictDoNothing(shipmentId, event, source)
         if (!inserted) return
@@ -664,6 +685,7 @@ class ShipmentServiceImpl(
     }
 
     private fun ensureDispatchedLocked(order: OrderEntity, shipment: Shipment, occurredAt: Instant): Shipment {
+        requireMutableShipment(shipment)
         val shipmentId = requireNotNull(shipment.id)
         if (shipment.status == ShipmentStatus.LABEL_CREATED) {
             // 条件 UPDATE 只接受 LABEL_CREATED → IN_TRANSIT，重复在途事件返回 0 行。
@@ -762,6 +784,12 @@ class ShipmentServiceImpl(
             ) == 1
         ) {
             eventPublisher.publishInTx("ORDER", orderId, "DELIVERED", "{\"orderId\":$orderId}")
+        }
+    }
+
+    private fun requireMutableShipment(shipment: Shipment) {
+        if (shipment.status == ShipmentStatus.DELETED) {
+            throw ShipmentStatusException("已逻辑删除的运单不能再变更状态")
         }
     }
 

@@ -49,9 +49,15 @@ interface UserService {
     /** 删除用户拥有的配送地址；用户不存在时返回 `null`。 */
     fun deleteDeliveryAddress(userId: Long, addressId: UUID): Boolean?
 
-    /** 删除单个用户并撤销其会话；用户不存在时返回 `false`。 */
+    /** 逻辑删除单个用户并撤销其会话；用户不存在时返回 `false`。 */
     fun deleteUserById(id: Long): Boolean
 
-    /** 批量删除用户并撤销相关会话。 */
+    /** 批量逻辑删除用户并撤销相关会话。 */
     fun deleteUsersByIds(ids: List<Long>): Boolean
+
+    /** 物理删除单个已逻辑删除用户及其关联数据；用户不存在时返回 `false`。 */
+    fun purgeUserById(id: Long): Boolean
+
+    /** 批量物理删除已逻辑删除用户及其关联数据。 */
+    fun purgeUsersByIds(ids: List<Long>): Boolean
 }

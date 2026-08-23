@@ -18,6 +18,9 @@ import top.foxball.shopmall.entity.jdbc.ShipmentTrack
 import top.foxball.shopmall.entity.jdbc.TrackSource
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.handler.ForbiddenException
+import top.foxball.shopmall.handler.ShipmentStatusException
+import top.foxball.shopmall.logistics.TrackingEvent
+import top.foxball.shopmall.repository.LogisticsIdempotencyRepository
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.ShipmentRepository
@@ -29,6 +32,7 @@ import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -41,6 +45,7 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
     private val shipmentRepository: ShipmentRepository,
     private val shipmentItemRepository: ShipmentItemRepository,
     private val shipmentTrackRepository: ShipmentTrackRepository,
+    private val logisticsIdempotencyRepository: LogisticsIdempotencyRepository,
 ) {
     @Test
     fun `manual shipment is replayed idempotently and dispatches the order`() {
@@ -156,6 +161,86 @@ class ShipmentServiceIntegrationTest @Autowired constructor(
         assertFalse(shipmentRepository.existsById(shipmentId))
         assertEquals(emptyList(), shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId))
         assertEquals(emptyList(), shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId))
+        assertNull(
+            logisticsIdempotencyRepository.findByActorIdAndOperationAndIdempotencyKey(
+                fixture.adminId,
+                "CREATE_SHIPMENT",
+                "create-delete",
+            ),
+        )
+    }
+
+    @Test
+    fun `logically deleted shipment rejects status changes including idempotent cancel replay`() {
+        val fixture = createFixture("deleted-status-guard")
+        val created = shipmentService.createShipment(
+            orderNo = fixture.orderNo,
+            carrierCode = CarrierCode.MANUAL,
+            trackingNo = "TRACK-DELETED-STATUS-GUARD",
+            orderItemIds = listOf(fixture.orderItemId),
+            quantities = listOf(1),
+            note = null,
+            adminId = fixture.adminId,
+            idempotencyKey = "create-deleted-status-guard",
+        )
+        shipmentService.cancelShipment(
+            shipmentNo = created.shipment.shipmentNo,
+            reason = "cancel before deletion",
+            adminId = fixture.adminId,
+            idempotencyKey = "cancel-before-deletion",
+        )
+        shipmentService.deleteShipment(created.shipment.shipmentNo, fixture.adminId)
+        shipmentService.handleTrackingEvent(
+            CarrierCode.MANUAL,
+            TrackingEvent(
+                trackingNo = "TRACK-DELETED-STATUS-GUARD",
+                carrierEventId = "deleted-status-guard-event",
+                statusCode = "IN_TRANSIT",
+                normalizedStatus = NormalizedTrackingStatus.IN_TRANSIT,
+                location = "warehouse",
+                description = "must be ignored",
+                occurredAt = Instant.parse("2026-08-20T12:00:00Z"),
+                raw = null,
+            ),
+            TrackSource.WEBHOOK,
+        )
+
+        val replayError = assertFailsWith<ShipmentStatusException> {
+            shipmentService.cancelShipment(
+                shipmentNo = created.shipment.shipmentNo,
+                reason = "cancel before deletion",
+                adminId = fixture.adminId,
+                idempotencyKey = "cancel-before-deletion",
+            )
+        }
+        assertEquals("已逻辑删除的运单不能再变更状态", replayError.message)
+        assertFailsWith<ShipmentStatusException> {
+            shipmentService.dispatchShipment(
+                shipmentNo = created.shipment.shipmentNo,
+                note = null,
+                adminId = fixture.adminId,
+                idempotencyKey = "dispatch-after-deletion",
+            )
+        }
+        assertFailsWith<ShipmentStatusException> {
+            shipmentService.markManualDelivered(
+                shipmentNo = created.shipment.shipmentNo,
+                occurredAt = null,
+                reason = "deliver after deletion",
+                adminId = fixture.adminId,
+                idempotencyKey = "deliver-after-deletion",
+            )
+        }
+        assertEquals(
+            ShipmentStatus.DELETED,
+            shipmentRepository.findById(requireNotNull(created.shipment.id)).get().status,
+        )
+        assertEquals(
+            emptyList(),
+            shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(
+                requireNotNull(created.shipment.id),
+            ),
+        )
     }
 
     @Test

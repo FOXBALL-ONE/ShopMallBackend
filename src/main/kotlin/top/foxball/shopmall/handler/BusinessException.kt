@@ -26,6 +26,10 @@ class UserDisabledException(
     message: String = "用户被禁用"
 ) : BusinessException(HttpStatus.FORBIDDEN, message)
 
+class UserStatusException(
+    message: String = "用户状态不允许此操作"
+) : BusinessException(HttpStatus.CONFLICT, message)
+
 class UnauthorizedException(
     message: String = "未授权"
 ) : BusinessException(HttpStatus.UNAUTHORIZED, message)

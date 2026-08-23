@@ -15,6 +15,7 @@ import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.ParamErrorException
+import top.foxball.shopmall.handler.UserStatusException
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.impl.AdminUserServiceImpl
 import java.util.Optional
@@ -142,16 +143,78 @@ class AdminUserServiceImplTest {
     }
 
     @Test
-    fun `delete is logical and revokes access through user update`() {
-        val customer = User(id = 7, username = "alice", status = Status.ACTIVE, enabled = true)
+    fun `regular update cannot directly mark an active user as deleted`() {
+        val customer = User(id = 7, email = "[REDACTED]", username = "alice", status = Status.ACTIVE)
         `when`(userRepository.findById(7)).thenReturn(Optional.of(customer))
-        `when`(userService.updateUser(customer)).thenReturn(customer)
+
+        assertThrows<UserStatusException> {
+            service.update(
+                99,
+                7,
+                UpdateAdminUserCommand(
+                    email = customer.email,
+                    username = customer.username,
+                    role = Role.CUSTOMER,
+                    enabled = false,
+                    status = Status.DELETED,
+                ),
+            )
+        }
+
+        verifyNoInteractions(userService)
+    }
+
+    @Test
+    fun `batch update cannot directly mark an active user as deleted`() {
+        val customer = User(id = 7, username = "alice", status = Status.ACTIVE)
+        `when`(userRepository.findAllById(listOf(7L))).thenReturn(listOf(customer))
+
+        assertThrows<UserStatusException> {
+            service.updateBatch(99, listOf(7), BatchUpdateAdminUsersCommand(status = Status.DELETED))
+        }
+
+        verifyNoInteractions(userService)
+    }
+
+    @Test
+    fun `creating a user cannot use deleted status`() {
+        assertThrows<ParamErrorException> {
+            service.create(
+                99,
+                CreateAdminUserCommand(
+                    email = "[REDACTED]",
+                    username = "alice",
+                    password = "password123",
+                    enabled = false,
+                    status = Status.DELETED,
+                ),
+            )
+        }
+
+        verifyNoInteractions(userService)
+    }
+
+    @Test
+    fun `delete logically removes the user through user service`() {
+        val customer = User(id = 7, username = "alice", status = Status.ACTIVE, enabled = true)
+        `when`(userService.deleteUserById(7)).thenReturn(true)
 
         val deleted = service.delete(99, 7)
 
-        assertEquals(Status.DELETED, deleted?.status)
-        assertFalse(requireNotNull(deleted).enabled)
-        verify(userService).updateUser(customer)
+        assertEquals(7L, deleted)
+        verify(userService).deleteUserById(7)
+        verifyNoInteractions(userRepository)
+    }
+
+    @Test
+    fun `purge delegates physical removal through user service`() {
+        `when`(userService.purgeUserById(7)).thenReturn(true)
+
+        val purged = service.purge(99, 7)
+
+        assertEquals(7L, purged)
+        verify(userService).purgeUserById(7)
+        verifyNoInteractions(userRepository)
     }
 
     @Test

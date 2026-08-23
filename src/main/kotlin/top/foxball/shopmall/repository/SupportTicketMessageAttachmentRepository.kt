@@ -1,11 +1,16 @@
 package top.foxball.shopmall.repository
 
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import top.foxball.shopmall.entity.jdbc.SupportTicketMessageAttachment
 
 interface SupportTicketMessageAttachmentRepository : JpaRepository<SupportTicketMessageAttachment, Long> {
+    @Modifying(flushAutomatically = true)
+    @Query("delete from SupportTicketMessageAttachment a where a.message.id in :messageIds")
+    fun deleteAllByMessageIdIn(@Param("messageIds") messageIds: Collection<Long>): Int
+
     @Query(
         "select a from SupportTicketMessageAttachment a " +
             "join fetch a.file where a.message.id in :messageIds " +
@@ -44,4 +49,3 @@ interface SupportTicketMessageAttachmentRepository : JpaRepository<SupportTicket
         @Param("senderType") senderType: top.foxball.shopmall.entity.jdbc.SupportTicketMessageSender,
     ): Long
 }
-

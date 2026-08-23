@@ -73,7 +73,11 @@ interface AdminUserService {
         command: BatchUpdateAdminUsersCommand,
     ): List<User>?
 
-    fun delete(adminId: Long, userId: Long): User?
+    fun delete(adminId: Long, userId: Long): Long?
 
-    fun deleteBatch(adminId: Long, userIds: List<Long>): List<User>?
+    fun deleteBatch(adminId: Long, userIds: List<Long>): List<Long>?
+
+    fun purge(adminId: Long, userId: Long): Long?
+
+    fun purgeBatch(adminId: Long, userIds: List<Long>): List<Long>?
 }

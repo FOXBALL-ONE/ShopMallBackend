@@ -8,6 +8,15 @@ import top.foxball.shopmall.entity.jdbc.OutboxEvent
 import java.time.Instant
 
 interface OutboxEventRepository : JpaRepository<OutboxEvent, Long> {
+    @Modifying(flushAutomatically = true)
+    @Query(
+        "delete from OutboxEvent e where e.aggregateType = :aggregateType and e.aggregateId in :aggregateIds",
+    )
+    fun deleteAllByAggregateTypeAndAggregateIdIn(
+        @Param("aggregateType") aggregateType: String,
+        @Param("aggregateIds") aggregateIds: Collection<Long>,
+    ): Int
+
     @Query(
         value = """
             select * from domain_outbox

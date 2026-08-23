@@ -159,16 +159,27 @@ class AdminUserControllerTest {
     }
 
     @Test
-    fun `admin delete returns logical deletion state`() {
-        `when`(adminUserService.delete(99, 7)).thenReturn(
-            user(7, "alice").apply { status = Status.DELETED; enabled = false },
-        )
+    fun `admin delete returns logical deleted state`() {
+        `when`(adminUserService.delete(99, 7)).thenReturn(7L)
 
         mockMvc.perform(delete("/admin/api/users/7"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.data.id").value(7))
             .andExpect(jsonPath("$.data.status").value("DELETED"))
             .andExpect(jsonPath("$.data.enabled").value(false))
+    }
+
+    @Test
+    fun `admin purge returns purged state`() {
+        `when`(adminUserService.purge(99, 7)).thenReturn(7L)
+
+        mockMvc.perform(delete("/admin/api/users/7/purge"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.id").value(7))
+            .andExpect(jsonPath("$.data.status").value("PURGED"))
+            .andExpect(jsonPath("$.data.enabled").value(false))
+
+        verify(adminUserService).purge(99, 7)
     }
 
     private fun user(id: Long, username: String): User = User(

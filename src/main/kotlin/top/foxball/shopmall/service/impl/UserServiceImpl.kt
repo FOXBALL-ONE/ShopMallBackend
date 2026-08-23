@@ -9,8 +9,23 @@ import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.ParamErrorException
+import top.foxball.shopmall.handler.UserStatusException
+import top.foxball.shopmall.repository.AnnouncementUserStateRepository
+import top.foxball.shopmall.repository.CustomerReviewRepository
+import top.foxball.shopmall.repository.LogisticsIdempotencyRepository
+import top.foxball.shopmall.repository.OrderIdempotencyRepository
+import top.foxball.shopmall.repository.OrderItemRepository
+import top.foxball.shopmall.repository.OrderRepository
+import top.foxball.shopmall.repository.OutboxEventRepository
 import top.foxball.shopmall.repository.ShoppingCartRepository
+import top.foxball.shopmall.repository.ShipmentItemRepository
+import top.foxball.shopmall.repository.ShipmentRepository
+import top.foxball.shopmall.repository.ShipmentTrackRepository
+import top.foxball.shopmall.repository.SupportTicketMessageAttachmentRepository
+import top.foxball.shopmall.repository.SupportTicketMessageRepository
+import top.foxball.shopmall.repository.SupportTicketRepository
 import top.foxball.shopmall.repository.UserRepository
+import top.foxball.shopmall.service.FileService
 import top.foxball.shopmall.service.UserService
 import java.time.LocalDateTime
 import java.util.UUID
@@ -23,6 +38,20 @@ class UserServiceImpl(
     private val loginTokenAuthentication: LoginTokenAuthentication,
     private val passwordEncoder: PasswordEncoder,
     private val shoppingCartRepository: ShoppingCartRepository,
+    private val orderRepository: OrderRepository,
+    private val orderItemRepository: OrderItemRepository,
+    private val shipmentRepository: ShipmentRepository,
+    private val shipmentItemRepository: ShipmentItemRepository,
+    private val shipmentTrackRepository: ShipmentTrackRepository,
+    private val logisticsIdempotencyRepository: LogisticsIdempotencyRepository,
+    private val orderIdempotencyRepository: OrderIdempotencyRepository,
+    private val customerReviewRepository: CustomerReviewRepository,
+    private val announcementUserStateRepository: AnnouncementUserStateRepository,
+    private val supportTicketRepository: SupportTicketRepository,
+    private val supportTicketMessageRepository: SupportTicketMessageRepository,
+    private val supportTicketMessageAttachmentRepository: SupportTicketMessageAttachmentRepository,
+    private val outboxEventRepository: OutboxEventRepository,
+    private val fileService: FileService,
 ) : UserService {
 
     @Transactional
@@ -170,8 +199,11 @@ class UserServiceImpl(
     @Transactional
     override fun deleteUserById(id: Long): Boolean {
         val user = userRepository.findByIdForUpdate(id) ?: return false
-        shoppingCartRepository.deleteByCustomerId(id)
-        userRepository.delete(user)
+        if (user.status != Status.DELETED) {
+            user.status = Status.DELETED
+            user.enabled = false
+            userRepository.save(user)
+        }
         loginTokenAuthentication.revokeAll(id)
         return true
     }
@@ -188,10 +220,92 @@ class UserServiceImpl(
         val users = lockedUsersInRequestedOrder(distinctIds)
         if (users.size != distinctIds.size) return false
 
-        shoppingCartRepository.deleteAllByCustomerIdIn(distinctIds)
+        users.forEach {
+            it.status = Status.DELETED
+            it.enabled = false
+        }
+        userRepository.saveAll(users)
+        distinctIds.forEach(loginTokenAuthentication::revokeAll)
+        return true
+    }
+
+    @Transactional
+    override fun purgeUserById(id: Long): Boolean {
+        val user = userRepository.findByIdForUpdate(id) ?: return false
+        if (user.status != Status.DELETED) {
+            throw UserStatusException("只有状态为 DELETED（已删除）的用户才能彻底删除")
+        }
+        deleteRelatedData(listOf(id))
+        userRepository.delete(user)
+        loginTokenAuthentication.revokeAll(id)
+        return true
+    }
+
+    @Transactional
+    override fun purgeUsersByIds(ids: List<Long>): Boolean {
+        val distinctIds = ids.distinct()
+        if (distinctIds.isEmpty()) return true
+
+        val users = lockedUsersInRequestedOrder(distinctIds)
+        if (users.size != distinctIds.size) return false
+        if (users.any { it.status != Status.DELETED }) {
+            throw UserStatusException("只有状态为 DELETED（已删除）的用户才能彻底删除")
+        }
+
+        deleteRelatedData(distinctIds)
         userRepository.deleteAll(users)
         distinctIds.forEach(loginTokenAuthentication::revokeAll)
         return true
+    }
+
+    /**
+     * 按外键依赖从子表到主表清理用户数据，避免订单、运单和工单留下孤儿记录。
+     * 所有删除均处于调用方事务中；用户行在进入这里前已经按稳定顺序加锁。
+     */
+    private fun deleteRelatedData(userIds: Collection<Long>) {
+        val orderIds = orderRepository.findIdsByCustomerIdIn(userIds)
+        val shipmentIds = if (orderIds.isEmpty()) {
+            emptyList()
+        } else {
+            shipmentRepository.findIdsByOrderIdIn(orderIds)
+        }
+
+        val ticketIds = (
+            supportTicketRepository.findIdsByCustomerIdIn(userIds) +
+                if (orderIds.isEmpty()) emptyList() else supportTicketRepository.findIdsByOrderIdIn(orderIds)
+            ).distinct()
+        val messageIds = (
+            if (ticketIds.isEmpty()) emptyList() else supportTicketMessageRepository.findIdsByTicketIdIn(ticketIds)
+            ) + supportTicketMessageRepository.findIdsBySenderIdIn(userIds)
+        val distinctMessageIds = messageIds.distinct()
+        if (distinctMessageIds.isNotEmpty()) {
+            supportTicketMessageAttachmentRepository.deleteAllByMessageIdIn(distinctMessageIds)
+            supportTicketMessageRepository.deleteAllByIdIn(distinctMessageIds)
+        }
+        if (ticketIds.isNotEmpty()) {
+            supportTicketRepository.deleteAllByIdIn(ticketIds)
+        }
+        supportTicketRepository.clearHandledByIn(userIds)
+
+        if (shipmentIds.isNotEmpty()) {
+            outboxEventRepository.deleteAllByAggregateTypeAndAggregateIdIn("SHIPMENT", shipmentIds)
+            logisticsIdempotencyRepository.deleteAllByShipmentIdIn(shipmentIds)
+            shipmentTrackRepository.deleteAllByShipmentIdIn(shipmentIds)
+            shipmentItemRepository.deleteAllByShipmentIdIn(shipmentIds)
+            shipmentRepository.deleteAllByIdIn(shipmentIds)
+        }
+        logisticsIdempotencyRepository.deleteAllByActorIdIn(userIds)
+
+        if (orderIds.isNotEmpty()) {
+            outboxEventRepository.deleteAllByAggregateTypeAndAggregateIdIn("ORDER", orderIds)
+            orderItemRepository.deleteAllByOrderIdIn(orderIds)
+            orderRepository.deleteAllByIdIn(orderIds)
+        }
+        orderIdempotencyRepository.deleteAllByCustomerIdIn(userIds)
+        customerReviewRepository.deleteAllByCustomerIdIn(userIds)
+        announcementUserStateRepository.deleteAllByUserIdIn(userIds)
+        shoppingCartRepository.deleteAllByCustomerIdIn(userIds)
+        fileService.deleteAllByOwnerIds(userIds)
     }
 
     private fun lockedUsersInRequestedOrder(ids: List<Long>): List<User> {

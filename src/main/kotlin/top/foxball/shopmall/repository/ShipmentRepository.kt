@@ -14,6 +14,13 @@ import top.foxball.shopmall.entity.jdbc.ShipmentStatus
 import java.time.Instant
 
 interface ShipmentRepository : JpaRepository<Shipment, Long> {
+    @Query("select s.id from Shipment s where s.orderId in :orderIds order by s.id")
+    fun findIdsByOrderIdIn(@Param("orderIds") orderIds: Collection<Long>): List<Long>
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from Shipment s where s.id in :shipmentIds")
+    fun deleteAllByIdIn(@Param("shipmentIds") shipmentIds: Collection<Long>): Int
+
     fun countByStatus(status: ShipmentStatus): Long
 
     fun countByLastTrackErrorIsNotNull(): Long

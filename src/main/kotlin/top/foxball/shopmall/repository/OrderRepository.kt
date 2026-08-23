@@ -15,6 +15,13 @@ import java.time.Instant
 import java.time.LocalDateTime
 
 interface OrderRepository : JpaRepository<OrderEntity, Long> {
+    @Query("select o.id from OrderEntity o where o.customerId in :customerIds order by o.id")
+    fun findIdsByCustomerIdIn(@Param("customerIds") customerIds: Collection<Long>): List<Long>
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from OrderEntity o where o.id in :orderIds")
+    fun deleteAllByIdIn(@Param("orderIds") orderIds: Collection<Long>): Int
+
     fun countByStatus(status: OrderStatus): Long
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -65,4 +65,10 @@ interface FileService {
 
     /** 删除多份属于当前用户的文件；任一文件归属其他用户时拒绝访问。 */
     fun deleteBatch(ownerId: Long, fileIds: List<UUID>)
+
+    /** 删除用户拥有的全部文件，供用户彻底删除时清理文件元数据和存储内容。 */
+    fun deleteAllByOwnerId(ownerId: Long)
+
+    /** 一次删除多个用户拥有的全部文件，供批量用户彻底删除时复用一次关联文件扫描。 */
+    fun deleteAllByOwnerIds(ownerIds: Collection<Long>)
 }

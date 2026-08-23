@@ -20,6 +20,7 @@ import top.foxball.shopmall.config.FileProperties
 import top.foxball.shopmall.entity.jdbc.StoredFile
 import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.ResourceNotFoundException
+import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.repository.StoredFileRepository
 import top.foxball.shopmall.service.FileLinkSigner
 import top.foxball.shopmall.service.SUPPORT_TICKET_DOWNLOAD_SCOPE
@@ -37,18 +38,21 @@ class FileServiceImplTest {
     lateinit var storageRoot: Path
 
     private lateinit var repository: StoredFileRepository
+    private lateinit var productRepository: ProductRepository
     private lateinit var signer: FileLinkSigner
     private lateinit var service: FileServiceImpl
 
     @BeforeTest
     fun setUp() {
         repository = Mockito.mock(StoredFileRepository::class.java)
+        productRepository = Mockito.mock(ProductRepository::class.java)
         signer = FileLinkSigner(
             secret = "test-file-signing-secret-must-be-long-enough",
             clock = Clock.fixed(Instant.parse("2026-07-15T00:00:00Z"), ZoneOffset.UTC),
         )
         service = FileServiceImpl(
             fileRepository = repository,
+            productRepository = productRepository,
             properties = FileProperties(
                 storagePath = storageRoot.toString(),
                 baseUrl = "https://files.example.test/",
@@ -178,6 +182,7 @@ class FileServiceImplTest {
     fun `user scope ttl falls back to download token ttl when user ttl is unset`() {
         val fallbackService = FileServiceImpl(
             fileRepository = repository,
+            productRepository = productRepository,
             properties = FileProperties(
                 storagePath = storageRoot.toString(),
                 baseUrl = "https://files.example.test/",
@@ -237,6 +242,7 @@ class FileServiceImplTest {
     fun `support ticket links omit owner identifiers and are not limited by api batch size`() {
         val constrainedService = FileServiceImpl(
             fileRepository = repository,
+            productRepository = productRepository,
             properties = FileProperties(
                 storagePath = storageRoot.toString(),
                 baseUrl = "https://files.example.test/",
@@ -330,6 +336,79 @@ class FileServiceImplTest {
 
         assertTrue(Files.isRegularFile(diskPath))
         assertEquals("payload", diskPath.readText())
+    }
+
+    @Test
+    fun `deletes owner files while preserving product image files still referenced by products`() {
+        val ordinaryFile = storedFile().apply { id = UUID.randomUUID() }
+        val productImageFile = storedFile().apply { id = UUID.randomUUID() }
+        listOf(ordinaryFile, productImageFile).forEach { stored ->
+            val diskPath = storageRoot.resolve(stored.relativePath)
+            Files.createDirectories(diskPath.parent)
+            Files.writeString(diskPath, stored.id.toString())
+        }
+        Mockito.`when`(repository.findAllByOwnerIdInOrderByCreatedAtAsc(listOf(42L)))
+            .thenReturn(listOf(ordinaryFile, productImageFile))
+        Mockito.`when`(productRepository.findAllImageUrls())
+            .thenReturn(listOf("https://files.example.test/api/product-images/${productImageFile.id}?signature=abc"))
+
+        service.deleteAllByOwnerIds(listOf(42L))
+
+        Mockito.verify(repository).deleteAll(listOf(ordinaryFile))
+        Mockito.verify(repository).flush()
+        assertFalse(Files.exists(storageRoot.resolve(ordinaryFile.relativePath)))
+        assertTrue(Files.isRegularFile(storageRoot.resolve(productImageFile.relativePath)))
+    }
+
+    @Test
+    fun `does not scan product image urls when the owner has no files`() {
+        Mockito.`when`(repository.findAllByOwnerIdInOrderByCreatedAtAsc(listOf(42L))).thenReturn(emptyList())
+
+        service.deleteAllByOwnerIds(listOf(42L))
+
+        Mockito.verifyNoInteractions(productRepository)
+        Mockito.verify(repository).findAllByOwnerIdInOrderByCreatedAtAsc(listOf(42L))
+    }
+
+    @Test
+    fun `deletes files for multiple owners with one repository scan`() {
+        val first = storedFile().apply { id = UUID.randomUUID(); ownerId = 42 }
+        val second = storedFile().apply { id = UUID.randomUUID(); ownerId = 43 }
+        listOf(first, second).forEach { stored ->
+            val diskPath = storageRoot.resolve(stored.relativePath)
+            Files.createDirectories(diskPath.parent)
+            Files.writeString(diskPath, "payload")
+        }
+        Mockito.`when`(repository.findAllByOwnerIdInOrderByCreatedAtAsc(listOf(42L, 43L)))
+            .thenReturn(listOf(first, second))
+        Mockito.`when`(productRepository.findAllImageUrls()).thenReturn(emptyList())
+
+        service.deleteAllByOwnerIds(listOf(42L, 43L, 42L))
+
+        Mockito.verify(repository).findAllByOwnerIdInOrderByCreatedAtAsc(listOf(42L, 43L))
+        Mockito.verify(repository).deleteAll(listOf(first, second))
+        assertFalse(Files.exists(storageRoot.resolve(first.relativePath)))
+        assertFalse(Files.exists(storageRoot.resolve(second.relativePath)))
+    }
+
+    @Test
+    fun `does not treat unrelated urls as product image references`() {
+        val file = storedFile().apply { id = UUID.randomUUID() }
+        val diskPath = storageRoot.resolve(file.relativePath)
+        Files.createDirectories(diskPath.parent)
+        Files.writeString(diskPath, "payload")
+        Mockito.`when`(repository.findAllByOwnerIdInOrderByCreatedAtAsc(listOf(42L))).thenReturn(listOf(file))
+        Mockito.`when`(productRepository.findAllImageUrls()).thenReturn(
+            listOf(
+                "https://files.example.test/api/product-images/${file.id}/not-a-valid-boundary",
+                "https://files.example.test/api/other/${file.id}",
+            ),
+        )
+
+        service.deleteAllByOwnerIds(listOf(42L))
+
+        Mockito.verify(repository).deleteAll(listOf(file))
+        assertFalse(Files.exists(diskPath))
     }
 
     private fun storedFile() = StoredFile(

@@ -10,8 +10,23 @@ import top.foxball.shopmall.entity.jdbc.DeliveryAddressItem
 import top.foxball.shopmall.entity.jdbc.Role
 import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.handler.ForbiddenException
+import top.foxball.shopmall.handler.UserStatusException
+import top.foxball.shopmall.repository.AnnouncementUserStateRepository
+import top.foxball.shopmall.repository.CustomerReviewRepository
+import top.foxball.shopmall.repository.LogisticsIdempotencyRepository
+import top.foxball.shopmall.repository.OrderIdempotencyRepository
+import top.foxball.shopmall.repository.OrderItemRepository
+import top.foxball.shopmall.repository.OrderRepository
+import top.foxball.shopmall.repository.OutboxEventRepository
+import top.foxball.shopmall.repository.ShipmentItemRepository
+import top.foxball.shopmall.repository.ShipmentRepository
+import top.foxball.shopmall.repository.ShipmentTrackRepository
 import top.foxball.shopmall.repository.ShoppingCartRepository
+import top.foxball.shopmall.repository.SupportTicketMessageAttachmentRepository
+import top.foxball.shopmall.repository.SupportTicketMessageRepository
+import top.foxball.shopmall.repository.SupportTicketRepository
 import top.foxball.shopmall.repository.UserRepository
+import top.foxball.shopmall.service.FileService
 import org.springframework.security.crypto.password.PasswordEncoder
 import java.util.UUID
 import kotlin.test.Test
@@ -26,44 +41,118 @@ class UserServiceImplTest {
     private val loginTokenAuthentication = mock(LoginTokenAuthentication::class.java)
     private val passwordEncoder = mock(PasswordEncoder::class.java)
     private val shoppingCartRepository = mock(ShoppingCartRepository::class.java)
+    private val orderRepository = mock(OrderRepository::class.java)
+    private val orderItemRepository = mock(OrderItemRepository::class.java)
+    private val shipmentRepository = mock(ShipmentRepository::class.java)
+    private val shipmentItemRepository = mock(ShipmentItemRepository::class.java)
+    private val shipmentTrackRepository = mock(ShipmentTrackRepository::class.java)
+    private val logisticsIdempotencyRepository = mock(LogisticsIdempotencyRepository::class.java)
+    private val orderIdempotencyRepository = mock(OrderIdempotencyRepository::class.java)
+    private val customerReviewRepository = mock(CustomerReviewRepository::class.java)
+    private val announcementUserStateRepository = mock(AnnouncementUserStateRepository::class.java)
+    private val supportTicketRepository = mock(SupportTicketRepository::class.java)
+    private val supportTicketMessageRepository = mock(SupportTicketMessageRepository::class.java)
+    private val supportTicketMessageAttachmentRepository =
+        mock(SupportTicketMessageAttachmentRepository::class.java)
+    private val outboxEventRepository = mock(OutboxEventRepository::class.java)
+    private val fileService = mock(FileService::class.java)
     private val service = UserServiceImpl(
         userRepository,
         loginTokenAuthentication,
         passwordEncoder,
         shoppingCartRepository,
+        orderRepository,
+        orderItemRepository,
+        shipmentRepository,
+        shipmentItemRepository,
+        shipmentTrackRepository,
+        logisticsIdempotencyRepository,
+        orderIdempotencyRepository,
+        customerReviewRepository,
+        announcementUserStateRepository,
+        supportTicketRepository,
+        supportTicketMessageRepository,
+        supportTicketMessageAttachmentRepository,
+        outboxEventRepository,
+        fileService,
     )
 
     @Test
-    fun `deleting a user locks it before removing their cart`() {
-        val user = User(id = 42)
+    fun `deleting a user marks it deleted and revokes sessions without removing related data`() {
+        val user = User(id = 42, status = Status.ACTIVE, enabled = true)
         `when`(userRepository.findByIdForUpdate(42)).thenReturn(user)
 
         assertTrue(service.deleteUserById(42))
 
-        val order = inOrder(userRepository, shoppingCartRepository, loginTokenAuthentication)
+        val order = inOrder(userRepository, loginTokenAuthentication)
         order.verify(userRepository).findByIdForUpdate(42)
-        order.verify(shoppingCartRepository).deleteByCustomerId(42)
-        order.verify(userRepository).delete(user)
+        order.verify(userRepository).save(user)
         order.verify(loginTokenAuthentication).revokeAll(42)
+        assertEquals(Status.DELETED, user.status)
+        assertEquals(false, user.enabled)
     }
 
     @Test
-    fun `batch deletion locks all users before removing their carts`() {
+    fun `batch deletion locks all users before marking them deleted`() {
         val first = User(id = 5)
         val second = User(id = 9)
         `when`(userRepository.findAllByIdInForUpdate(listOf(5, 9))).thenReturn(listOf(first, second))
 
         assertTrue(service.deleteUsersByIds(listOf(5, 9, 5)))
 
-        val order = inOrder(userRepository, shoppingCartRepository, loginTokenAuthentication)
+        val order = inOrder(userRepository, loginTokenAuthentication)
         order.verify(userRepository).findAllByIdInForUpdate(listOf(5, 9))
-        order.verify(shoppingCartRepository).deleteAllByCustomerIdIn(listOf(5, 9))
-        order.verify(userRepository).deleteAll(listOf(first, second))
+        order.verify(userRepository).saveAll(listOf(first, second))
         order.verify(loginTokenAuthentication).revokeAll(5)
         order.verify(loginTokenAuthentication).revokeAll(9)
+        assertEquals(listOf(Status.DELETED, Status.DELETED), listOf(first.status, second.status))
+        assertEquals(listOf(false, false), listOf(first.enabled, second.enabled))
         verify(userRepository).findAllByIdInForUpdate(listOf(5, 9))
     }
 
+    @Test
+    fun `purging a logically deleted user removes every discovered related aggregate`() {
+        val user = User(id = 42, status = Status.DELETED, enabled = false)
+        `when`(userRepository.findByIdForUpdate(42)).thenReturn(user)
+        `when`(orderRepository.findIdsByCustomerIdIn(listOf(42))).thenReturn(listOf(100, 101))
+        `when`(shipmentRepository.findIdsByOrderIdIn(listOf(100, 101))).thenReturn(listOf(200))
+        `when`(supportTicketRepository.findIdsByCustomerIdIn(listOf(42))).thenReturn(listOf(300))
+        `when`(supportTicketRepository.findIdsByOrderIdIn(listOf(100, 101))).thenReturn(listOf(301, 300))
+        `when`(supportTicketMessageRepository.findIdsByTicketIdIn(listOf(300, 301))).thenReturn(listOf(400))
+        `when`(supportTicketMessageRepository.findIdsBySenderIdIn(listOf(42))).thenReturn(listOf(401, 400))
+
+        assertTrue(service.purgeUserById(42))
+
+        verify(supportTicketMessageAttachmentRepository).deleteAllByMessageIdIn(listOf(400, 401))
+        verify(supportTicketMessageRepository).deleteAllByIdIn(listOf(400, 401))
+        verify(supportTicketRepository).deleteAllByIdIn(listOf(300, 301))
+        verify(supportTicketRepository).clearHandledByIn(listOf(42))
+        verify(outboxEventRepository).deleteAllByAggregateTypeAndAggregateIdIn("SHIPMENT", listOf(200))
+        verify(logisticsIdempotencyRepository).deleteAllByShipmentIdIn(listOf(200))
+        verify(shipmentTrackRepository).deleteAllByShipmentIdIn(listOf(200))
+        verify(shipmentItemRepository).deleteAllByShipmentIdIn(listOf(200))
+        verify(shipmentRepository).deleteAllByIdIn(listOf(200))
+        verify(logisticsIdempotencyRepository).deleteAllByActorIdIn(listOf(42))
+        verify(outboxEventRepository).deleteAllByAggregateTypeAndAggregateIdIn("ORDER", listOf(100, 101))
+        verify(orderItemRepository).deleteAllByOrderIdIn(listOf(100, 101))
+        verify(orderRepository).deleteAllByIdIn(listOf(100, 101))
+        verify(orderIdempotencyRepository).deleteAllByCustomerIdIn(listOf(42))
+        verify(customerReviewRepository).deleteAllByCustomerIdIn(listOf(42))
+        verify(announcementUserStateRepository).deleteAllByUserIdIn(listOf(42))
+        verify(shoppingCartRepository).deleteAllByCustomerIdIn(listOf(42))
+        verify(fileService).deleteAllByOwnerIds(listOf(42L))
+        verify(userRepository).delete(user)
+        verify(loginTokenAuthentication).revokeAll(42)
+    }
+
+    @Test
+    fun `physical deletion rejects a user that was not logically deleted`() {
+        `when`(userRepository.findByIdForUpdate(42)).thenReturn(User(id = 42, status = Status.ACTIVE))
+
+        assertFailsWith<UserStatusException> {
+            service.purgeUserById(42)
+        }
+    }
     @Test
     fun `changing a user role revokes existing sessions`() {
         val previous = User(id = 42, role = Role.ADMIN)

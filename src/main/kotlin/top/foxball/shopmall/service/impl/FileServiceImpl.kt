@@ -12,6 +12,7 @@ import top.foxball.shopmall.entity.jdbc.StoredFile
 import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.handler.ResourceNotFoundException
+import top.foxball.shopmall.repository.ProductRepository
 import top.foxball.shopmall.repository.StoredFileRepository
 import top.foxball.shopmall.service.DownloadableFile
 import top.foxball.shopmall.service.FileDetails
@@ -40,6 +41,7 @@ import java.util.UUID
 @Service
 class FileServiceImpl(
     private val fileRepository: StoredFileRepository,
+    private val productRepository: ProductRepository,
     private val properties: FileProperties,
     private val linkSigner: FileLinkSigner,
 ) : FileService {
@@ -135,6 +137,25 @@ class FileServiceImpl(
     override fun deleteBatch(ownerId: Long, fileIds: List<UUID>) {
         validateFileIds(fileIds)
         deleteStoredFiles(findOwnedFiles(ownerId, fileIds))
+    }
+
+    override fun deleteAllByOwnerId(ownerId: Long) {
+        deleteAllByOwnerIds(listOf(ownerId))
+    }
+
+    override fun deleteAllByOwnerIds(ownerIds: Collection<Long>) {
+        val distinctOwnerIds = ownerIds.distinct()
+        if (distinctOwnerIds.isEmpty()) return
+
+        val files = fileRepository.findAllByOwnerIdInOrderByCreatedAtAsc(distinctOwnerIds)
+        if (files.isEmpty()) return
+
+        val referencedProductImageIds = productRepository.findAllImageUrls()
+            .mapNotNull { PRODUCT_IMAGE_FILE_ID_PATTERN.find(it)?.groupValues?.get(1) }
+            .mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
+            .toSet()
+        val deletableFiles = files.filterNot { it.id in referencedProductImageIds }
+        if (deletableFiles.isNotEmpty()) deleteStoredFiles(deletableFiles)
     }
 
     private fun validateUploadBatch(files: List<MultipartFile>) {
@@ -374,5 +395,8 @@ class FileServiceImpl(
         const val DELETION_STAGING_DIRECTORY = ".deleting"
         const val LOCAL_STORAGE = "local"
         val EXTENSION_PATTERN = Regex("[A-Za-z0-9]{1,10}")
+        val PRODUCT_IMAGE_FILE_ID_PATTERN = Regex(
+            "(?:^|/)api/product-images/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:[?#]|$)",
+        )
     }
 }

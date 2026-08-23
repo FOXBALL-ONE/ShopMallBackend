@@ -8,6 +8,7 @@ import top.foxball.shopmall.entity.jdbc.Status
 import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.ParamErrorException
+import top.foxball.shopmall.handler.UserStatusException
 import top.foxball.shopmall.handler.UserAlreadyExistsException
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.AdminAccessService
@@ -46,6 +47,9 @@ class AdminUserServiceImpl(
         val email = command.email.trim().lowercase()
         val username = command.username.trim()
         ensureUnique(email, username)
+        if (command.status == Status.DELETED) {
+            throw ParamErrorException("新建用户不能直接使用 DELETED（已删除）状态，请先创建后再执行逻辑删除")
+        }
         ensureStatusAllowsLogin(command.status, command.enabled)
         return userService.createUser(
             User(
@@ -75,6 +79,7 @@ class AdminUserServiceImpl(
         val email = command.email.trim().lowercase()
         val username = command.username.trim()
         ensureUnique(email, username, userId)
+        ensureStatusTransitionAllowed(user.status, command.status)
         ensureStatusAllowsLogin(command.status, command.enabled)
         user.email = email
         user.username = username
@@ -115,6 +120,7 @@ class AdminUserServiceImpl(
             val nextStatus = command.status ?: user.status
             val nextEnabled = command.enabled ?: user.enabled
             ensureSelfRemainsUsable(adminId, userId, nextRole, nextEnabled, nextStatus)
+            ensureStatusTransitionAllowed(user.status, nextStatus)
             ensureStatusAllowsLogin(nextStatus, nextEnabled)
             user.role = nextRole
             user.status = nextStatus
@@ -125,27 +131,32 @@ class AdminUserServiceImpl(
         return userService.updateUsers(users)
     }
 
-    override fun delete(adminId: Long, userId: Long): User? {
+    override fun delete(adminId: Long, userId: Long): Long? {
         adminAccessService.requireAdmin(adminId)
         if (adminId == userId) throw ForbiddenException("不能删除当前登录的管理员")
-        val user = userRepository.findById(userId).orElse(null) ?: return null
-        user.status = Status.DELETED
-        user.enabled = false
-        return userService.updateUser(user)
+        return userId.takeIf(userService::deleteUserById)
     }
 
-    override fun deleteBatch(adminId: Long, userIds: List<Long>): List<User>? {
+    override fun deleteBatch(adminId: Long, userIds: List<Long>): List<Long>? {
         adminAccessService.requireAdmin(adminId)
         val distinctIds = userIds.distinct()
         if (adminId in distinctIds) throw ForbiddenException("不能删除当前登录的管理员")
-        val usersById = userRepository.findAllById(distinctIds).associateBy { requireNotNull(it.id) }
-        if (usersById.size != distinctIds.size) return null
-        val users = distinctIds.map(usersById::getValue)
-        users.forEach {
-            it.status = Status.DELETED
-            it.enabled = false
-        }
-        return userService.updateUsers(users)
+        if (!userService.deleteUsersByIds(distinctIds)) return null
+        return distinctIds
+    }
+
+    override fun purge(adminId: Long, userId: Long): Long? {
+        adminAccessService.requireAdmin(adminId)
+        if (adminId == userId) throw ForbiddenException("不能删除当前登录的管理员")
+        return userId.takeIf(userService::purgeUserById)
+    }
+
+    override fun purgeBatch(adminId: Long, userIds: List<Long>): List<Long>? {
+        adminAccessService.requireAdmin(adminId)
+        val distinctIds = userIds.distinct()
+        if (adminId in distinctIds) throw ForbiddenException("不能删除当前登录的管理员")
+        if (!userService.purgeUsersByIds(distinctIds)) return null
+        return distinctIds
     }
 
     private fun ensureUnique(email: String, username: String, userId: Long? = null) {
@@ -168,6 +179,12 @@ class AdminUserServiceImpl(
             throw ParamErrorException(
                 if (status == Status.DELETED) "已删除用户不能处于启用状态" else "停用用户不能处于启用状态",
             )
+        }
+    }
+
+    private fun ensureStatusTransitionAllowed(current: Status, next: Status) {
+        if (next == Status.DELETED && current != Status.DELETED) {
+            throw UserStatusException("不能通过通用更新接口直接设置 DELETED（已删除）状态，请先执行逻辑删除操作")
         }
     }
 

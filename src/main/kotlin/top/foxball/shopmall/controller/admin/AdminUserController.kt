@@ -468,9 +468,9 @@ class AdminUserController(
             val enabled: Boolean,
         )
 
-        val user = adminUserService.delete(adminId, userId)
+        val deletedUserId = adminUserService.delete(adminId, userId)
             ?: return builder.notFound().message("用户不存在").build()
-        val rs = Response(requireNotNull(user.id), user.status.name, user.enabled)
+        val rs = Response(deletedUserId, "DELETED", false)
         return builder.ok().data(rs).build()
     }
 
@@ -488,10 +488,50 @@ class AdminUserController(
             val deleted: Int,
         )
 
-        val users = adminUserService.deleteBatch(adminId, ids)
+        val deletedIds = adminUserService.deleteBatch(adminId, ids)
             ?: return builder.notFound().message("部分用户不存在").build()
-        val deletedIds = users.map { requireNotNull(it.id) }
         val rs = Response(deletedIds, deletedIds.size)
+        return builder.ok().data(rs).build()
+    }
+
+    /**
+     * @api 彻底删除用户
+     * @param userId 必须已经处于 DELETED 状态的用户 ID
+     */
+    @DeleteMapping("/{user_id}/purge")
+    fun purgeUser(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("user_id") @Min(1) userId: Long,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            val status: String,
+            val enabled: Boolean,
+        )
+
+        val purgedUserId = adminUserService.purge(adminId, userId)
+            ?: return builder.notFound().message("用户不存在").build()
+        val rs = Response(purgedUserId, "PURGED", false)
+        return builder.ok().data(rs).build()
+    }
+
+    /**
+     * @api 批量彻底删除用户
+     * @param ids 必须已经处于 DELETED 状态的用户 ID 列表
+     */
+    @DeleteMapping("/batch/purge")
+    fun purgeUsers(
+        @AuthenticationPrincipal adminId: Long,
+        @RequestParam("ids") @Size(min = 1, max = 100) ids: List<Long>,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val ids: List<Long>,
+            val purged: Int,
+        )
+
+        val purgedIds = adminUserService.purgeBatch(adminId, ids)
+            ?: return builder.notFound().message("部分用户不存在").build()
+        val rs = Response(purgedIds, purgedIds.size)
         return builder.ok().data(rs).build()
     }
 }

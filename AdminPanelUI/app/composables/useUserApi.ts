@@ -40,5 +40,13 @@ export const useUserApi = () => {
     deleteBatch(ids: number[]) {
       return remove<{ ids: number[]; deleted: number }>('/users/batch', { ids })
     },
+
+    purgeOne(userId: number) {
+      return remove<{ id: number; status: 'PURGED'; enabled: false }>(`/users/${userId}/purge`)
+    },
+
+    purgeBatch(ids: number[]) {
+      return remove<{ ids: number[]; purged: number }>('/users/batch/purge', { ids })
+    },
   }
 }

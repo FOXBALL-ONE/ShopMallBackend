@@ -39,6 +39,7 @@ const saving = ref(false)
 const pendingAvatarUploads = ref(0)
 const batchLoading = ref(false)
 const deletingUserId = ref<number | null>(null)
+const purgingUserId = ref<number | null>(null)
 const users = ref<AdminUserListItem[]>([])
 const checkedRowKeys = ref<DataTableRowKey[]>([])
 const editorOpen = ref(false)
@@ -429,6 +430,10 @@ async function uploadAvatar(options: UploadCustomRequestOptions) {
 }
 
 function changeFormStatus(status: AdminUserStatus) {
+  if (status === 'DELETED' && editorMode.value === 'edit' && editingUser.value?.status !== 'DELETED') {
+    message.info('请使用“标记删除”操作将用户设置为已删除状态')
+    return
+  }
   form.status = status
   if (status !== 'ACTIVE') form.enabled = false
 }
@@ -490,19 +495,40 @@ async function submitEditor() {
 
 function confirmDelete(row: AdminUserListItem) {
   confirmDeleteRequest({
-    title: '删除用户',
-    content: `确认删除用户 ${row.username}？账号将立即禁止登录，历史订单、工单和物流记录会保留。`,
-    positiveText: '删除',
+    title: '逻辑删除用户',
+    content: `确认将用户 ${row.username} 标记为“已删除”？账号会立即禁止登录，但订单、工单和物流数据会保留；之后可单独执行彻底删除。`,
+    positiveText: '标记删除',
     onConfirm: async () => {
       deletingUserId.value = row.id
       try {
         await api.deleteOne(row.id)
-        message.success(`用户 ${row.username} 已删除`)
+        message.success(`用户 ${row.username} 已标记为已删除`)
         await loadUsers()
       } catch (error) {
         message.error(`删除失败：${errorMessage(error)}`)
       } finally {
         deletingUserId.value = null
+      }
+    },
+  })
+}
+
+function confirmPurge(row: AdminUserListItem) {
+  confirmDeleteRequest({
+    title: '彻底删除用户',
+    content: `确认彻底删除用户 ${row.username}？该操作将永久删除用户及订单、物流、工单、评价、文件等关联数据，且不可恢复。`,
+    positiveText: '彻底删除',
+    tone: 'error',
+    onConfirm: async () => {
+      purgingUserId.value = row.id
+      try {
+        await api.purgeOne(row.id)
+        message.success(`用户 ${row.username} 及其关联数据已永久删除`)
+        await loadUsers()
+      } catch (error) {
+        message.error(`彻底删除失败：${errorMessage(error)}`)
+      } finally {
+        purgingUserId.value = null
       }
     },
   })
@@ -555,17 +581,43 @@ function confirmBatchDelete() {
     return
   }
   confirmDeleteRequest({
-    title: '批量删除用户',
-    content: `确认删除选中的 ${ids.length} 位用户？这些账号将立即禁止登录，历史业务记录会保留。`,
+    title: '批量逻辑删除用户',
+    content: `确认将选中的 ${ids.length} 位用户标记为“已删除”？账号会立即禁止登录，但历史业务记录会保留。`,
     positiveText: '批量删除',
     onConfirm: async () => {
       batchLoading.value = true
       try {
         const result = await api.deleteBatch(ids)
-        message.success(`已删除 ${result.deleted} 位用户`)
+        message.success(`已将 ${result.deleted} 位用户标记为已删除`)
         await loadUsers()
       } catch (error) {
         message.error(`批量删除失败：${errorMessage(error)}`)
+      } finally {
+        batchLoading.value = false
+      }
+    },
+  })
+}
+
+function confirmBatchPurge() {
+  const ids = selectedDeleted.value.map(item => item.id)
+  if (ids.length === 0) {
+    message.info('没有处于“已删除”状态的用户')
+    return
+  }
+  confirmDeleteRequest({
+    title: '批量彻底删除用户',
+    content: `确认永久删除选中的 ${ids.length} 位已删除用户？关联订单、物流、工单、评价、文件等数据也会一并删除，且不可恢复。`,
+    positiveText: '批量彻底删除',
+    tone: 'error',
+    onConfirm: async () => {
+      batchLoading.value = true
+      try {
+        const result = await api.purgeBatch(ids)
+        message.success(`已永久删除 ${result.purged} 位用户及其关联数据`)
+        await loadUsers()
+      } catch (error) {
+        message.error(`批量彻底删除失败：${errorMessage(error)}`)
       } finally {
         batchLoading.value = false
       }
@@ -657,6 +709,18 @@ const columns: DataTableColumns<AdminUserListItem> = [
           onClick: () => confirmDelete(row),
         },
         { icon: () => h(Trash2, { size: 14 }), default: () => '删除' },
+      ),
+      h(
+        NButton,
+        {
+          size: 'small',
+          tertiary: true,
+          type: 'error',
+          disabled: row.status !== 'DELETED' || row.id === currentAdminId.value,
+          loading: purgingUserId.value === row.id,
+          onClick: () => confirmPurge(row),
+        },
+        { icon: () => h(Trash2, { size: 14 }), default: () => '彻底删除' },
       ),
     ]),
   },
@@ -750,7 +814,17 @@ onMounted(() => {
                 @click="confirmBatchDelete"
               >
                 <template #icon><Trash2 :size="15" /></template>
-                批量删除
+                批量标记删除
+              </NButton>
+              <NButton
+                size="small"
+                type="error"
+                ghost
+                :disabled="selectedDeleted.length === 0 || batchLoading"
+                @click="confirmBatchPurge"
+              >
+                <template #icon><Trash2 :size="15" /></template>
+                批量彻底删除
               </NButton>
             </NSpace>
           </div>

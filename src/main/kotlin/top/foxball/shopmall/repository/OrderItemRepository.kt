@@ -26,4 +26,8 @@ interface OrderItemRepository : JpaRepository<OrderItem, Long> {
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from OrderItem i where i.order.id = :orderId")
     fun deleteAllByOrderId(@Param("orderId") orderId: Long): Int
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from OrderItem i where i.order.id in :orderIds")
+    fun deleteAllByOrderIdIn(@Param("orderIds") orderIds: Collection<Long>): Int
 }

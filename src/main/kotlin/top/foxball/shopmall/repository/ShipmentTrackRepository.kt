@@ -20,6 +20,10 @@ interface ShipmentTrackRepository : JpaRepository<ShipmentTrack, Long>, Shipment
     @Modifying(flushAutomatically = true)
     @Query("delete from ShipmentTrack t where t.shipment.id = :shipmentId")
     fun deleteAllByShipmentId(@Param("shipmentId") shipmentId: Long): Int
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from ShipmentTrack t where t.shipment.id in :shipmentIds")
+    fun deleteAllByShipmentIdIn(@Param("shipmentIds") shipmentIds: Collection<Long>): Int
 }
 
 interface ShipmentTrackInsertRepository {
