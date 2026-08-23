@@ -1,5 +1,6 @@
 package top.foxball.shopmall.service
 
+import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.Mockito.mock
@@ -334,6 +335,21 @@ class AnnouncementServiceImplTest {
         assertEquals(0, scheduled.updatedBy)
         verify(announcementRepository, times(2)).saveAndFlush(any(Announcement::class.java))
         verify(auditLogRepository, times(2)).save(any(AnnouncementAuditLog::class.java))
+    }
+
+    @Test
+    fun `deleting announcements uses an action accepted by legacy audit constraint`() {
+        val first = announcement(1, 50, Announcement.AutoShowMode.EVERY_LOAD)
+        val second = announcement(2, 40, Announcement.AutoShowMode.EVERY_LOAD)
+        `when`(announcementRepository.findAllById(listOf(1, 2))).thenReturn(listOf(first, second))
+        `when`(objectMapper.writeValueAsString(any())).thenReturn("{}")
+
+        assertEquals(listOf(1L, 2L), service.deleteBatch(99, listOf(2, 1)))
+
+        val captor = ArgumentCaptor.forClass(AnnouncementAuditLog::class.java)
+        verify(auditLogRepository, times(2)).save(captor.capture())
+        assertEquals(listOf(AnnouncementAuditLog.Action.ARCHIVED, AnnouncementAuditLog.Action.ARCHIVED), captor.allValues.map { it.action })
+        assertEquals(listOf("管理员批量删除公告", "管理员批量删除公告"), captor.allValues.map { it.reason })
     }
 
     @Test

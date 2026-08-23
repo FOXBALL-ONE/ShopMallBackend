@@ -694,11 +694,19 @@ class AnnouncementServiceImpl(
         afterSnapshot: String,
         reason: String?,
     ) {
+        // 现有生产库中的 action_check 约束由旧版枚举生成，不包含 DELETED。
+        // 删除公告仍需保留审计记录，因此将该动作持久化为兼容的 ARCHIVED，
+        // 具体删除语义由 reason（“管理员删除公告”）保留。
+        val persistedAction = if (action == AnnouncementAuditLog.Action.DELETED) {
+            AnnouncementAuditLog.Action.ARCHIVED
+        } else {
+            action
+        }
         announcementAuditLogRepository.save(
             AnnouncementAuditLog(
                 announcementId = requireNotNull(announcement.id),
                 operatorId = operatorId,
-                action = action,
+                action = persistedAction,
                 beforeSnapshot = beforeSnapshot,
                 afterSnapshot = afterSnapshot,
                 reason = reason,
