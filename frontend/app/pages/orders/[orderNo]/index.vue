@@ -557,6 +557,9 @@ onBeforeUnmount(() => {
             <div><dt>{{ t('orderDetail.tax') }}</dt><dd>{{ formatMoney(order.tax_amount, order.currency) }}</dd></div>
           </dl>
           <div class="summary-total"><span>{{ t('orderDetail.total') }}</span><strong>{{ formatMoney(order.total_amount, order.currency) }}</strong></div>
+          <div v-if="canComplete" class="order-completion-action">
+            <button class="primary-button" type="button" :disabled="isCompleting" @click="completeOrder"><UIcon :name="isCompleting ? 'i-lucide-loader-circle' : 'i-lucide-circle-check'" :class="{ spinning: isCompleting }" /> {{ isCompleting ? t('orderCompletion.completing') : t('orderCompletion.complete') }}</button>
+          </div>
 
           <dl class="summary-dates">
             <div><dt>{{ t('orderDetail.orderNumber') }}</dt><dd>{{ order.order_no }}</dd></div>
@@ -572,7 +575,6 @@ onBeforeUnmount(() => {
 
           <div class="summary-actions">
             <button v-if="canResumePayment" class="primary-button" type="button" :disabled="isOpeningPayment" @click="openStripeCheckout"><UIcon :name="isOpeningPayment ? 'i-lucide-loader-circle' : 'i-lucide-external-link'" :class="{ spinning: isOpeningPayment }" /> {{ isOpeningPayment ? t('orderDetail.openingStripe') : t('orderDetail.payWithStripe') }}</button>
-            <button v-if="canComplete" class="primary-button" type="button" :disabled="isCompleting" @click="completeOrder"><UIcon :name="isCompleting ? 'i-lucide-loader-circle' : 'i-lucide-circle-check'" :class="{ spinning: isCompleting }" /> {{ isCompleting ? t('orderCompletion.completing') : t('orderCompletion.complete') }}</button>
             <button v-if="canCancel" class="danger-link" type="button" :disabled="isCancelling" @click="cancelFormOpen = !cancelFormOpen"><UIcon name="i-lucide-circle-x" /> {{ cancelFormOpen ? t('orderDetail.closeCancellation') : t('orderDetail.cancel') }}</button>
             <button v-if="canRequestRefund" class="danger-link" type="button" :disabled="isRefundRequesting" @click="openRefundForm"><UIcon :name="isRefundRequesting ? 'i-lucide-loader-circle' : 'i-lucide-rotate-ccw'" :class="{ spinning: isRefundRequesting }" /> {{ isRefundRequesting ? t('orderDetail.requestingRefund') : t('orderDetail.requestRefund') }}</button>
             <button v-if="canQueryRefundStatus" class="outline-button" type="button" :disabled="isRefundStatusLoading" @click="queryRefundStatus"><UIcon :name="isRefundStatusLoading ? 'i-lucide-loader-circle' : 'i-lucide-refresh-cw'" :class="{ spinning: isRefundStatusLoading }" /> {{ isRefundStatusLoading ? t('orderDetail.checkingRefund') : t('orderDetail.checkRefund') }}</button>
@@ -739,25 +741,28 @@ onBeforeUnmount(() => {
 .track-events strong { font-size: 9px; }
 .track-events small { color: var(--store-muted); font-size: 8px; }
 
-.order-summary { position: sticky; top: 20px; padding: 23px 21px; }
-.order-summary h2 { margin: 0 0 20px; font-family: 'Playfair Display', Georgia, serif; font-size: 31px; font-weight: 500; letter-spacing: 0; }
+.order-summary { position: sticky; top: 20px; padding: 26px 24px; }
+.order-summary > .store-eyebrow { font-size: 10px; }
+.order-summary h2 { margin: 0 0 22px; font-family: 'Playfair Display', Georgia, serif; font-size: 34px; font-weight: 500; line-height: 1.12; letter-spacing: 0; }
 .summary-lines, .summary-dates { margin: 0; }
 .summary-lines div, .summary-dates div { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
-.summary-lines div { padding: 10px 0; border-top: 1px solid rgba(36,29,33,.1); }
-.summary-lines dt, .summary-lines dd { font-size: 10px; }
+.summary-lines div { padding: 11px 0; border-top: 1px solid rgba(36,29,33,.1); }
+.summary-lines dt, .summary-lines dd { font-size: 13px; }
 .summary-lines dt, .summary-dates dt { color: var(--store-muted); }
 .summary-lines dd, .summary-dates dd { margin: 0; text-align: right; }
-.summary-total { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; margin-top: 7px; padding: 15px 0; border-top: 1px solid var(--store-ink); border-bottom: 1px solid var(--store-line); }
-.summary-total span { font-family: 'DM Mono', monospace; font-size: 8px; text-transform: uppercase; }
-.summary-total strong { color: var(--store-wine); font-family: 'Playfair Display', Georgia, serif; font-size: 24px; font-weight: 500; }
-.summary-dates { padding: 13px 0; border-bottom: 1px solid var(--store-line); }
-.summary-dates div { padding: 4px 0; }
-.summary-dates dt, .summary-dates dd { font-size: 8px; }
-.cancel-reason { padding: 13px 0; border-bottom: 1px solid var(--store-line); }
-.cancel-reason span { color: var(--store-wine); font-family: 'DM Mono', monospace; font-size: 7px; text-transform: uppercase; }
-.cancel-reason p { margin: 6px 0 0; color: var(--store-muted); font-size: 9px; line-height: 1.5; }
-.summary-actions { display: flex; align-items: stretch; flex-direction: column; gap: 11px; padding-top: 17px; }
-.summary-actions > a, .summary-actions > button { min-height: 39px; display: flex; align-items: center; justify-content: center; gap: 7px; box-sizing: border-box; font-family: 'DM Mono', monospace; font-size: 8px; text-decoration: none; text-transform: uppercase; }
+.summary-total { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; margin-top: 8px; padding: 17px 0; border-top: 1px solid var(--store-ink); border-bottom: 1px solid var(--store-line); }
+.summary-total span { font-family: 'DM Mono', monospace; font-size: 11px; text-transform: uppercase; }
+.summary-total strong { color: var(--store-wine); font-family: 'Playfair Display', Georgia, serif; font-size: 30px; font-weight: 500; }
+.order-completion-action { padding: 17px 0 4px; }
+.order-completion-action .primary-button { width: 100%; min-height: 48px; font-size: 11px; }
+.summary-dates { padding: 15px 0; border-bottom: 1px solid var(--store-line); }
+.summary-dates div { padding: 5px 0; }
+.summary-dates dt, .summary-dates dd { font-size: 11px; }
+.cancel-reason { padding: 15px 0; border-bottom: 1px solid var(--store-line); }
+.cancel-reason span { color: var(--store-wine); font-family: 'DM Mono', monospace; font-size: 9px; text-transform: uppercase; }
+.cancel-reason p { margin: 7px 0 0; color: var(--store-muted); font-size: 12px; line-height: 1.5; }
+.summary-actions { display: flex; align-items: stretch; flex-direction: column; gap: 12px; padding-top: 19px; }
+.summary-actions > a, .summary-actions > button { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; font-family: 'DM Mono', monospace; font-size: 10px; text-decoration: none; text-transform: uppercase; }
 .summary-actions > a { color: var(--store-ink); }
 .summary-actions .support-ticket-link { border: 1px solid var(--store-wine); color: var(--store-wine); background: rgba(154,64,85,.06); }
 .summary-actions .support-ticket-link:hover { color: #fff; background: var(--store-wine); }
