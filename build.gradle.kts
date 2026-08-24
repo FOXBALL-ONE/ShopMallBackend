@@ -8,7 +8,6 @@ plugins {
 }
 
 group = "top.foxball"
-version = "0.0.1-SNAPSHOT"
 description = "ShopMall"
 
 java {

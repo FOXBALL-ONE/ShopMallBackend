@@ -49,6 +49,8 @@ export const useSupportTicketApi = () => {
             return get<SupportTicketDetail>(`/support-tickets/${ticketId}`, {
                 message_page: messagePage,
                 message_size: messageSize,
+            }, {
+                cache: "no-store",
             });
         },
 

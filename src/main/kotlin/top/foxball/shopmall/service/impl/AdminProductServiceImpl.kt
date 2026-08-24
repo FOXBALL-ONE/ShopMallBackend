@@ -153,7 +153,7 @@ class AdminProductServiceImpl(
         if (changed.isNotEmpty()) productRepository.deleteCartItemsForProducts(changed.mapNotNull(Product::id))
         changed.forEach {
             it.status = Product.Status.INACTIVE
-            it.deletedAt = java.time.LocalDateTime.now()
+            it.deletedAt = LocalDateTime.now()
         }
         return changed.size
     }
