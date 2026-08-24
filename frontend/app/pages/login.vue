@@ -317,7 +317,10 @@ onBeforeUnmount(() => {
               </label>
 
               <label class="field">
-                <span>{{ t('auth.login.password') }}</span>
+                <span>
+                  {{ t('auth.login.password') }}
+                  <NuxtLink class="forgot-link" to="/forgot-password">{{ t('auth.login.forgotPassword') }}</NuxtLink>
+                </span>
                 <div class="field-control">
                   <UIcon name="i-lucide-lock-keyhole" />
                   <input
@@ -841,6 +844,16 @@ onBeforeUnmount(() => {
   letter-spacing: .06em;
   text-transform: uppercase;
 }
+
+.forgot-link {
+  color: var(--coral-dark);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-decoration: none;
+}
+
+.forgot-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .field-control {
   min-height: 51px;

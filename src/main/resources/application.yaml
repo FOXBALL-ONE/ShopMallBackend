@@ -131,6 +131,13 @@ shopmall:
     verification:
       # 发件人地址，留空则回退到 spring.mail.username
       from: "${MAIL_FROM:}"
+    password-reset:
+      # 重置链接固定 5 分钟有效；主站地址用于生成邮件中的跳转链接。
+      ttl-seconds: "${PASSWORD_RESET_TTL_SECONDS:300}"
+      send-interval-seconds: "${PASSWORD_RESET_SEND_INTERVAL_SECONDS:60}"
+      storefront-base-url: "${STOREFRONT_BASE_URL:http://localhost:8088}"
+      from: "${MAIL_FROM:}"
+      subject-prefix: "${PASSWORD_RESET_MAIL_SUBJECT_PREFIX:PELISSA}"
     order:
       # 订单邮件默认沿用 MAIL_FROM；可单独设置主题前缀。
       from: "${MAIL_FROM:}"

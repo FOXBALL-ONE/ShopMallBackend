@@ -30,6 +30,11 @@ export interface CustomerRegistrationResponse {
   created_at: string | null
 }
 
+export interface PasswordResetResponse {
+  password_reset: boolean
+  sessions_revoked: boolean
+}
+
 const formRequestOptions = {
   payloadMode: 'json' as const,
   headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -62,6 +67,23 @@ export function useCustomerAuthApi() {
         email: email.trim()
       }), formRequestOptions)
       return response.message
+    },
+
+    async requestPasswordReset(email: string) {
+      const response = await http.postRaw<unknown, URLSearchParams>('/auth/password-reset/request', formBody({
+        email: email.trim()
+      }), formRequestOptions)
+      return response.message
+    },
+
+    async resetPassword(resetKey: string, newPassword: string, confirmPassword: string) {
+      const response = await http.postRaw<PasswordResetResponse, URLSearchParams>('/auth/password-reset', formBody({
+        token: resetKey,
+        new_password: newPassword,
+        confirm_password: confirmPassword
+      }), formRequestOptions)
+      session.clear()
+      return response
     },
 
     registerAccount(input: CustomerRegistrationInput) {

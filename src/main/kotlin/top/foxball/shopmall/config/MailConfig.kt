@@ -10,5 +10,5 @@ import org.springframework.context.annotation.Configuration
  * `JavaMailSender` 由 spring-boot-starter-mail 按 `spring.mail.*` 自动配置，无需在此声明。
  */
 @Configuration
-@EnableConfigurationProperties(MailProperties::class, OrderMailProperties::class)
+@EnableConfigurationProperties(MailProperties::class, OrderMailProperties::class, PasswordResetProperties::class)
 class MailConfig

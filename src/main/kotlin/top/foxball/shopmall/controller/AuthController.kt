@@ -18,7 +18,9 @@ import top.foxball.shopmall.authentication.RefreshCookieService
 import top.foxball.shopmall.config.JwtProperties
 import top.foxball.shopmall.service.AuthService
 import top.foxball.shopmall.service.MailService
+import top.foxball.shopmall.service.PasswordResetService
 import top.foxball.shopmall.service.UserService
+import top.foxball.shopmall.handler.ParamErrorException
 import top.foxball.shopmall.shared.Response
 import top.foxball.shopmall.shared.ResponseBuilder
 
@@ -30,6 +32,7 @@ import top.foxball.shopmall.shared.ResponseBuilder
 class AuthController(
     private val authService: AuthService,
     private val mailService: MailService,
+    private val passwordResetService: PasswordResetService,
     private val userService: UserService,
     private val loginTokenAuthentication: LoginTokenAuthentication,
     private val refreshCookieService: RefreshCookieService,
@@ -184,6 +187,45 @@ class AuthController(
         authService.changePassword(userId, currentPassword, newPassword, verificationCode, userAgent.orEmpty())
         val rs = Response(passwordChanged = true, sessionsRevoked = true)
         return builder.ok().data(rs).build()
+    }
+
+    /**
+     * @api 请求密码重置邮件
+     * @param email 用户注册邮箱
+     */
+    @PostMapping("/api/auth/password-reset/request")
+    fun requestPasswordReset(
+        @RequestParam("email") @NotBlank @Email @Size(max = 100) email: String,
+    ): ResponseEntity<Response> {
+        passwordResetService.requestReset(email)
+        return builder.ok().message("如果该邮箱已注册，密码重置邮件已发送").build()
+    }
+
+    /**
+     * @api 使用一次性链接重置密码
+     * @param token 邮件中的一次性密码重置令牌
+     * @param newPassword 新密码
+     * @param confirmPassword 确认新密码
+     */
+    @PostMapping("/api/auth/password-reset")
+    fun resetPassword(
+        @RequestParam("token") @NotBlank @Size(max = 128) token: String,
+        @RequestParam("new_password") @NotBlank @Size(min = 8, max = 72) newPassword: String,
+        @RequestParam("confirm_password") @NotBlank @Size(min = 8, max = 72) confirmPassword: String,
+        response: HttpServletResponse,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("password_reset")
+            val passwordReset: Boolean,
+            @param:JsonProperty("sessions_revoked")
+            val sessionsRevoked: Boolean,
+        )
+
+        if (newPassword != confirmPassword) throw ParamErrorException("两次输入的新密码不一致")
+        passwordResetService.resetPassword(token, newPassword)
+        refreshCookieService.clear(response)
+        val rs = Response(passwordReset = true, sessionsRevoked = true)
+        return builder.ok().message("密码已重置，请使用新密码登录").data(rs).build()
     }
 
     private fun readRefreshCookie(request: HttpServletRequest): String? {

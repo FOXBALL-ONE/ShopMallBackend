@@ -136,8 +136,12 @@ function isLogoutEndpoint(url: string): boolean {
     return /\/(?:api\/)?auth\/logout$/.test(requestPath(url));
 }
 
+function isPasswordResetEndpoint(url: string): boolean {
+    return /\/(?:api\/)?auth\/password-reset(?:\/request)?$/.test(requestPath(url));
+}
+
 function isAuthenticationEndpoint(url: string): boolean {
-    return isLoginEndpoint(url) || isRefreshEndpoint(url) || isLogoutEndpoint(url);
+    return isLoginEndpoint(url) || isRefreshEndpoint(url) || isLogoutEndpoint(url) || isPasswordResetEndpoint(url);
 }
 
 function requestFailure(error: unknown): RequestFailure {

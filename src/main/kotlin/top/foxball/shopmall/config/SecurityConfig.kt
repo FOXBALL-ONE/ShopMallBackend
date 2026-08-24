@@ -68,7 +68,8 @@ class SecurityConfig(
                     "/api/auth/logout",
                     "/api/auth/register/manager",
                     "/api/auth/verification-code",
-                    "/api/auth/reset-password",
+                    "/api/auth/password-reset/request",
+                    "/api/auth/password-reset",
                     "/api/users/Register",
                     "/error",
                 ).permitAll()
