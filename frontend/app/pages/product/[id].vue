@@ -145,79 +145,25 @@ function matchingVariants(candidateSelection: Record<string, string>): CatalogVa
   return variants.value.filter(variant => Object.entries(candidateSelection).every(([code, value]) => !value || optionValue(variant, code) === value))
 }
 
-function hasAvailableVariant(candidateSelection: Record<string, string>): boolean {
-  return matchingVariants(candidateSelection).some(variant => variant.warehouse_volume > 0)
-}
-
-function selectionThrough(code: string, value?: string): Record<string, string> {
-  const next = Object.fromEntries(
+function selectionWithout(code: string): Record<string, string> {
+  return Object.fromEntries(
     Object.entries(selection.value).filter(([selectedCode]) => selectedCode !== code),
   )
-  if (!value) return next
-
-  // 将刚操作的规格放到选择顺序末尾。若组合不存在，优先保留更多已有选择，
-  // 并在同样数量的候选中保留更早选中的规格，避免误清理颜色等独立规格。
-  next[code] = value
-  if (hasAvailableVariant(next)) return next
-
-  const selectedCodes = Object.keys(next).filter(selectedCode => selectedCode !== code)
-  const availableCandidates = variants.value.filter(variant =>
-    variant.warehouse_volume > 0 && optionValue(variant, code) === value,
-  )
-  let bestCandidate: CatalogVariant | null = null
-  let bestKeptCount = -1
-  for (const candidate of availableCandidates) {
-    const keptCount = selectedCodes.reduce((count, selectedCode) =>
-      count + (optionValue(candidate, selectedCode) === next[selectedCode] ? 1 : 0), 0)
-    let keepsEarlierSelection = false
-    if (keptCount === bestKeptCount && bestCandidate) {
-      for (const selectedCode of selectedCodes) {
-        const candidateKeeps = optionValue(candidate, selectedCode) === next[selectedCode]
-        const bestKeeps = optionValue(bestCandidate, selectedCode) === next[selectedCode]
-        if (candidateKeeps === bestKeeps) continue
-        keepsEarlierSelection = candidateKeeps
-        break
-      }
-    }
-    if (keptCount > bestKeptCount || keepsEarlierSelection) {
-      bestCandidate = candidate
-      bestKeptCount = keptCount
-    }
-  }
-
-  if (!bestCandidate) return next
-  const compatibleSelection: Record<string, string> = {}
-  selectedCodes.forEach(selectedCode => {
-    if (optionValue(bestCandidate!, selectedCode) === next[selectedCode]) {
-      compatibleSelection[selectedCode] = next[selectedCode]!
-    }
-  })
-  compatibleSelection[code] = value
-  return compatibleSelection
 }
 
-type OptionAvailability = { available: boolean; adjustsSelection: boolean; soldOut: boolean; title: string }
+type OptionAvailability = { available: boolean; soldOut: boolean; title: string }
 
 function optionAvailability(code: string, value: string): OptionAvailability {
-  const directSelection = { ...selection.value, [code]: value }
-  const directMatches = matchingVariants(directSelection)
-  if (directMatches.some(variant => variant.warehouse_volume > 0)) {
-    return { available: true, adjustsSelection: false, soldOut: false, title: 'Available' }
-  }
-
-  const compatibleSelection = selectionThrough(code, value)
-  const hasCompatibleStock = hasAvailableVariant(compatibleSelection)
-  const adjustsSelection = hasCompatibleStock && Object.keys(directSelection).some(
-    selectedCode => compatibleSelection[selectedCode] !== directSelection[selectedCode],
-  )
-  const soldOut = !hasCompatibleStock && directMatches.length > 0
+  // Keep every other selected dimension fixed. An option is selectable only
+  // when that exact partial combination still has an in-stock variant.
+  const candidateSelection = { ...selectionWithout(code), [code]: value }
+  const matching = matchingVariants(candidateSelection)
+  const available = matching.some(variant => variant.warehouse_volume > 0)
+  const soldOut = !available && matching.length > 0
   return {
-    available: hasCompatibleStock,
-    adjustsSelection,
+    available,
     soldOut,
-    title: hasCompatibleStock
-      ? 'Selecting this will update an incompatible option'
-      : soldOut ? 'Sold out for the current selection' : 'Unavailable with the current selection',
+    title: available ? 'Available' : soldOut ? 'Sold out for the current selection' : 'Unavailable with the current selection',
   }
 }
 
@@ -234,7 +180,7 @@ const optionAvailabilityByKey = computed(() => Object.fromEntries(
 
 function getOptionAvailability(code: string, value: string): OptionAvailability {
   return optionAvailabilityByKey.value[optionAvailabilityKey(code, value)]
-    ?? { available: false, adjustsSelection: false, soldOut: false, title: 'Unavailable' }
+    ?? { available: false, soldOut: false, title: 'Unavailable' }
 }
 
 const colorSwatches: Record<string, string> = {
@@ -256,14 +202,16 @@ function colorSwatch(value: string): string {
 
 function selectOption(code: string, value: string) {
   if (!getOptionAvailability(code, value).available) return
-  selection.value = selectionThrough(code, selection.value[code] === value ? undefined : value)
+  selection.value = selection.value[code] === value
+    ? selectionWithout(code)
+    : { ...selectionWithout(code), [code]: value }
   isAdded.value = false
   addError.value = ''
 }
 
 function clearOption(code: string) {
   if (!selection.value[code]) return
-  selection.value = selectionThrough(code)
+  selection.value = selectionWithout(code)
   isAdded.value = false
   addError.value = ''
 }
