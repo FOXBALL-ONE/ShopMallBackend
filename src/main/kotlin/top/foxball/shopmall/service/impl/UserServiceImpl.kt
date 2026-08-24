@@ -100,6 +100,16 @@ class UserServiceImpl(
         return savedUsers
     }
 
+    @Transactional
+    override fun updatePassword(userId: Long, newPassword: String): Boolean {
+        val user = userRepository.findByIdForUpdate(userId) ?: return false
+        user.password = requireNotNull(passwordEncoder.encode(newPassword)) { "密码编码失败" }
+        user.updatedAt = LocalDateTime.now()
+        userRepository.save(user)
+        loginTokenAuthentication.revokeAll(userId)
+        return true
+    }
+
     override fun getDeliveryAddresses(userId: Long): List<DeliveryAddressItem>? =
         userRepository.findWithDeliveryAddressById(userId)?.deliveryAddress?.toList()
 

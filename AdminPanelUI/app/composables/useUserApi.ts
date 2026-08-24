@@ -4,6 +4,7 @@ import type {
   AdminUserDetail,
   AdminUserListQuery,
   AdminUserMutation,
+  AdminUserPasswordMutation,
   AdminUserPage,
 } from '~/types/user'
 
@@ -27,6 +28,10 @@ export const useUserApi = () => {
 
     update(userId: number, payload: AdminUserMutation) {
       return put<AdminUserDetail, AdminUserMutation>(`/users/${userId}`, payload)
+    },
+
+    updatePassword(userId: number, payload: AdminUserPasswordMutation) {
+      return put<{ id: number; password_changed: true }, AdminUserPasswordMutation>(`/users/${userId}/password`, payload)
     },
 
     updateBatch(payload: AdminUserBatchMutation) {

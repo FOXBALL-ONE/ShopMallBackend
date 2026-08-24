@@ -67,6 +67,8 @@ interface AdminUserService {
 
     fun update(adminId: Long, userId: Long, command: UpdateAdminUserCommand): User?
 
+    fun updatePassword(adminId: Long, userId: Long, newPassword: String): Boolean
+
     fun updateBatch(
         adminId: Long,
         userIds: List<Long>,

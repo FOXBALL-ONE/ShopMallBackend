@@ -98,6 +98,11 @@ class AdminUserServiceImpl(
         return userService.updateUser(user)
     }
 
+    override fun updatePassword(adminId: Long, userId: Long, newPassword: String): Boolean {
+        adminAccessService.requireAdmin(adminId)
+        return userService.updatePassword(userId, newPassword)
+    }
+
     override fun updateBatch(
         adminId: Long,
         userIds: List<Long>,

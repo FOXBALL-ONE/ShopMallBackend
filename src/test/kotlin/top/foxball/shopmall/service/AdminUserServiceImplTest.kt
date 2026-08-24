@@ -128,6 +128,16 @@ class AdminUserServiceImplTest {
     }
 
     @Test
+    fun `password update requires admin access and delegates to user service`() {
+        `when`(userService.updatePassword(7, "new-password")).thenReturn(true)
+
+        assertTrue(service.updatePassword(99, 7, "new-password"))
+
+        verify(adminAccessService).requireAdmin(99)
+        verify(userService).updatePassword(7, "new-password")
+    }
+
+    @Test
     fun `batch update returns null without writing when any user is missing`() {
         val alice = User(id = 7, username = "alice")
         `when`(userRepository.findAllById(listOf(7L, 8L))).thenReturn(listOf(alice))

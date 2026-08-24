@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronsUpDown, ImagePlus, Pencil, Plus, Trash2, X } from '@lucide/vue'
+import { ChevronsUpDown, ImagePlus, KeyRound, Pencil, Plus, Trash2, X } from '@lucide/vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import type {
   AutoCompleteOption,
@@ -43,9 +43,13 @@ const purgingUserId = ref<number | null>(null)
 const users = ref<AdminUserListItem[]>([])
 const checkedRowKeys = ref<DataTableRowKey[]>([])
 const editorOpen = ref(false)
+const passwordModalOpen = ref(false)
 const editorMode = ref<EditorMode>('create')
 const editingUser = ref<AdminUserDetail | null>(null)
+const passwordUser = ref<AdminUserListItem | null>(null)
 const formRef = ref<FormInst | null>(null)
+const passwordFormRef = ref<FormInst | null>(null)
+const passwordSaving = ref(false)
 
 const filters = reactive<{
   keyword: string
@@ -98,6 +102,11 @@ const form = reactive<{
   role: 'CUSTOMER',
   enabled: true,
   status: 'ACTIVE',
+})
+
+const passwordForm = reactive({
+  newPassword: '',
+  confirmPassword: '',
 })
 
 const roleOptions = [
@@ -237,6 +246,21 @@ const formRules = computed<FormRules>(() => ({
   }],
   currency: [{ pattern: /^[A-Za-z]{3}$/, message: '币种需为 3 位代码，例如 USD', trigger: ['blur', 'input'] }],
 }))
+
+const passwordFormRules: FormRules = {
+  newPassword: [
+    { required: true, message: '请输入新密码，长度为 8 到 72 个字符', trigger: ['blur', 'input'] },
+    { min: 8, max: 72, message: '新密码长度必须为 8 到 72 个字符', trigger: ['blur', 'input'] },
+  ],
+  confirmPassword: [
+    { required: true, message: '请再次输入相同的新密码', trigger: ['blur', 'input'] },
+    {
+      validator: (_rule, value: string) => value === passwordForm.newPassword,
+      message: '两次输入的密码必须完全一致',
+      trigger: ['blur', 'input'],
+    },
+  ],
+}
 
 function filterCodeOptions(options: AutoCompleteOption[], query: string): AutoCompleteOption[] {
   const keyword = query.trim().toLowerCase()
@@ -407,6 +431,45 @@ function closeEditor() {
   editorOpen.value = false
   editingUser.value = null
   resetForm()
+}
+
+function openPasswordModal(row: AdminUserListItem) {
+  passwordUser.value = row
+  passwordForm.newPassword = ''
+  passwordForm.confirmPassword = ''
+  passwordFormRef.value?.restoreValidation()
+  passwordModalOpen.value = true
+}
+
+function closePasswordModal() {
+  if (passwordSaving.value) return
+  passwordModalOpen.value = false
+  passwordUser.value = null
+  passwordForm.newPassword = ''
+  passwordForm.confirmPassword = ''
+}
+
+async function submitPassword() {
+  if (!passwordUser.value) return
+  try {
+    await passwordFormRef.value?.validate()
+  } catch {
+    return
+  }
+
+  passwordSaving.value = true
+  try {
+    await api.updatePassword(passwordUser.value.id, { new_password: passwordForm.newPassword })
+    message.success(`用户 ${passwordUser.value.username} 的密码已修改，已有登录会话已撤销`)
+    passwordModalOpen.value = false
+    passwordUser.value = null
+    passwordForm.newPassword = ''
+    passwordForm.confirmPassword = ''
+  } catch (error) {
+    message.error(`修改密码失败：${errorMessage(error)}`)
+  } finally {
+    passwordSaving.value = false
+  }
 }
 
 async function uploadAvatar(options: UploadCustomRequestOptions) {
@@ -690,13 +753,25 @@ const columns: DataTableColumns<AdminUserListItem> = [
   {
     title: '操作',
     key: 'actions',
-    width: 170,
+    width: 210,
     fixed: 'right',
     render: row => h('div', { class: 'table-actions' }, [
       h(
         NButton,
         { size: 'small', tertiary: true, onClick: () => openEdit(row) },
         { icon: () => h(Pencil, { size: 14 }), default: () => '编辑' },
+      ),
+      h(
+        NButton,
+        {
+          size: 'small',
+          tertiary: true,
+          circle: true,
+          title: '修改密码',
+          'aria-label': `修改用户 ${row.username} 的密码`,
+          onClick: () => openPasswordModal(row),
+        },
+        { icon: () => h(KeyRound, { size: 14 }) },
       ),
       h(
         NButton,
@@ -1015,6 +1090,54 @@ onMounted(() => {
         </template>
       </NDrawerContent>
     </NDrawer>
+
+    <NModal
+      v-model:show="passwordModalOpen"
+      preset="card"
+      :title="`修改密码 · ${passwordUser?.username ?? ''}`"
+      :mask-closable="!passwordSaving"
+      :close-on-esc="!passwordSaving"
+      :closable="!passwordSaving"
+      :style="{ width: 'min(480px, calc(100vw - 32px))' }"
+    >
+      <NForm ref="passwordFormRef" :model="passwordForm" :rules="passwordFormRules" label-placement="top">
+        <NFormItem label="新密码" path="newPassword">
+          <div class="field-with-hint">
+            <NInput
+              v-model:value="passwordForm.newPassword"
+              type="password"
+              show-password-on="click"
+              maxlength="72"
+              placeholder="输入新密码"
+              :disabled="passwordSaving"
+              @keyup.enter="submitPassword"
+            />
+            <small class="field-hint">密码长度为 8 到 72 个字符。</small>
+          </div>
+        </NFormItem>
+        <NFormItem label="确认新密码" path="confirmPassword">
+          <div class="field-with-hint">
+            <NInput
+              v-model:value="passwordForm.confirmPassword"
+              type="password"
+              show-password-on="click"
+              maxlength="72"
+              placeholder="再次输入新密码"
+              :disabled="passwordSaving"
+              @keyup.enter="submitPassword"
+            />
+            <small class="field-hint">请再次输入完全相同的密码。</small>
+          </div>
+        </NFormItem>
+      </NForm>
+
+      <template #footer>
+        <NSpace justify="end">
+          <NButton :disabled="passwordSaving" @click="closePasswordModal">取消</NButton>
+          <NButton type="primary" :loading="passwordSaving" @click="submitPassword">确认修改</NButton>
+        </NSpace>
+      </template>
+    </NModal>
   </div>
 </template>
 

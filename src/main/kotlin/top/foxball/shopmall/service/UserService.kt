@@ -31,6 +31,9 @@ interface UserService {
     /** 批量更新用户；账号安全属性变化时由实现层撤销已有会话。 */
     fun updateUsers(users: List<User>): List<User>
 
+    /** 修改指定用户的密码并撤销其全部登录会话；用户不存在时返回 `false`。 */
+    fun updatePassword(userId: Long, newPassword: String): Boolean
+
     /** 查询用户的全部配送地址；用户不存在时返回 `null`。 */
     fun getDeliveryAddresses(userId: Long): List<DeliveryAddressItem>?
 

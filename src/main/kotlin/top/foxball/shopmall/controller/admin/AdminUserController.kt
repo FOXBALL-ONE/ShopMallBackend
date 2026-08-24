@@ -394,6 +394,30 @@ class AdminUserController(
     }
 
     /**
+     * @api 修改用户密码
+     * @param userId 用户 ID
+     * @param newPassword 新密码，长度为 8 到 72 个字符
+     */
+    @PutMapping("/{user_id}/password")
+    fun updateUserPassword(
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable("user_id") @Min(1) userId: Long,
+        @RequestParam("new_password") @NotBlank @Size(min = 8, max = 72) newPassword: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            @param:JsonProperty("password_changed")
+            val passwordChanged: Boolean,
+        )
+
+        if (!adminUserService.updatePassword(adminId, userId, newPassword)) {
+            return builder.notFound().message("用户不存在").build()
+        }
+        val rs = Response(userId, true)
+        return builder.ok().data(rs).build()
+    }
+
+    /**
      * @api 批量更新用户
      * @param ids 用户 ID 列表
      */

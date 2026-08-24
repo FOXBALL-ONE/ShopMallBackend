@@ -93,6 +93,31 @@ class UserServiceImplTest {
     }
 
     @Test
+    fun `password update encodes password saves user and revokes all sessions`() {
+        val user = User(id = 42)
+        `when`(userRepository.findByIdForUpdate(42)).thenReturn(user)
+        `when`(passwordEncoder.encode("new-password")).thenReturn("encoded-password")
+
+        assertTrue(service.updatePassword(42, "new-password"))
+
+        assertEquals("encoded-password", user.password)
+        val order = inOrder(passwordEncoder, userRepository, loginTokenAuthentication)
+        order.verify(passwordEncoder).encode("new-password")
+        order.verify(userRepository).save(user)
+        order.verify(loginTokenAuthentication).revokeAll(42)
+    }
+
+    @Test
+    fun `password update returns false without encoding when user does not exist`() {
+        `when`(userRepository.findByIdForUpdate(404)).thenReturn(null)
+
+        assertEquals(false, service.updatePassword(404, "new-password"))
+
+        verify(userRepository).findByIdForUpdate(404)
+        org.mockito.Mockito.verifyNoInteractions(passwordEncoder, loginTokenAuthentication)
+    }
+
+    @Test
     fun `batch deletion locks all users before marking them deleted`() {
         val first = User(id = 5)
         val second = User(id = 9)

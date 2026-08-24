@@ -63,6 +63,10 @@ export interface AdminUserMutation {
   status: AdminUserStatus
 }
 
+export interface AdminUserPasswordMutation {
+  new_password: string
+}
+
 export interface AdminUserBatchMutation {
   ids: number[]
   role?: AdminUserRole

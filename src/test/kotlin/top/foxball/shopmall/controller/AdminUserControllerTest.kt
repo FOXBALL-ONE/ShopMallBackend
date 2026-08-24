@@ -159,6 +159,43 @@ class AdminUserControllerTest {
     }
 
     @Test
+    fun `admin can update a user password through dedicated endpoint`() {
+        `when`(adminUserService.updatePassword(99, 7, "new-password")).thenReturn(true)
+
+        mockMvc.perform(
+            put("/admin/api/users/7/password")
+                .param("new_password", "new-password"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.id").value(7))
+            .andExpect(jsonPath("$.data.password_changed").value(true))
+
+        verify(adminUserService).updatePassword(99, 7, "new-password")
+    }
+
+    @Test
+    fun `admin password update rejects a password shorter than eight characters`() {
+        mockMvc.perform(
+            put("/admin/api/users/7/password")
+                .param("new_password", "short"),
+        )
+            .andExpect(status().isBadRequest)
+    }
+
+    @Test
+    fun `admin password update returns not found for missing user`() {
+        `when`(adminUserService.updatePassword(99, 404, "new-password")).thenReturn(false)
+
+        mockMvc.perform(
+            put("/admin/api/users/404/password")
+                .param("new_password", "new-password"),
+        )
+            .andExpect(status().isNotFound)
+
+        verify(adminUserService).updatePassword(99, 404, "new-password")
+    }
+
+    @Test
     fun `admin delete returns logical deleted state`() {
         `when`(adminUserService.delete(99, 7)).thenReturn(7L)
 
