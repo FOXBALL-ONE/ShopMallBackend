@@ -415,7 +415,6 @@ class AdminOrderController(
 
         val view = orderService.refund(adminId, orderNo, reason)
         val order = view.order
-        orderPaymentService.reconcileRequestedRefund(requireNotNull(order.id))
         val rs = Response(
             id = requireNotNull(order.id),
             orderNo = order.orderNo,

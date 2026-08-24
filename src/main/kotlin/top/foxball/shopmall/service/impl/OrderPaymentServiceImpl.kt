@@ -215,8 +215,7 @@ class OrderPaymentServiceImpl(
         val order = orderRepository.findById(orderId).orElse(null) ?: return
         if (order.status != OrderStatus.REFUNDING || order.paymentStatus != OrderPaymentStatus.REFUNDING) return
         if (order.stripeRefundId != null) return
-        val paymentIntentId = order.paymentIntentId
-            ?: throw IllegalStateException("Refunding order ${order.orderNo} has no Stripe PaymentIntent")
+        val paymentIntentId = resolvePaymentIntentId(order)
         val refund = paymentIntentCoordinator.refund(paymentIntentId, requestedRefundIdempotencyKey(order))
         val refundId = requireNotNull(refund.id) { "Stripe refund did not contain an id" }
         orderRepository.recordStripeRefund(orderId, OrderStatus.REFUNDING, OrderPaymentStatus.REFUNDING, refundId)
@@ -256,11 +255,21 @@ class OrderPaymentServiceImpl(
     override fun reconcileConflictRefund(orderId: Long) {
         val order = orderRepository.findById(orderId).orElse(null) ?: return
         if (order.status != OrderStatus.CANCELLED || order.paymentStatus != OrderPaymentStatus.REFUNDING) return
-        val paymentIntentId = order.paymentIntentId ?: return
+        if (order.stripeRefundId != null) return
+        val paymentIntentId = resolvePaymentIntentId(order)
         val refund = paymentIntentCoordinator.refund(paymentIntentId, refundIdempotencyKey(order.orderNo))
         val refundId = requireNotNull(refund.id) { "Stripe refund did not contain an id" }
         orderRepository.recordStripeRefund(orderId, OrderStatus.CANCELLED, OrderPaymentStatus.REFUNDING, refundId)
     }
+
+    private fun resolvePaymentIntentId(order: OrderEntity): String =
+        order.paymentIntentId ?: order.stripeCheckoutSessionId?.let { sessionId ->
+            stripeService.retrieveCheckoutSession(sessionId).paymentIntentId?.also { resolvedPaymentIntentId ->
+                orderRepository.attachPaymentIntentToStripeCheckoutSession(sessionId, resolvedPaymentIntentId)
+            }
+        } ?: throw IllegalStateException(
+            "Refunding order ${order.orderNo} has neither a Stripe PaymentIntent nor a resolvable Checkout Session",
+        )
 
     private fun queryRefundStatus(order: OrderEntity): OrderRefundStatusView {
         if (order.paymentStatus !in setOf(

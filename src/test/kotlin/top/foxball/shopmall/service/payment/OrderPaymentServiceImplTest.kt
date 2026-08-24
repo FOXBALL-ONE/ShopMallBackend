@@ -246,6 +246,54 @@ class OrderPaymentServiceImplTest {
     }
 
     @Test
+    fun `requested refund resolves and stores PaymentIntent from Checkout Session`() {
+        val requestedAt = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC)
+        val order = pendingOrder().apply {
+            status = OrderStatus.REFUNDING
+            paymentStatus = OrderPaymentStatus.REFUNDING
+            paymentIntentId = null
+            stripeCheckoutSessionId = "cs_requested"
+            refundRequestedAt = requestedAt
+        }
+        val refund = mock(Refund::class.java).also {
+            `when`(it.id).thenReturn("re_requested")
+        }
+        `when`(orderRepository.findById(10)).thenReturn(Optional.of(order))
+        `when`(stripeService.retrieveCheckoutSession("cs_requested")).thenReturn(
+            StripeCheckoutSession(
+                id = "cs_requested",
+                paymentIntentId = "pi_requested",
+                url = null,
+                status = "complete",
+                expiresAt = null,
+                paymentStatus = "paid",
+                collectionStatus = PaymentStatus.SUCCEEDED,
+            ),
+        )
+        `when`(
+            coordinator.refund(
+                "pi_requested",
+                "ORD-PAYMENT-1:requested-refund:$requestedAt",
+            ),
+        ).thenReturn(refund)
+
+        service.reconcileRequestedRefund(10)
+
+        verify(stripeService).retrieveCheckoutSession("cs_requested")
+        verify(orderRepository).attachPaymentIntentToStripeCheckoutSession("cs_requested", "pi_requested")
+        verify(coordinator).refund(
+            "pi_requested",
+            "ORD-PAYMENT-1:requested-refund:$requestedAt",
+        )
+        verify(orderRepository).recordStripeRefund(
+            10,
+            OrderStatus.REFUNDING,
+            OrderPaymentStatus.REFUNDING,
+            "re_requested",
+        )
+    }
+
+    @Test
     fun `outbox retry does not request Stripe again after refund id is recorded`() {
         val order = pendingOrder().apply {
             status = OrderStatus.REFUNDING

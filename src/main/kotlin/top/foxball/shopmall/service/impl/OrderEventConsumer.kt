@@ -104,7 +104,7 @@ class OrderEventConsumer(
         val operations = redis.opsForStream<String, String>()
         val bootstrapId = operations.add(STREAM, mapOf("bootstrap" to "true"))
         try {
-            operations.createGroup(STREAM, ReadOffset.latest(), GROUP)
+            operations.createGroup(STREAM, ReadOffset.from("0-0"), GROUP)
         } catch (ex: Exception) {
             if (ex.message?.contains("BUSYGROUP", ignoreCase = true) != true) throw ex
         } finally {

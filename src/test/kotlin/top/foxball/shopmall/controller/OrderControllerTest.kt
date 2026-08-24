@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.anyList
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.springframework.data.domain.PageImpl
@@ -324,7 +325,7 @@ class OrderControllerTest {
     }
 
     @Test
-    fun `admin refund immediately requests Stripe refund`() {
+    fun `admin refund relies on the transactional outbox`() {
         authenticate(99L)
         val order = OrderEntity(
             id = 10,
@@ -346,7 +347,7 @@ class OrderControllerTest {
             .andExpect(jsonPath("$.data.payment_status").value("REFUNDING"))
 
         verify(orderService).refund(99L, "ORD-API-1", "duplicate charge")
-        verify(orderPaymentService).reconcileRequestedRefund(10)
+        verify(orderPaymentService, never()).reconcileRequestedRefund(10)
     }
 
     @Test
