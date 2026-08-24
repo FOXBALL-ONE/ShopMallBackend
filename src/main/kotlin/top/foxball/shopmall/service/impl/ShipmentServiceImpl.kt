@@ -578,6 +578,62 @@ class ShipmentServiceImpl(
     }
 
     @Transactional
+    override fun markCustomerDelivered(
+        orderNo: String,
+        shipmentNo: String,
+        userId: Long,
+        idempotencyKey: String,
+    ): ShipmentDetails {
+        val customerOrder = findCustomerOrder(orderNo, userId)
+        val order = orderRepository.lockById(requireNotNull(customerOrder.id)) ?: throw OrderNotFoundException()
+        val identity = shipmentRepository.findByShipmentNo(shipmentNo) ?: throw ShipmentNotFoundException()
+        if (identity.orderId != order.id) throw ShipmentNotFoundException()
+        val shipment = shipmentRepository.findByIdForUpdate(requireNotNull(identity.id))
+            ?: throw ShipmentNotFoundException()
+        requireMutableShipment(shipment)
+        val reason = "Customer confirmed delivery"
+        val requestHash = idempotencyService.requestHash("$orderNo|$shipmentNo")
+        replay(userId, CUSTOMER_DELIVER_SHIPMENT, idempotencyKey, requestHash)?.let { shipmentId ->
+            val current = shipmentRepository.findById(shipmentId).orElse(null) ?: throw ShipmentNotFoundException()
+            return ShipmentDetails(
+                shipment = current,
+                orderNo = order.orderNo,
+                items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+                tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+            )
+        }
+        when (shipment.status) {
+            ShipmentStatus.DELIVERED -> throw ShipmentStatusException("运单已签收，不可重复签收")
+            ShipmentStatus.IN_TRANSIT, ShipmentStatus.OUT_FOR_DELIVERY -> Unit
+            ShipmentStatus.CANCEL_PENDING -> throw ShipmentStatusException("运单取消中，不可签收")
+            ShipmentStatus.CANCELLED -> throw ShipmentStatusException("运单已取消，不可签收")
+            else -> throw ShipmentStatusException("当前运单尚未进入派送阶段")
+        }
+        val deliveredAt = clock.instant()
+        val event = TrackingEvent(
+            trackingNo = shipment.trackingNo ?: shipment.shipmentNo,
+            carrierEventId = "customer:${shipment.id}:${sha256(idempotencyKey).take(32)}",
+            statusCode = "CUSTOMER_DELIVERED",
+            normalizedStatus = NormalizedTrackingStatus.DELIVERED,
+            location = null,
+            description = reason,
+            occurredAt = deliveredAt,
+            raw = null,
+        )
+        applyTrackingEventLocked(order, shipment, event, TrackSource.MANUAL)
+        val shipmentId = requireNotNull(shipment.id)
+        idempotencyService.record(userId, CUSTOMER_DELIVER_SHIPMENT, idempotencyKey, requestHash, shipmentId)
+        entityManager.flush()
+        val delivered = shipmentRepository.findById(shipmentId).orElse(null) ?: throw ShipmentNotFoundException()
+        return ShipmentDetails(
+            shipment = delivered,
+            orderNo = order.orderNo,
+            items = shipmentItemRepository.findAllByShipment_IdOrderById(shipmentId),
+            tracks = shipmentTrackRepository.findAllByShipment_IdOrderByOccurredAtAscCarrierEventIdAsc(shipmentId),
+        )
+    }
+
+    @Transactional
     override fun handleTrackingEvent(carrierCode: CarrierCode, event: TrackingEvent, source: TrackSource) {
         val carrier = carrierRegistry.find(carrierCode) ?: run {
             logger.warn("Ignoring tracking event for unregistered carrier {}", carrierCode)
@@ -820,5 +876,6 @@ class ShipmentServiceImpl(
         const val DISPATCH_SHIPMENT = "DISPATCH_SHIPMENT"
         const val CANCEL_SHIPMENT = "CANCEL_SHIPMENT"
         const val DELIVER_SHIPMENT = "DELIVER_SHIPMENT"
+        const val CUSTOMER_DELIVER_SHIPMENT = "CUSTOMER_DELIVER_SHIPMENT"
     }
 }

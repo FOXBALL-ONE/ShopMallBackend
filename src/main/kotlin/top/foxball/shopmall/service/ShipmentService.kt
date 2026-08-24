@@ -81,6 +81,13 @@ interface ShipmentService {
         idempotencyKey: String,
     ): ShipmentDetails
 
+    fun markCustomerDelivered(
+        orderNo: String,
+        shipmentNo: String,
+        userId: Long,
+        idempotencyKey: String,
+    ): ShipmentDetails
+
     fun handleTrackingEvent(carrierCode: CarrierCode, event: TrackingEvent, source: TrackSource)
 
     fun reconcileOrderDelivery(orderId: Long)

@@ -193,6 +193,14 @@ export function useCustomerAccountApi() {
     },
 
     trackShipment(carrier: string, trackingNo: string) {
+    markShipmentDelivered(orderNo: string, shipmentNo: string, idempotencyKey: string) {
+      return http.post<CustomerShipment>(
+        `/orders/${encodeURIComponent(orderNo)}/shipments/${encodeURIComponent(shipmentNo)}/delivered`,
+        undefined,
+        { headers: { 'Idempotency-Key': idempotencyKey } }
+      )
+    },
+
       return http.get<CustomerShipment>(
         `/logistics/track/${encodeURIComponent(carrier)}/${encodeURIComponent(trackingNo)}`
       )

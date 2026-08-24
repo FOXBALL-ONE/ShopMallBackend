@@ -121,6 +121,26 @@ class ShipmentControllerTest {
     }
 
     @Test
+    fun `customer confirms shipment delivery with idempotency key`() {
+        authenticate(7L)
+        val details = shipmentDetails()
+        details.shipment.status = ShipmentStatus.DELIVERED
+        `when`(shipmentService.markCustomerDelivered("ORD-1", "SHP-1", 7L, "customer-1")).thenReturn(details)
+
+        mockMvc.perform(
+            post("/api/orders/ORD-1/shipments/SHP-1/delivered")
+                .header("Idempotency-Key", "customer-1"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.shipment_no").value("SHP-1"))
+            .andExpect(jsonPath("$.data.order_no").value("ORD-1"))
+            .andExpect(jsonPath("$.data.status").value("DELIVERED"))
+            .andExpect(jsonPath("$.data.tracks[0].normalized_status").value("IN_TRANSIT"))
+
+        verify(shipmentService).markCustomerDelivered("ORD-1", "SHP-1", 7L, "customer-1")
+    }
+
+    @Test
     fun `admin global shipment list forwards filters and pagination`() {
         authenticate(99L)
         val query = AdminShipmentQuery(

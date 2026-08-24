@@ -34,6 +34,9 @@ const lookupError = ref('')
 
 const lookupForm = reactive({ carrier: '', trackingNo: '' })
 const lookupLoading = ref(false)
+const deliveryLoading = ref(false)
+const deliveryError = ref('')
+const deliveryConfirmOpen = ref(false)
 
 const requestedOrderNo = computed(() => {
   const value = route.query.order_no
@@ -89,6 +92,8 @@ async function selectShipment(shipment: CustomerShipment, fetchDetail = true) {
     return
   }
   selectedShipment.value = shipment
+  deliveryError.value = ''
+  deliveryConfirmOpen.value = false
   if (!fetchDetail) return
 
   isLoadingDetail.value = true
@@ -213,6 +218,38 @@ async function lookupTracking() {
   }
 }
 
+function openShipmentDeliveryConfirm() {
+  const shipment = selectedShipment.value
+  if (!shipment || !['IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(shipment.status) || deliveryLoading.value) return
+  deliveryError.value = ''
+  deliveryConfirmOpen.value = true
+}
+
+function closeShipmentDeliveryConfirm() {
+  if (!deliveryLoading.value) deliveryConfirmOpen.value = false
+}
+
+async function confirmShipmentDelivery() {
+  const shipment = selectedShipment.value
+  if (!shipment || !['IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(shipment.status) || deliveryLoading.value) return
+  deliveryConfirmOpen.value = false
+  deliveryError.value = ''
+  deliveryLoading.value = true
+  try {
+    const key = import.meta.client && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `customer-delivery-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const detail = await api.markShipmentDelivered(shipment.order_no, shipment.shipment_no, key)
+    selectedShipment.value = detail
+    const index = shipments.value.findIndex(item => item.shipment_no === detail.shipment_no && item.order_no === detail.order_no)
+    if (index >= 0) shipments.value[index] = detail
+  } catch (error: unknown) {
+    deliveryError.value = customerRequestMessage(error, t('accountLogistics.errors.delivery'))
+  } finally {
+    deliveryLoading.value = false
+  }
+}
+
 watch(requestedOrderNo, () => {
   if (import.meta.client && !isLoading.value) void loadLogistics()
 })
@@ -300,6 +337,13 @@ onMounted(() => {
               <p v-else>{{ selectedShipment.tracking_no ? t('accountLogistics.carrierHasDetails') : t('accountLogistics.labelPreparing') }}</p>
             </div>
             <span class="status-pill" :class="`tone-${customerStatusTone(selectedShipment.status)}`">{{ orderStatusLabel(selectedShipment.status) }}</span>
+          </div>
+          <div v-if="['IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(selectedShipment.status)" class="shipment-delivery-action">
+            <button type="button" class="store-button" :disabled="deliveryLoading" :aria-busy="deliveryLoading" @click="openShipmentDeliveryConfirm">
+              <UIcon :name="deliveryLoading ? 'i-lucide-loader-circle' : 'i-lucide-package-check'" :class="{ 'is-spinning': deliveryLoading }" />
+              {{ deliveryLoading ? t('accountLogistics.delivering') : t('accountLogistics.confirmDelivery') }}
+            </button>
+            <p v-if="deliveryError" class="inline-error"><UIcon name="i-lucide-circle-alert" /> {{ deliveryError }}</p>
           </div>
           <div class="shipment-progress" :aria-label="t('accountLogistics.deliveryProgress')">
             <div class="shipment-progress-line"><span :style="{ width: `${shipmentProgress}%` }" /></div>
@@ -394,6 +438,19 @@ onMounted(() => {
           <div v-if="lookupError" class="inline-error"><UIcon name="i-lucide-circle-alert" /> {{ lookupError }}</div>
         </form>
       </section>
+
+      <div v-if="deliveryConfirmOpen && selectedShipment" class="delivery-confirm-backdrop" role="presentation" @click.self="closeShipmentDeliveryConfirm">
+        <section class="delivery-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delivery-confirm-title">
+          <UIcon name="i-lucide-package-check" class="delivery-confirm-icon" aria-hidden="true" />
+          <p class="panel-kicker">{{ t('accountLogistics.confirmDeliveryKicker') }}</p>
+          <h2 id="delivery-confirm-title">{{ t('accountLogistics.confirmDeliveryTitle') }}</h2>
+          <p>{{ t('accountLogistics.deliveryConfirm', { shipmentNo: selectedShipment.shipment_no }) }}</p>
+          <div class="delivery-confirm-actions">
+            <button type="button" class="store-button store-button-secondary" :disabled="deliveryLoading" @click="closeShipmentDeliveryConfirm">{{ t('accountLogistics.cancelDelivery') }}</button>
+            <button type="button" class="store-button" :disabled="deliveryLoading" @click="confirmShipmentDelivery">{{ t('accountLogistics.confirmDelivery') }}</button>
+          </div>
+        </section>
+      </div>
     </template>
   </CustomerAccountShell>
 </template>
@@ -435,6 +492,18 @@ onMounted(() => {
 .shipment-hero-card h2 { margin: 10px 0 0; font-family: 'Playfair Display', Georgia, serif; font-size: clamp(32px,4vw,49px); font-weight: 500; letter-spacing: -.045em; line-height: .98; }
 .shipment-hero-card p { margin: 9px 0 0; color: rgba(255,255,255,.73); font-size: 11px; }
 .shipment-hero-card .status-pill { color: #fff; background: rgba(255,255,255,.16); }
+.shipment-delivery-action { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+.shipment-delivery-action .store-button { min-height: 38px; color: var(--store-wine-dark); border-color: #fff; background: #fff; }
+.shipment-delivery-action .store-button:hover { color: #fff; background: transparent; }
+.shipment-delivery-action .inline-error { color: #ffd7d7; }
+.delivery-confirm-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(36,29,33,.54); }
+.delivery-confirm-modal { width: min(100%, 430px); padding: 28px; border: 1px solid var(--store-line); color: var(--store-ink); background: var(--store-paper); box-shadow: 0 22px 70px rgba(36,29,33,.25); }
+.delivery-confirm-icon { width: 28px; height: 28px; color: var(--store-wine); }
+.delivery-confirm-modal h2 { margin: 10px 0 9px; font-family: 'Playfair Display', Georgia, serif; font-size: 30px; font-weight: 500; letter-spacing: -.035em; }
+.delivery-confirm-modal > p:not(.panel-kicker) { margin: 0; color: var(--store-muted); font-size: 12px; line-height: 1.6; }
+.delivery-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 23px; }
+.store-button-secondary { color: var(--store-ink); background: transparent; }
+.store-button-secondary:hover { color: #fff; background: var(--store-ink); }
 .shipment-progress { position: relative; z-index: 1; margin-top: 35px; }
 .shipment-progress-line { height: 2px; overflow: hidden; background: rgba(255,255,255,.25); }
 .shipment-progress-line span { display: block; height: 100%; background: #f4c1c1; transition: width .4s ease; }
