@@ -10,6 +10,8 @@ import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.OutboxEventRepository
 import top.foxball.shopmall.service.OrderMailService
 import top.foxball.shopmall.service.OrderPaymentService
+import top.foxball.shopmall.service.payMent.PaymentRefund
+import top.foxball.shopmall.service.payMent.PaymentRefundQueryRequest
 import top.foxball.shopmall.service.payMent.stripe.StripeService
 import java.time.Clock
 import java.time.Duration
@@ -58,7 +60,12 @@ class OutboxMessageHandler(
                 }
                 "PAYMENT_CANCEL_OR_REFUND" -> paymentService.reconcileCancellation(aggregateId)
                 "PAYMENT_CONFLICT_REFUND" -> paymentService.reconcileConflictRefund(aggregateId)
-                "PAYMENT_REFUND_REQUESTED" -> paymentService.reconcileRequestedRefund(aggregateId)
+                "PAYMENT_REFUND_REQUESTED" -> {
+                    paymentService.reconcileRequestedRefund(aggregateId)
+                    orderMailService.sendRefundRequested(aggregateId, loadRefund(aggregateId))
+                }
+                "REFUND_CONFIRMED" ->
+                    orderMailService.sendRefundConfirmation(aggregateId, loadRefund(aggregateId))
             }
             "SHIPMENT" -> shipmentOutboxProcessor.handle(aggregateId, eventType)
         }
@@ -69,6 +76,25 @@ class OutboxMessageHandler(
             event.acknowledgedAt = clock.instant()
             event.nextAttemptAt = null
         }
+    }
+
+    private fun loadRefund(orderId: Long): PaymentRefund {
+        val order = orderRepository.findById(orderId).orElseThrow {
+            IllegalStateException("Cannot load refund for missing order $orderId")
+        }
+        val paymentIntentId = order.paymentIntentId ?: order.stripeCheckoutSessionId?.let { sessionId ->
+            stripeService.retrieveCheckoutSession(sessionId).paymentIntentId?.also { resolvedPaymentIntentId ->
+                transactions.executeWithoutResult {
+                    orderRepository.attachPaymentIntentToStripeCheckoutSession(sessionId, resolvedPaymentIntentId)
+                }
+            }
+        } ?: throw IllegalStateException("Refunding order ${order.orderNo} has no Stripe PaymentIntent")
+        val refundId = requireNotNull(order.stripeRefundId) {
+            "Refunding order ${order.orderNo} has no Stripe refund id"
+        }
+        return stripeService.queryRefund(
+            PaymentRefundQueryRequest(paymentIntentId, providerRefundId = refundId),
+        )
     }
 
     @Transactional

@@ -7,12 +7,19 @@ export interface ProductSnapshotDisplay {
   variant: string | null
 }
 
-export function formatCustomerMoney(value: number | string | null | undefined, currency = 'USD') {
+export interface ProductSnapshotLabels {
+  fallbackName?: string
+  size?: string
+  top?: string
+  bottom?: string
+}
+
+export function formatCustomerMoney(value: number | string | null | undefined, currency = 'USD', locale = 'en-US') {
   const amount = Number(value ?? 0)
   if (!Number.isFinite(amount)) return '—'
 
   try {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: currency || 'USD',
       maximumFractionDigits: 2
@@ -22,12 +29,12 @@ export function formatCustomerMoney(value: number | string | null | undefined, c
   }
 }
 
-export function formatCustomerDate(value: string | null | undefined, withTime = false) {
+export function formatCustomerDate(value: string | null | undefined, withTime = false, locale = 'en-US') {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
 
-  return new Intl.DateTimeFormat('en-US', withTime
+  return new Intl.DateTimeFormat(locale, withTime
     ? { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }
     : { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
 }
@@ -63,8 +70,8 @@ export function customerStatusTone(status: string | null | undefined) {
   return 'warm'
 }
 
-export function parseProductSnapshot(snapshot: string | null | undefined): ProductSnapshotDisplay {
-  const fallback = snapshot?.trim() || 'Pelissa piece'
+export function parseProductSnapshot(snapshot: string | null | undefined, labels: ProductSnapshotLabels = {}): ProductSnapshotDisplay {
+  const fallback = snapshot?.trim() || labels.fallbackName || 'Pelissa piece'
   try {
     const parsed = JSON.parse(fallback) as Record<string, unknown>
     const name = parsed.name ?? parsed.title ?? parsed.product_name
@@ -81,9 +88,9 @@ export function parseProductSnapshot(snapshot: string | null | undefined): Produ
     const resolvedBottomSize = bottomSize ?? variantAttributes.bottom_size
     const variant = [
       typeof color === 'string' ? color : null,
-      typeof size === 'string' ? `Size ${size}` : null,
-      typeof resolvedTopSize === 'string' ? `Top ${resolvedTopSize}` : null,
-      typeof resolvedBottomSize === 'string' ? `Bottom ${resolvedBottomSize}` : null,
+      typeof size === 'string' ? `${labels.size || 'Size'} ${size}` : null,
+      typeof resolvedTopSize === 'string' ? `${labels.top || 'Top'} ${resolvedTopSize}` : null,
+      typeof resolvedBottomSize === 'string' ? `${labels.bottom || 'Bottom'} ${resolvedBottomSize}` : null,
       typeof sku === 'string' ? sku : null
     ].filter(Boolean).join(' · ')
 

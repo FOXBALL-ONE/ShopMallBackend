@@ -18,6 +18,10 @@ import top.foxball.shopmall.repository.OutboxEventRepository
 import top.foxball.shopmall.service.impl.OutboxMessageHandler
 import top.foxball.shopmall.service.impl.ShipmentOutboxProcessor
 import top.foxball.shopmall.service.payMent.PaymentStatus
+import top.foxball.shopmall.service.payMent.PaymentAmount
+import top.foxball.shopmall.service.payMent.PaymentRefund
+import top.foxball.shopmall.service.payMent.PaymentRefundStatus
+import top.foxball.shopmall.service.payMent.PaymentRefundQueryRequest
 import top.foxball.shopmall.service.payMent.stripe.StripeService
 import top.foxball.shopmall.service.payMent.stripe.StripeCheckoutSession
 import top.foxball.shopmall.shared.PaymentOperationBusyException
@@ -209,6 +213,98 @@ class OutboxMessageHandlerTest {
             handler.handle(8, "ORDER", 21, "PAYMENT_CANCEL_OR_REFUND")
         }
 
+        assertEquals(OutboxEvent.Status.SENT, event.status)
+        assertEquals(null, event.acknowledgedAt)
+    }
+
+    @Test
+    fun `requested refund sends request email only after Stripe refund is recorded`() {
+        val event = OutboxEvent(id = 13, status = OutboxEvent.Status.SENT)
+        val order = OrderEntity(
+            id = 26,
+            orderNo = "ORDER-26",
+            status = OrderStatus.REFUNDING,
+            paymentStatus = top.foxball.shopmall.entity.jdbc.OrderPaymentStatus.REFUNDING,
+            paymentIntentId = "pi_order_26",
+            stripeRefundId = "re_order_26",
+        )
+        val refund = PaymentRefund(
+            providerRefundId = "re_order_26",
+            providerPaymentId = "pi_order_26",
+            amount = PaymentAmount(java.math.BigDecimal("25.00"), "USD"),
+            status = PaymentRefundStatus.PENDING,
+        )
+        `when`(repository.findById(13)).thenReturn(Optional.of(event))
+        `when`(orderRepository.findById(26)).thenReturn(Optional.of(order))
+        `when`(stripeService.queryRefund(PaymentRefundQueryRequest("pi_order_26", providerRefundId = "re_order_26")))
+            .thenReturn(refund)
+
+        handler.handle(13, "ORDER", 26, "PAYMENT_REFUND_REQUESTED")
+
+        verify(paymentService).reconcileRequestedRefund(26)
+        verify(orderMailService).sendRefundRequested(26, refund)
+        assertEquals(OutboxEvent.Status.ACKNOWLEDGED, event.status)
+    }
+
+    @Test
+    fun `refund request email failure leaves request outbox retryable`() {
+        val event = OutboxEvent(id = 15, status = OutboxEvent.Status.SENT)
+        val order = OrderEntity(
+            id = 28,
+            orderNo = "ORDER-28",
+            status = OrderStatus.REFUNDING,
+            paymentStatus = top.foxball.shopmall.entity.jdbc.OrderPaymentStatus.REFUNDING,
+            paymentIntentId = "pi_order_28",
+            stripeRefundId = "re_order_28",
+        )
+        val refund = PaymentRefund(
+            providerRefundId = "re_order_28",
+            providerPaymentId = "pi_order_28",
+            amount = PaymentAmount(java.math.BigDecimal("25.00"), "USD"),
+            status = PaymentRefundStatus.PENDING,
+        )
+        `when`(repository.findById(15)).thenReturn(Optional.of(event))
+        `when`(orderRepository.findById(28)).thenReturn(Optional.of(order))
+        `when`(stripeService.queryRefund(PaymentRefundQueryRequest("pi_order_28", providerRefundId = "re_order_28")))
+            .thenReturn(refund)
+        doThrow(IllegalStateException("SMTP unavailable"))
+            .`when`(orderMailService).sendRefundRequested(28, refund)
+
+        assertFailsWith<IllegalStateException> {
+            handler.handle(15, "ORDER", 28, "PAYMENT_REFUND_REQUESTED")
+        }
+        verify(paymentService).reconcileRequestedRefund(28)
+        assertEquals(OutboxEvent.Status.SENT, event.status)
+        assertEquals(null, event.acknowledgedAt)
+    }
+
+    @Test
+    fun `refund confirmation email failure leaves confirmation outbox retryable`() {
+        val event = OutboxEvent(id = 14, status = OutboxEvent.Status.SENT)
+        val order = OrderEntity(
+            id = 27,
+            orderNo = "ORDER-27",
+            status = OrderStatus.REFUNDED,
+            paymentStatus = top.foxball.shopmall.entity.jdbc.OrderPaymentStatus.REFUNDED,
+            paymentIntentId = "pi_order_27",
+            stripeRefundId = "re_order_27",
+        )
+        val refund = PaymentRefund(
+            providerRefundId = "re_order_27",
+            providerPaymentId = "pi_order_27",
+            amount = PaymentAmount(java.math.BigDecimal("25.00"), "USD"),
+            status = PaymentRefundStatus.SUCCEEDED,
+        )
+        `when`(repository.findById(14)).thenReturn(Optional.of(event))
+        `when`(orderRepository.findById(27)).thenReturn(Optional.of(order))
+        `when`(stripeService.queryRefund(PaymentRefundQueryRequest("pi_order_27", providerRefundId = "re_order_27")))
+            .thenReturn(refund)
+        doThrow(IllegalStateException("SMTP unavailable"))
+            .`when`(orderMailService).sendRefundConfirmation(27, refund)
+
+        assertFailsWith<IllegalStateException> {
+            handler.handle(14, "ORDER", 27, "REFUND_CONFIRMED")
+        }
         assertEquals(OutboxEvent.Status.SENT, event.status)
         assertEquals(null, event.acknowledgedAt)
     }

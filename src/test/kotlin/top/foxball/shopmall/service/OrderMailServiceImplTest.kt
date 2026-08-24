@@ -19,8 +19,12 @@ import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.impl.OrderMailServiceImpl
+import top.foxball.shopmall.service.payMent.PaymentAmount
+import top.foxball.shopmall.service.payMent.PaymentRefund
+import top.foxball.shopmall.service.payMent.PaymentRefundStatus
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDateTime
 import java.util.Optional
 import java.util.Properties
 import kotlin.test.Test
@@ -185,6 +189,103 @@ class OrderMailServiceImplTest {
         verify(mailSender).send(message)
     }
 
+    @Test
+    fun `refund emails include order and Stripe refund details`() {
+        val order = OrderEntity(
+            id = 30,
+            orderNo = "PS-20260824-030",
+            customerId = 31,
+            itemsSubtotal = BigDecimal("25.00"),
+            totalAmount = BigDecimal("25.00"),
+            currency = "USD",
+            paymentIntentId = "pi_123",
+            stripeRefundId = "re_123",
+            refundRequestedAt = LocalDateTime.parse("2026-08-24T10:20:00"),
+            refundedAt = LocalDateTime.parse("2026-08-24T10:25:00"),
+            refundReason = "Changed & mind",
+            refundReasonDetail = "Please use <secure> handling",
+        )
+        val customer = User(
+            id = 31,
+            email = "refund@example.com",
+            username = "refund-user",
+            password = "password",
+            firstName = "Ava &",
+            lastName = "Refund",
+        )
+        val item = OrderItem(
+            productId = 1,
+            variantId = 1,
+            sku = "REFUND-1",
+            productSnapshot = """{"name":"Silk & Lace"}""",
+            quantity = 1,
+            lineTotal = BigDecimal("25.00"),
+        )
+        val refund = PaymentRefund(
+            providerRefundId = "re_123",
+            providerPaymentId = "pi_123",
+            amount = PaymentAmount(BigDecimal("25.00"), "USD"),
+            status = PaymentRefundStatus.SUCCEEDED,
+        )
+        val requestMessage = MimeMessage(Session.getInstance(Properties()))
+        val confirmationMessage = MimeMessage(Session.getInstance(Properties()))
+        `when`(orderRepository.findById(30)).thenReturn(Optional.of(order))
+        `when`(userRepository.findById(31)).thenReturn(Optional.of(customer))
+        `when`(orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(30)).thenReturn(listOf(item))
+        `when`(mailSender.createMimeMessage()).thenReturn(requestMessage, confirmationMessage)
+
+        service.sendRefundRequested(30, refund)
+        service.sendRefundConfirmation(30, refund)
+        requestMessage.saveChanges()
+        confirmationMessage.saveChanges()
+
+        val requestParts = textParts(requestMessage.content)
+        val requestText = requestParts.first { it.startsWith("PELISSA refund request received") }
+        val requestHtml = requestParts.first { it.contains("<html") }
+        assertEquals("PELISSA | Refund request received · PS-20260824-030", requestMessage.subject)
+        assertTrue(requestText.contains("Order total: USD 25.00"))
+        assertTrue(requestText.contains("Refund ID: re_123"))
+        assertTrue(requestHtml.contains("Ava &amp; Refund"))
+        assertTrue(requestHtml.contains("Changed &amp; mind"))
+        assertTrue(requestHtml.contains("Please use &lt;secure&gt; handling"))
+        assertTrue(requestHtml.contains("USD 25.00"))
+
+        val confirmationParts = textParts(confirmationMessage.content)
+        val confirmationText = confirmationParts.first { it.startsWith("PELISSA refund confirmed") }
+        assertEquals("PELISSA | Refund confirmed · PS-20260824-030", confirmationMessage.subject)
+        assertTrue(confirmationText.contains("Refund status: Succeeded"))
+        assertTrue(confirmationText.contains("Refund amount: USD 25.00"))
+        assertTrue(confirmationText.contains("Confirmed at: 2026-08-24T10:25:00"))
+        val confirmationHtml = confirmationParts.first { it.contains("<html") }
+        assertTrue(confirmationHtml.contains("Confirmed at"))
+        assertTrue(confirmationHtml.contains("2026-08-24T10:25:00"))
+        verify(mailSender, org.mockito.Mockito.times(2)).send(org.mockito.ArgumentMatchers.any(MimeMessage::class.java))
+    }
+
+
+    @Test
+    fun `refund email rejects a refund bound to another payment`() {
+        val order = OrderEntity(
+            id = 32,
+            orderNo = "PS-20260824-032",
+            customerId = 33,
+            paymentIntentId = "pi_expected",
+            stripeRefundId = "re_expected",
+            totalAmount = BigDecimal("10.00"),
+        )
+        val customer = User(id = 33, email = "refund@example.com", username = "refund-user", password = "password")
+        val refund = PaymentRefund(
+            providerRefundId = "re_expected",
+            providerPaymentId = "pi_other",
+            amount = PaymentAmount(BigDecimal("10.00"), "USD"),
+            status = PaymentRefundStatus.SUCCEEDED,
+        )
+        `when`(orderRepository.findById(32)).thenReturn(Optional.of(order))
+        `when`(userRepository.findById(33)).thenReturn(Optional.of(customer))
+
+        assertFailsWith<IllegalArgumentException> { service.sendRefundConfirmation(32, refund) }
+        org.mockito.Mockito.verifyNoInteractions(mailSender)
+    }
     private fun textParts(content: Any?): List<String> = when (content) {
         is String -> listOf(content)
         is Multipart -> (0 until content.count).flatMap { index -> textParts(content.getBodyPart(index).content) }

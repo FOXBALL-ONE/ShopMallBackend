@@ -115,8 +115,8 @@ class OrderPaymentServiceImpl(
         }
         when (refund.status) {
             "succeeded" -> {
-                if (refund.amountMatchesOrder(order)) completeRefund(order, refundId)
-                else markPartiallyRefunded(order, refundId)
+                if (refund.amountMatchesOrder(order)) completeRefund(order, refundId, notify = true)
+                else markPartiallyRefunded(order, refundId, notify = true)
             }
             "failed", "canceled" -> revertRefunding(order)
         }
@@ -320,10 +320,10 @@ class OrderPaymentServiceImpl(
     }
 
     /** 仅由 Stripe 退款成功回调或主动查询调用，条件更新保证副作用最多执行一次。 */
-    private fun completeRefund(order: OrderEntity, refundId: String) {
+    private fun completeRefund(order: OrderEntity, refundId: String, notify: Boolean = false) {
         val orderId = requireNotNull(order.id)
         if (order.status == OrderStatus.CANCELLED) {
-            orderRepository.markRefunded(
+            val changed = orderRepository.markRefunded(
                 orderId,
                 OrderStatus.CANCELLED,
                 OrderPaymentStatus.REFUNDING,
@@ -332,6 +332,9 @@ class OrderPaymentServiceImpl(
                 refundId,
                 LocalDateTime.now(clock),
             )
+            if (notify && changed == 1) {
+                eventPublisher.publishInTx("ORDER", orderId, REFUND_CONFIRMED_EVENT, "{\"orderId\":$orderId}")
+            }
             return
         }
         if (orderRepository.markRefunded(
@@ -353,11 +356,14 @@ class OrderPaymentServiceImpl(
             }
         }
         eventPublisher.publishInTx("ORDER", orderId, "REFUNDED", "{\"orderId\":$orderId}")
+        if (notify) {
+            eventPublisher.publishInTx("ORDER", orderId, REFUND_CONFIRMED_EVENT, "{\"orderId\":$orderId}")
+        }
     }
 
-    private fun markPartiallyRefunded(order: OrderEntity, refundId: String) {
+    private fun markPartiallyRefunded(order: OrderEntity, refundId: String, notify: Boolean = false) {
         val nextStatus = if (order.status == OrderStatus.CANCELLED) OrderStatus.CANCELLED else OrderStatus.PAID
-        orderRepository.markPartiallyRefunded(
+        val changed = orderRepository.markPartiallyRefunded(
             requireNotNull(order.id),
             order.status,
             OrderPaymentStatus.REFUNDING,
@@ -366,6 +372,14 @@ class OrderPaymentServiceImpl(
             refundId,
             LocalDateTime.now(clock),
         )
+        if (notify && changed == 1) {
+            eventPublisher.publishInTx(
+                "ORDER",
+                requireNotNull(order.id),
+                REFUND_CONFIRMED_EVENT,
+                "{\"orderId\":${requireNotNull(order.id)}}",
+            )
+        }
     }
 
     private fun revertRefunding(order: OrderEntity) {
@@ -453,6 +467,7 @@ class OrderPaymentServiceImpl(
         const val PAYMENT_CANCEL_OR_REFUND_EVENT = "PAYMENT_CANCEL_OR_REFUND"
         const val PAYMENT_CONFLICT_REFUND_EVENT = "PAYMENT_CONFLICT_REFUND"
         const val PAYMENT_REFUND_REQUESTED_EVENT = "PAYMENT_REFUND_REQUESTED"
+        const val REFUND_CONFIRMED_EVENT = "REFUND_CONFIRMED"
         const val CANCELLED_ORDER_REFUND_SUFFIX = ":cancelled-order-refund"
         const val REQUESTED_REFUND_SUFFIX = ":requested-refund"
         val SUPPORTED_EVENTS = setOf(

@@ -472,6 +472,7 @@ class OrderPaymentServiceImplTest {
         verify(productVariantRepository).restock(18, 2)
         verify(productVariantRepository).decrementSales(18, 2)
         verify(eventPublisher).publishInTx("ORDER", 10, "REFUNDED", "{\"orderId\":10}")
+        verify(eventPublisher).publishInTx("ORDER", 10, "REFUND_CONFIRMED", "{\"orderId\":10}")
     }
 
     @Test

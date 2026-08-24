@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {
   CustomerOrder,
   CustomerOrderItem,
@@ -13,25 +13,25 @@ import {
   useCustomerAccountApi
 } from '~/composables/useCustomerAccountApi'
 import {
-  customerStatusLabel,
   customerStatusTone,
   formatAddressLine,
-  formatCustomerDate,
-  formatCustomerMoney,
   orderItemCount,
   parseProductSnapshot
 } from '~/utils/customer-display'
+import { useStorefrontI18n } from '~/composables/useStorefrontI18n'
 
 definePageMeta({ middleware: ['customer-auth'] })
 
+const { t, formatDate, formatMoney, orderStatusLabel } = useStorefrontI18n()
+
 const SUCCESS_STATUSES = new Set<CustomerOrderStatus>(['PAID', 'SHIPPED', 'DELIVERED', 'COMPLETED'])
 const SHIPMENT_STATUSES = new Set<CustomerOrderStatus>(['PAID', 'SHIPPED', 'DELIVERED', 'COMPLETED'])
-const lifecycleSteps = [
-  { label: 'Order placed', icon: 'i-lucide-receipt-text' },
-  { label: 'Payment confirmed', icon: 'i-lucide-credit-card' },
-  { label: 'Shipped', icon: 'i-lucide-package-check' },
-  { label: 'Delivered', icon: 'i-lucide-house' }
-]
+const lifecycleSteps = computed(() => [
+  { label: t('orderDetail.lifecycle.placed'), icon: 'i-lucide-receipt-text' },
+  { label: t('orderDetail.lifecycle.payment'), icon: 'i-lucide-credit-card' },
+  { label: t('orderDetail.lifecycle.shipped'), icon: 'i-lucide-package-check' },
+  { label: t('orderDetail.lifecycle.delivered'), icon: 'i-lucide-house' }
+])
 
 const route = useRoute()
 const api = useCustomerAccountApi()
@@ -52,13 +52,25 @@ const requestError = ref('')
 const shipmentError = ref('')
 const cancelFormOpen = ref(false)
 const cancelReason = ref('')
+const refundFormOpen = ref(false)
+const refundReason = ref('')
+const refundReasonDetail = ref('')
 const refundProviderStatus = ref<string | null>(null)
 const now = ref(Date.now())
 let clockTimer: ReturnType<typeof setInterval> | null = null
+let orderLoadVersion = 0
+
+const refundReasonOptions = [
+  { value: 'Changed my mind', key: 'changedMind' },
+  { value: 'Ordered by mistake', key: 'orderedMistake' },
+  { value: 'Found a better price', key: 'betterPrice' },
+  { value: 'Payment issue', key: 'paymentIssue' },
+  { value: 'Other', key: 'other' }
+]
 
 useHead(() => ({
-  title: order.value ? `Order ${order.value.order_no} | Pelissa` : 'Order details | Pelissa',
-  meta: [{ name: 'description', content: 'Review your Pelissa order, payment, delivery, and tracking details.' }]
+  title: order.value ? `${t('orderDetail.seoTitle')} · ${order.value.order_no}` : t('orderDetail.seoTitle'),
+  meta: [{ name: 'description', content: t('orderDetail.seoDescription') }]
 }))
 
 const itemCount = computed(() => orderItemCount(order.value?.items))
@@ -95,8 +107,19 @@ const currentStage = computed(() => {
   return -1
 })
 
+const itemDisplayLabels = computed(() => ({
+  fallbackName: t('orderDetail.pieceFallback'),
+  size: t('orderDetail.size'),
+  top: t('orderDetail.topSize'),
+  bottom: t('orderDetail.bottomSize')
+}))
+
+const itemDisplayMap = computed(() => new Map(
+  (order.value?.items || []).map(item => [item.id, parseProductSnapshot(item.product_snapshot, itemDisplayLabels.value)])
+))
+
 function itemDisplay(item: CustomerOrderItem) {
-  return parseProductSnapshot(item.product_snapshot)
+  return itemDisplayMap.value.get(item.id) || parseProductSnapshot(item.product_snapshot, itemDisplayLabels.value)
 }
 
 function stepDate(index: number) {
@@ -121,48 +144,52 @@ function safeTrackingUrl(value: string | null) {
 }
 
 async function loadOrder(showLoading = true) {
-  const userId = await session.requireSignIn()
-  if (!userId) {
-    isLoading.value = false
-    return
-  }
-  if (!orderNo.value) {
-    requestError.value = 'The order reference is missing.'
-    isLoading.value = false
-    return
-  }
-
+  const requestedOrderNo = orderNo.value
+  const loadVersion = ++orderLoadVersion
   if (showLoading) isLoading.value = true
   else isRefreshing.value = true
   requestError.value = ''
   shipmentError.value = ''
 
   try {
-    const result = await api.getOrder(orderNo.value)
+    const userId = await session.requireSignIn()
+    if (loadVersion !== orderLoadVersion || !userId) return
+    if (!requestedOrderNo) {
+      requestError.value = t('orderDetail.errors.missingReference')
+      return
+    }
+
+    const result = await api.getOrder(requestedOrderNo)
+    if (loadVersion !== orderLoadVersion) return
     order.value = result
 
     if (SHIPMENT_STATUSES.has(result.status)) {
       try {
         shipments.value = ((await api.getShipments(result.order_no)).list || [])
           .filter(shipment => shipment.status !== 'DELETED')
+        if (loadVersion !== orderLoadVersion) return
       } catch (error: unknown) {
+        if (loadVersion !== orderLoadVersion) return
         shipments.value = []
-        shipmentError.value = customerRequestMessage(error, 'Tracking details are temporarily unavailable.')
+        shipmentError.value = customerRequestMessage(error, t('orderDetail.errors.shipment'))
       }
     } else {
       shipments.value = []
     }
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not load this order.')
+    if (loadVersion !== orderLoadVersion) return
+    requestError.value = customerRequestMessage(error, t('orderDetail.errors.load'))
   } finally {
-    isLoading.value = false
-    isRefreshing.value = false
+    if (loadVersion === orderLoadVersion) {
+      isLoading.value = false
+      isRefreshing.value = false
+    }
   }
 }
 
 async function cancelOrder() {
   if (!order.value || !canCancel.value || isCancelling.value) return
-  if (import.meta.client && !window.confirm(`Cancel order ${order.value.order_no}?`)) return
+  if (import.meta.client && !window.confirm(t('accountOrders.cancelConfirm', { orderNo: order.value.order_no }))) return
 
   isCancelling.value = true
   requestError.value = ''
@@ -171,33 +198,57 @@ async function cancelOrder() {
     checkoutSession.clear(order.value.order_no)
     cancelFormOpen.value = false
     cancelReason.value = ''
-    toast.add({ title: 'Order cancelled', description: `${order.value.order_no} has been cancelled.`, color: 'success' })
+    toast.add({ title: t('orderDetail.notices.cancelled'), description: t('orderDetail.notices.cancelledDescription', { orderNo: order.value.order_no }), color: 'success' })
     await loadOrder(false)
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'This order could not be cancelled.')
-    toast.add({ title: 'Unable to cancel order', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, t('orderDetail.errors.cancel'))
+    toast.add({ title: t('orderDetail.errors.cancelTitle'), description: requestError.value, color: 'error' })
   } finally {
     isCancelling.value = false
   }
 }
 
+function openRefundForm() {
+  if (!canRequestRefund.value || isRefundRequesting.value) return
+  refundReason.value = ''
+  refundReasonDetail.value = ''
+  refundFormOpen.value = true
+}
+
+function closeRefundForm() {
+  if (isRefundRequesting.value) return
+  refundFormOpen.value = false
+  refundReason.value = ''
+  refundReasonDetail.value = ''
+}
+
+function closeRefundFormOnEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeRefundForm()
+}
+
 async function requestRefund() {
   if (!order.value || !canRequestRefund.value || isRefundRequesting.value) return
-  if (import.meta.client && !window.confirm(`Request a refund for order ${order.value.order_no}?`)) return
 
   isRefundRequesting.value = true
   requestError.value = ''
   try {
-    await api.refundOrder(order.value.order_no)
+    await api.refundOrder(
+      order.value.order_no,
+      refundReason.value.trim() || undefined,
+      refundReasonDetail.value.trim() || undefined
+    )
+    refundFormOpen.value = false
+    refundReason.value = ''
+    refundReasonDetail.value = ''
     toast.add({
-      title: 'Refund requested',
-      description: 'Stripe is processing the refund. The order will be voided when it is confirmed.',
+      title: t('orderDetail.notices.refundRequested'),
+      description: t('orderDetail.notices.refundRequestedDescription'),
       color: 'success'
     })
     await loadOrder(false)
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'This refund request could not be submitted.')
-    toast.add({ title: 'Unable to request refund', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, t('orderDetail.errors.refund'))
+    toast.add({ title: t('orderDetail.errors.refundTitle'), description: requestError.value, color: 'error' })
   } finally {
     isRefundRequesting.value = false
   }
@@ -214,15 +265,15 @@ async function queryRefundStatus() {
     order.value.status = result.order_status
     order.value.payment_status = result.payment_status
     toast.add({
-      title: result.payment_status === 'REFUNDED' ? 'Refund completed' : 'Refund status updated',
+      title: result.payment_status === 'REFUNDED' ? t('orderDetail.notices.refundCompleted') : t('orderDetail.notices.refundUpdated'),
       description: result.payment_status === 'REFUNDED'
-        ? 'Stripe confirmed the refund and the order is now voided.'
-        : 'Stripe is still processing the refund.',
+        ? t('orderDetail.notices.refundCompletedDescription')
+        : t('orderDetail.notices.refundProcessing'),
       color: result.payment_status === 'REFUNDED' ? 'success' : 'neutral'
     })
   } catch (error: unknown) {
-    requestError.value = customerRequestMessage(error, 'We could not check the refund status.')
-    toast.add({ title: 'Unable to check refund', description: requestError.value, color: 'error' })
+    requestError.value = customerRequestMessage(error, t('orderDetail.errors.refundStatus'))
+    toast.add({ title: t('orderDetail.errors.refundStatusTitle'), description: requestError.value, color: 'error' })
   } finally {
     isRefundStatusLoading.value = false
   }
@@ -233,7 +284,7 @@ async function openStripeCheckout() {
 
   const paymentWindow = window.open('/checkout/redirecting', '_blank')
   if (!paymentWindow) {
-    requestError.value = 'Your browser blocked the payment tab. Allow pop-ups for Pelissa and try again.'
+    requestError.value = t('orderDetail.errors.popup')
     return
   }
   try {
@@ -247,19 +298,19 @@ async function openStripeCheckout() {
   try {
     const checkout = await api.openOrderCheckout(order.value.order_no)
     if (checkout.order_no !== order.value.order_no || checkout.status !== 'PENDING_PAYMENT') {
-      throw new Error('The payment provider returned an unexpected order state.')
+      throw new Error(t('orderDetail.errors.unexpectedState'))
     }
     const target = new URL(checkout.checkout_url)
-    if (target.protocol !== 'https:') throw new Error('The payment provider returned an invalid checkout link.')
+    if (target.protocol !== 'https:') throw new Error(t('orderDetail.errors.invalidLink'))
     paymentWindow.location.replace(target.toString())
     toast.add({
-      title: 'Stripe checkout opened',
-      description: `Order ${order.value.order_no} remains reserved while you pay.`,
+      title: t('orderDetail.notices.checkoutOpened'),
+      description: t('orderDetail.notices.checkoutOpenedDescription', { orderNo: order.value.order_no }),
       color: 'success'
     })
   } catch (error: unknown) {
     if (!paymentWindow.closed) paymentWindow.close()
-    const failure = customerRequestDetails(error, 'We could not open Stripe checkout.')
+    const failure = customerRequestDetails(error, t('orderDetail.errors.checkout'))
     try {
       const payment = await api.getOrderPayment(order.value.order_no)
       if (SUCCESS_STATUSES.has(payment.status)) {
@@ -272,7 +323,7 @@ async function openStripeCheckout() {
       // Keep the checkout failure when the payment status fallback is unavailable.
     }
     requestError.value = failure.message
-    toast.add({ title: 'Checkout not opened', description: failure.message, color: 'error' })
+    toast.add({ title: t('orderDetail.errors.checkoutTitle'), description: failure.message, color: 'error' })
     await loadOrder(false)
   } finally {
     isOpeningPayment.value = false
@@ -281,11 +332,28 @@ async function openStripeCheckout() {
 
 onMounted(() => {
   clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
+  document.addEventListener('keydown', closeRefundFormOnEscape)
+  void loadOrder()
+})
+
+watch(orderNo, (nextOrderNo, previousOrderNo) => {
+  if (!nextOrderNo || nextOrderNo === previousOrderNo) return
+  order.value = null
+  shipments.value = []
+  requestError.value = ''
+  shipmentError.value = ''
+  cancelReason.value = ''
+  refundReason.value = ''
+  refundReasonDetail.value = ''
+  refundProviderStatus.value = null
+  cancelFormOpen.value = false
+  refundFormOpen.value = false
   void loadOrder()
 })
 
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
+  document.removeEventListener('keydown', closeRefundFormOnEscape)
 })
 </script>
 
@@ -295,8 +363,8 @@ onBeforeUnmount(() => {
 
     <section class="order-title-band">
       <div class="store-container">
-        <nav class="order-breadcrumb" aria-label="Breadcrumb">
-          <NuxtLink to="/account/orders">Orders</NuxtLink>
+        <nav class="order-breadcrumb" :aria-label="t('orderDetail.breadcrumb')">
+          <NuxtLink to="/account/orders">{{ t('orderDetail.breadcrumb') }}</NuxtLink>
           <UIcon name="i-lucide-chevron-right" />
           <span>{{ orderNo }}</span>
         </nav>
@@ -304,16 +372,16 @@ onBeforeUnmount(() => {
         <div v-if="isLoading && !order" class="order-title-loading" aria-live="polite" />
         <div v-else-if="order" class="order-title-layout">
           <div>
-            <p class="store-eyebrow">ORDER DETAILS / {{ order.order_no }}</p>
-            <h1>Your order, in full.</h1>
-            <p class="order-title-copy">Placed {{ formatCustomerDate(order.created_at, true) }} · {{ itemCount }} {{ itemCount === 1 ? 'piece' : 'pieces' }}</p>
+            <p class="store-eyebrow">{{ t('orderDetail.eyebrow', { orderNo: order.order_no }) }}</p>
+            <h1>{{ t('orderDetail.title') }}</h1>
+            <p class="order-title-copy">{{ t('orderDetail.placedPieces', { date: formatDate(order.created_at, 'long'), count: itemCount }) }}</p>
           </div>
           <div class="order-title-status">
-            <span class="status-pill" :class="`tone-${customerStatusTone(order.status)}`">{{ customerStatusLabel(order.status) }}</span>
-            <strong>{{ formatCustomerMoney(order.total_amount, order.currency) }}</strong>
-            <button type="button" :disabled="isRefreshing" @click="loadOrder(false)">
+            <span class="status-pill" :class="`tone-${customerStatusTone(order.status)}`">{{ orderStatusLabel(order.status) }}</span>
+            <strong>{{ formatMoney(order.total_amount, order.currency) }}</strong>
+            <button type="button" :aria-label="isRefreshing ? t('orderDetail.refreshing') : t('orderDetail.refresh')" :disabled="isRefreshing" @click="loadOrder(false)">
               <UIcon :name="isRefreshing ? 'i-lucide-loader-circle' : 'i-lucide-refresh-cw'" :class="{ spinning: isRefreshing }" />
-              {{ isRefreshing ? 'Refreshing...' : 'Refresh' }}
+              {{ isRefreshing ? t('orderDetail.refreshing') : t('orderDetail.refresh') }}
             </button>
           </div>
         </div>
@@ -323,7 +391,7 @@ onBeforeUnmount(() => {
     <div v-if="requestError" class="store-container order-notice error" role="status">
       <UIcon name="i-lucide-circle-alert" />
       <span>{{ requestError }}</span>
-      <button type="button" @click="loadOrder(false)">Try again</button>
+      <button type="button" @click="loadOrder(false)">{{ t('orderDetail.tryAgain') }}</button>
     </div>
 
     <section v-if="isLoading && !order" class="store-container order-loading" aria-live="polite">
@@ -334,10 +402,10 @@ onBeforeUnmount(() => {
     <section v-else-if="!order" class="store-container order-missing">
       <span>404</span>
       <div>
-        <p class="store-eyebrow">ORDER UNAVAILABLE</p>
-        <h2>We could not open this order.</h2>
-        <p>Check the order reference or return to your order history.</p>
-        <NuxtLink class="primary-button" to="/account/orders"><UIcon name="i-lucide-arrow-left" /> Back to orders</NuxtLink>
+        <p class="store-eyebrow">{{ t('orderDetail.unavailableEyebrow') }}</p>
+        <h2>{{ t('orderDetail.unavailableTitle') }}</h2>
+        <p>{{ t('orderDetail.unavailableCopy') }}</p>
+        <NuxtLink class="primary-button" to="/account/orders"><UIcon name="i-lucide-arrow-left" /> {{ t('orderDetail.backToOrders') }}</NuxtLink>
       </div>
     </section>
 
@@ -352,7 +420,7 @@ onBeforeUnmount(() => {
             <span><UIcon :name="currentStage > index ? 'i-lucide-check' : step.icon" /></span>
             <div>
               <strong>{{ step.label }}</strong>
-              <small>{{ stepDate(index) ? formatCustomerDate(stepDate(index), true) : 'Pending' }}</small>
+              <small>{{ stepDate(index) ? formatDate(stepDate(index), 'long') : t('orderDetail.lifecycle.pending') }}</small>
             </div>
           </li>
         </ol>
@@ -361,13 +429,13 @@ onBeforeUnmount(() => {
       <div v-if="order.status === 'PENDING_PAYMENT'" class="store-container order-payment-notice" :class="{ expired: isPaymentExpired }">
         <UIcon :name="isPaymentExpired ? 'i-lucide-timer-off' : 'i-lucide-timer'" />
         <div>
-          <strong>{{ isPaymentExpired ? 'The payment window has closed.' : `Reserved for payment · ${deadlineLabel}` }}</strong>
-          <span v-if="!isPaymentExpired">Complete payment before the reservation expires.</span>
-          <span v-else>Refresh to check the final order status.</span>
+          <strong>{{ isPaymentExpired ? t('orderDetail.paymentClosed') : t('orderDetail.reservedPayment', { time: deadlineLabel }) }}</strong>
+          <span v-if="!isPaymentExpired">{{ t('orderDetail.completePayment') }}</span>
+          <span v-else>{{ t('orderDetail.refreshFinalStatus') }}</span>
         </div>
         <button v-if="canResumePayment" type="button" :disabled="isOpeningPayment" @click="openStripeCheckout">
           <UIcon :name="isOpeningPayment ? 'i-lucide-loader-circle' : 'i-lucide-external-link'" :class="{ spinning: isOpeningPayment }" />
-          {{ isOpeningPayment ? 'Opening Stripe...' : 'Pay with Stripe' }}
+          {{ isOpeningPayment ? t('orderDetail.openingStripe') : t('orderDetail.payWithStripe') }}
         </button>
       </div>
 
@@ -375,34 +443,34 @@ onBeforeUnmount(() => {
         <div class="order-main-column">
           <section class="order-section order-items-section">
             <header class="section-heading">
-              <div><p>01 / ITEMS</p><h2>{{ itemCount }} {{ itemCount === 1 ? 'piece' : 'pieces' }}</h2></div>
+              <div><p>{{ t('orderDetail.itemsSection') }}</p><h2>{{ t('orderDetail.pieces', itemCount) }}</h2></div>
               <span>{{ order.currency }}</span>
             </header>
             <div class="order-item-list">
               <article v-for="item in order.items" :key="item.id" class="order-item">
-                <NuxtLink class="order-item-image" :to="`/product/${item.product_id}`">
+                <NuxtLink class="order-item-image" :to="`/product/${item.product_id}`" :aria-label="t('orderDetail.viewProduct', { name: itemDisplay(item).name })">
                   <img v-if="itemDisplay(item).image" :src="itemDisplay(item).image!" :alt="itemDisplay(item).name">
                   <span v-else>P°</span>
                 </NuxtLink>
                 <div class="order-item-copy">
-                  <span>PRODUCT {{ item.product_id }}</span>
+                  <span>{{ t('orderDetail.product', { id: item.product_id }) }}</span>
                   <NuxtLink :to="`/product/${item.product_id}`">{{ itemDisplay(item).name }}</NuxtLink>
-                  <small>{{ itemDisplay(item).variant || 'Pelissa piece' }}</small>
+                  <small>{{ itemDisplay(item).variant || t('orderDetail.pieceFallback') }}</small>
                 </div>
-                <div class="order-item-quantity"><span>Quantity</span><strong>{{ item.quantity }}</strong></div>
-                <div class="order-item-price"><span>{{ formatCustomerMoney(item.unit_price, order.currency) }} each</span><strong>{{ formatCustomerMoney(item.line_total, order.currency) }}</strong></div>
+                <div class="order-item-quantity"><span>{{ t('orderDetail.quantity') }}</span><strong>{{ item.quantity }}</strong></div>
+                <div class="order-item-price"><span>{{ t('orderDetail.each', { price: formatMoney(item.unit_price, order.currency) }) }}</span><strong>{{ formatMoney(item.line_total, order.currency) }}</strong></div>
               </article>
             </div>
           </section>
 
           <section class="order-section delivery-section">
             <header class="section-heading">
-              <div><p>02 / DELIVERY</p><h2>Shipping details</h2></div>
+              <div><p>{{ t('orderDetail.deliverySection') }}</p><h2>{{ t('orderDetail.shippingDetails') }}</h2></div>
               <UIcon name="i-lucide-map-pin" />
             </header>
             <div class="delivery-layout">
               <div>
-                <span class="detail-label">DELIVERING TO</span>
+                <span class="detail-label">{{ t('orderDetail.deliveringTo') }}</span>
                 <strong>{{ order.shipping_address.name }}</strong>
                 <p>{{ formatAddressLine({
                   address_line1: order.shipping_address.address1,
@@ -415,13 +483,13 @@ onBeforeUnmount(() => {
                 }) }}</p>
               </div>
               <div>
-                <span class="detail-label">CONTACT</span>
+                <span class="detail-label">{{ t('orderDetail.contact') }}</span>
                 <strong>{{ order.shipping_address.phone }}</strong>
                 <p v-if="order.shipping_address.company">{{ order.shipping_address.company }}</p>
                 <p v-if="order.shipping_address.delivery_instructions">{{ order.shipping_address.delivery_instructions }}</p>
               </div>
               <div v-if="order.client_message">
-                <span class="detail-label">ORDER NOTE</span>
+                <span class="detail-label">{{ t('orderDetail.orderNote') }}</span>
                 <p>{{ order.client_message }}</p>
               </div>
             </div>
@@ -429,26 +497,26 @@ onBeforeUnmount(() => {
 
           <section v-if="SHIPMENT_STATUSES.has(order.status)" class="order-section shipment-section">
             <header class="section-heading">
-              <div><p>03 / TRACKING</p><h2>Delivery progress</h2></div>
+              <div><p>{{ t('orderDetail.trackingSection') }}</p><h2>{{ t('orderDetail.deliveryProgress') }}</h2></div>
               <UIcon name="i-lucide-truck" />
             </header>
             <div v-if="shipmentError" class="shipment-empty"><UIcon name="i-lucide-info" /><span>{{ shipmentError }}</span></div>
-            <div v-else-if="!shipments.length" class="shipment-empty"><UIcon name="i-lucide-package" /><span>Tracking will appear here when a shipment is created.</span></div>
+            <div v-else-if="!shipments.length" class="shipment-empty"><UIcon name="i-lucide-package" /><span>{{ t('orderDetail.trackingEmpty') }}</span></div>
             <div v-else class="shipment-list">
               <article v-for="shipment in shipments" :key="shipment.shipment_no" class="shipment">
                 <header>
-                  <div><span>{{ shipment.carrier.toUpperCase() }} · {{ shipment.shipment_no }}</span><strong>{{ customerStatusLabel(shipment.status) }}</strong></div>
-                  <a v-if="safeTrackingUrl(shipment.tracking_url)" :href="safeTrackingUrl(shipment.tracking_url)!" target="_blank" rel="noopener noreferrer">Track parcel <UIcon name="i-lucide-external-link" /></a>
+                  <div><span>{{ shipment.carrier.toUpperCase() }} · {{ shipment.shipment_no }}</span><strong>{{ orderStatusLabel(shipment.status) }}</strong></div>
+                  <a v-if="safeTrackingUrl(shipment.tracking_url)" :href="safeTrackingUrl(shipment.tracking_url)!" target="_blank" rel="noopener noreferrer">{{ t('orderDetail.trackParcel') }} <UIcon name="i-lucide-external-link" /></a>
                 </header>
                 <dl>
-                  <div><dt>Tracking number</dt><dd>{{ shipment.tracking_no || 'Pending' }}</dd></div>
-                  <div><dt>Last location</dt><dd>{{ shipment.last_track_location || 'Updating' }}</dd></div>
-                  <div><dt>Last update</dt><dd>{{ formatCustomerDate(shipment.last_track_at, true) }}</dd></div>
+                  <div><dt>{{ t('orderDetail.trackingNumber') }}</dt><dd>{{ shipment.tracking_no || t('orderDetail.pending') }}</dd></div>
+                  <div><dt>{{ t('orderDetail.lastLocation') }}</dt><dd>{{ shipment.last_track_location || t('orderDetail.updating') }}</dd></div>
+                  <div><dt>{{ t('orderDetail.lastUpdate') }}</dt><dd>{{ formatDate(shipment.last_track_at, 'long') }}</dd></div>
                 </dl>
                 <ol v-if="shipment.tracks.length" class="track-events">
                   <li v-for="track in latestTracks(shipment.tracks)" :key="track.carrier_event_id">
                     <span />
-                    <div><strong>{{ track.description || customerStatusLabel(track.normalized_status) }}</strong><small>{{ [track.location, formatCustomerDate(track.occurred_at, true)].filter(Boolean).join(' · ') }}</small></div>
+                    <div><strong>{{ track.description || orderStatusLabel(track.normalized_status) }}</strong><small>{{ [track.location, formatDate(track.occurred_at, 'long')].filter(Boolean).join(' · ') }}</small></div>
                   </li>
                 </ol>
               </article>
@@ -457,54 +525,83 @@ onBeforeUnmount(() => {
         </div>
 
         <aside class="order-summary">
-          <p class="store-eyebrow">ORDER SUMMARY</p>
-          <h2>{{ customerStatusLabel(order.status) }}</h2>
+          <p class="store-eyebrow">{{ t('orderDetail.summary') }}</p>
+          <h2>{{ orderStatusLabel(order.status) }}</h2>
           <dl class="summary-lines">
-            <div><dt>Items</dt><dd>{{ formatCustomerMoney(order.items_subtotal, order.currency) }}</dd></div>
-            <div><dt>Shipping</dt><dd>{{ formatCustomerMoney(order.shipping_fee, order.currency) }}</dd></div>
-            <div v-if="Number(order.discount_amount) > 0"><dt>Discount</dt><dd>-{{ formatCustomerMoney(order.discount_amount, order.currency) }}</dd></div>
-            <div><dt>Tax</dt><dd>{{ formatCustomerMoney(order.tax_amount, order.currency) }}</dd></div>
+            <div><dt>{{ t('orderDetail.items') }}</dt><dd>{{ formatMoney(order.items_subtotal, order.currency) }}</dd></div>
+            <div><dt>{{ t('orderDetail.shipping') }}</dt><dd>{{ formatMoney(order.shipping_fee, order.currency) }}</dd></div>
+            <div v-if="Number(order.discount_amount) > 0"><dt>{{ t('orderDetail.discount') }}</dt><dd>-{{ formatMoney(order.discount_amount, order.currency) }}</dd></div>
+            <div><dt>{{ t('orderDetail.tax') }}</dt><dd>{{ formatMoney(order.tax_amount, order.currency) }}</dd></div>
           </dl>
-          <div class="summary-total"><span>Total</span><strong>{{ formatCustomerMoney(order.total_amount, order.currency) }}</strong></div>
+          <div class="summary-total"><span>{{ t('orderDetail.total') }}</span><strong>{{ formatMoney(order.total_amount, order.currency) }}</strong></div>
 
           <dl class="summary-dates">
-            <div><dt>Order number</dt><dd>{{ order.order_no }}</dd></div>
-            <div><dt>Payment</dt><dd>{{ customerStatusLabel(order.payment_status) }}</dd></div>
-            <div><dt>Placed</dt><dd>{{ formatCustomerDate(order.created_at, true) }}</dd></div>
-            <div v-if="order.paid_at"><dt>Paid</dt><dd>{{ formatCustomerDate(order.paid_at, true) }}</dd></div>
-            <div v-if="order.cancelled_at"><dt>Cancelled</dt><dd>{{ formatCustomerDate(order.cancelled_at, true) }}</dd></div>
+            <div><dt>{{ t('orderDetail.orderNumber') }}</dt><dd>{{ order.order_no }}</dd></div>
+            <div><dt>{{ t('orderDetail.payment') }}</dt><dd>{{ orderStatusLabel(order.payment_status) }}</dd></div>
+            <div><dt>{{ t('orderDetail.placed') }}</dt><dd>{{ formatDate(order.created_at, 'long') }}</dd></div>
+            <div v-if="order.paid_at"><dt>{{ t('orderDetail.paid') }}</dt><dd>{{ formatDate(order.paid_at, 'long') }}</dd></div>
+            <div v-if="order.cancelled_at"><dt>{{ t('orderDetail.cancelled') }}</dt><dd>{{ formatDate(order.cancelled_at, 'long') }}</dd></div>
           </dl>
 
-          <div v-if="order.cancel_reason" class="cancel-reason"><span>Cancellation reason</span><p>{{ order.cancel_reason }}</p></div>
+          <div v-if="order.status === 'CANCELLED' && order.cancel_reason" class="cancel-reason"><span>{{ t('orderDetail.cancellationReason') }}</span><p>{{ order.cancel_reason }}</p></div>
+          <div v-if="order.refund_reason" class="cancel-reason"><span>{{ t('orderDetail.refundReasonLabel') }}</span><p>{{ order.refund_reason }}</p></div>
+          <div v-if="order.refund_reason_detail" class="cancel-reason"><span>{{ t('orderDetail.refundDetailsLabel') }}</span><p>{{ order.refund_reason_detail }}</p></div>
 
           <div class="summary-actions">
-            <button v-if="canResumePayment" class="primary-button" type="button" :disabled="isOpeningPayment" @click="openStripeCheckout"><UIcon :name="isOpeningPayment ? 'i-lucide-loader-circle' : 'i-lucide-external-link'" :class="{ spinning: isOpeningPayment }" /> {{ isOpeningPayment ? 'Opening Stripe...' : 'Pay with Stripe' }}</button>
-            <button v-if="canCancel" class="danger-link" type="button" :disabled="isCancelling" @click="cancelFormOpen = !cancelFormOpen"><UIcon name="i-lucide-circle-x" /> {{ cancelFormOpen ? 'Close cancellation' : 'Cancel order' }}</button>
-            <button v-if="canRequestRefund" class="danger-link" type="button" :disabled="isRefundRequesting" @click="requestRefund"><UIcon :name="isRefundRequesting ? 'i-lucide-loader-circle' : 'i-lucide-rotate-ccw'" :class="{ spinning: isRefundRequesting }" /> {{ isRefundRequesting ? 'Requesting refund...' : 'Request refund' }}</button>
-            <button v-if="canQueryRefundStatus" class="outline-button" type="button" :disabled="isRefundStatusLoading" @click="queryRefundStatus"><UIcon :name="isRefundStatusLoading ? 'i-lucide-loader-circle' : 'i-lucide-refresh-cw'" :class="{ spinning: isRefundStatusLoading }" /> {{ isRefundStatusLoading ? 'Checking refund...' : 'Check refund status' }}</button>
+            <button v-if="canResumePayment" class="primary-button" type="button" :disabled="isOpeningPayment" @click="openStripeCheckout"><UIcon :name="isOpeningPayment ? 'i-lucide-loader-circle' : 'i-lucide-external-link'" :class="{ spinning: isOpeningPayment }" /> {{ isOpeningPayment ? t('orderDetail.openingStripe') : t('orderDetail.payWithStripe') }}</button>
+            <button v-if="canCancel" class="danger-link" type="button" :disabled="isCancelling" @click="cancelFormOpen = !cancelFormOpen"><UIcon name="i-lucide-circle-x" /> {{ cancelFormOpen ? t('orderDetail.closeCancellation') : t('orderDetail.cancel') }}</button>
+            <button v-if="canRequestRefund" class="danger-link" type="button" :disabled="isRefundRequesting" @click="openRefundForm"><UIcon :name="isRefundRequesting ? 'i-lucide-loader-circle' : 'i-lucide-rotate-ccw'" :class="{ spinning: isRefundRequesting }" /> {{ isRefundRequesting ? t('orderDetail.requestingRefund') : t('orderDetail.requestRefund') }}</button>
+            <button v-if="canQueryRefundStatus" class="outline-button" type="button" :disabled="isRefundStatusLoading" @click="queryRefundStatus"><UIcon :name="isRefundStatusLoading ? 'i-lucide-loader-circle' : 'i-lucide-refresh-cw'" :class="{ spinning: isRefundStatusLoading }" /> {{ isRefundStatusLoading ? t('orderDetail.checkingRefund') : t('orderDetail.checkRefund') }}</button>
             <NuxtLink
               class="support-ticket-link"
               :to="{ path: '/account/support-tickets', query: { create: '1', order_no: order.order_no } }"
             >
-              <UIcon name="i-lucide-message-square-plus" /> Create support ticket
+              <UIcon name="i-lucide-message-square-plus" /> {{ t('orderDetail.createSupportTicket') }}
             </NuxtLink>
-            <NuxtLink to="/account/orders"><UIcon name="i-lucide-arrow-left" /> Back to orders</NuxtLink>
+            <NuxtLink to="/account/orders"><UIcon name="i-lucide-arrow-left" /> {{ t('orderDetail.backToOrders') }}</NuxtLink>
           </div>
 
           <div v-if="isRefunding" class="refund-notice">
             <UIcon name="i-lucide-circle-dollar-sign" />
-            <span>Refund in progress{{ refundProviderStatus ? ` · Stripe: ${refundProviderStatus}` : '' }}</span>
+            <span>{{ t('orderDetail.refundInProgress') }}{{ refundProviderStatus ? ` · ${t('orderDetail.refundProviderStatus', { status: refundProviderStatus })}` : '' }}</span>
           </div>
 
           <form v-if="cancelFormOpen && canCancel" class="cancel-form" @submit.prevent="cancelOrder">
-            <label for="order-cancel-reason">Reason <small>OPTIONAL</small></label>
-            <textarea id="order-cancel-reason" v-model="cancelReason" maxlength="200" rows="3" placeholder="Reason for cancellation" />
+            <label for="order-cancel-reason">{{ t('orderDetail.reason') }} <small>{{ t('orderDetail.optional') }}</small></label>
+            <textarea id="order-cancel-reason" v-model="cancelReason" maxlength="200" rows="3" :placeholder="t('orderDetail.cancellationPlaceholder')" />
             <span>{{ cancelReason.length }} / 200</span>
-            <button type="submit" :disabled="isCancelling"><UIcon :name="isCancelling ? 'i-lucide-loader-circle' : 'i-lucide-trash-2'" :class="{ spinning: isCancelling }" /> {{ isCancelling ? 'Cancelling...' : 'Confirm cancellation' }}</button>
+            <button type="submit" :disabled="isCancelling"><UIcon :name="isCancelling ? 'i-lucide-loader-circle' : 'i-lucide-trash-2'" :class="{ spinning: isCancelling }" /> {{ isCancelling ? t('orderDetail.cancelling') : t('orderDetail.confirmCancellation') }}</button>
           </form>
         </aside>
       </div>
     </template>
+
+    <div v-if="refundFormOpen" class="refund-modal-backdrop" role="presentation" @click.self="closeRefundForm">
+      <section class="refund-modal" role="dialog" aria-modal="true" aria-labelledby="refund-modal-title" aria-describedby="refund-modal-copy">
+        <header class="refund-modal-header">
+          <div>
+            <p class="store-eyebrow">{{ t('orderDetail.refundRequest') }}</p>
+            <h2 id="refund-modal-title">{{ t('orderDetail.refundTitle') }}</h2>
+          </div>
+          <button type="button" :aria-label="t('orderDetail.closeRefund')" :disabled="isRefundRequesting" @click="closeRefundForm"><UIcon name="i-lucide-x" /></button>
+        </header>
+        <p id="refund-modal-copy" class="refund-modal-copy">{{ t('orderDetail.refundCopy') }}</p>
+        <form class="refund-form" @submit.prevent="requestRefund">
+          <label for="refund-reason">{{ t('orderDetail.reason') }} <small>{{ t('orderDetail.optional') }}</small></label>
+          <select id="refund-reason" v-model="refundReason" :disabled="isRefundRequesting">
+            <option value="">{{ t('orderDetail.selectReason') }}</option>
+            <option v-for="option in refundReasonOptions" :key="option.value" :value="option.value">{{ t(`orderDetail.${option.key}`) }}</option>
+          </select>
+          <label for="refund-reason-detail">{{ t('orderDetail.additionalDetails') }} <small>{{ t('orderDetail.optional') }}</small></label>
+          <textarea id="refund-reason-detail" v-model="refundReasonDetail" maxlength="200" rows="4" :placeholder="t('orderDetail.refundDetailsPlaceholder')" :disabled="isRefundRequesting" />
+          <span class="refund-form-count">{{ refundReasonDetail.length }} / 200</span>
+          <div class="refund-form-actions">
+            <button type="button" class="outline-button" :disabled="isRefundRequesting" @click="closeRefundForm">{{ t('orderDetail.cancelAction') }}</button>
+            <button type="submit" class="danger-link" :disabled="isRefundRequesting"><UIcon :name="isRefundRequesting ? 'i-lucide-loader-circle' : 'i-lucide-rotate-ccw'" :class="{ spinning: isRefundRequesting }" /> {{ isRefundRequesting ? t('orderDetail.requestingRefund') : t('orderDetail.confirmRefund') }}</button>
+          </div>
+        </form>
+      </section>
+    </div>
 
     <StoreFooter />
   </main>
@@ -652,6 +749,24 @@ onBeforeUnmount(() => {
 .cancel-form > span { align-self: flex-end; margin-top: 4px; color: var(--store-muted); font-size: 7px; }
 .cancel-form button { min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 10px; border: 1px solid #963f4f; color: #fff; background: #963f4f; cursor: pointer; font-family: 'DM Mono', monospace; font-size: 8px; text-transform: uppercase; }
 .cancel-form button:disabled { cursor: wait; opacity: .55; }
+.refund-modal-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(36,29,33,.42); }
+.refund-modal { width: min(440px, 100%); max-height: calc(100vh - 36px); overflow-y: auto; padding: 24px; border: 1px solid var(--store-line); background: #fffdfa; box-shadow: 0 18px 55px rgba(36,29,33,.2); }
+.refund-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.refund-modal-header h2 { margin: 4px 0 0; font-family: 'Playfair Display', Georgia, serif; font-size: 27px; font-weight: 500; line-height: 1.15; }
+.refund-modal-header button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--store-line); color: var(--store-muted); background: transparent; cursor: pointer; }
+.refund-modal-header button:disabled { cursor: wait; opacity: .55; }
+.refund-modal-header button .iconify { width: 15px; height: 15px; }
+.refund-modal-copy { margin: 13px 0 0; color: var(--store-muted); font-size: 11px; line-height: 1.55; }
+.refund-form { display: flex; flex-direction: column; margin-top: 20px; }
+.refund-form label { margin-bottom: 7px; color: var(--store-ink); font-size: 9px; font-weight: 600; }
+.refund-form label small { color: var(--store-muted); font-size: 7px; font-weight: 400; }
+.refund-form select, .refund-form textarea { width: 100%; box-sizing: border-box; margin-bottom: 14px; padding: 10px; border: 1px solid var(--store-line); outline: 0; color: var(--store-ink); background: #fff; font: inherit; font-size: 10px; }
+.refund-form select:focus, .refund-form textarea:focus { border-color: var(--store-wine); }
+.refund-form textarea { min-height: 90px; resize: vertical; }
+.refund-form-count { align-self: flex-end; margin-top: -10px; color: var(--store-muted); font-size: 7px; }
+.refund-form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 17px; }
+.refund-form-actions button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding-inline: 14px; }
+@media (max-width: 520px) { .refund-modal { padding: 20px; } .refund-modal-header h2 { font-size: 24px; } .refund-form-actions { flex-direction: column-reverse; } .refund-form-actions button { width: 100%; } }
 
 @media (max-width: 900px) {
   .order-content { grid-template-columns: minmax(0,1fr) 270px; }

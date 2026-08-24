@@ -12,6 +12,7 @@ import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
 import top.foxball.shopmall.repository.UserRepository
 import top.foxball.shopmall.service.OrderMailService
+import top.foxball.shopmall.service.payMent.PaymentRefund
 import java.math.RoundingMode
 import java.net.URI
 import java.nio.charset.StandardCharsets
@@ -34,6 +35,14 @@ class OrderMailServiceImpl(
 ) : OrderMailService {
 
     private val paymentConfirmationTemplate = ClassPathResource("templates/mail/order-payment-confirmation.html")
+        .inputStream
+        .bufferedReader(StandardCharsets.UTF_8)
+        .use { it.readText() }
+    private val refundRequestedTemplate = ClassPathResource("templates/mail/order-refund-requested.html")
+        .inputStream
+        .bufferedReader(StandardCharsets.UTF_8)
+        .use { it.readText() }
+    private val refundConfirmationTemplate = ClassPathResource("templates/mail/order-refund-confirmation.html")
         .inputStream
         .bufferedReader(StandardCharsets.UTF_8)
         .use { it.readText() }
@@ -215,6 +224,129 @@ class OrderMailServiceImpl(
             mailSender.send(message)
         } catch (ex: Exception) {
             throw IllegalStateException("Unable to send payment confirmation for order ${order.orderNo}", ex)
+        }
+    }
+
+    override fun sendRefundRequested(orderId: Long, refund: PaymentRefund) {
+        sendRefundMail(orderId, refund, refundRequestedTemplate, confirmation = false)
+    }
+
+    override fun sendRefundConfirmation(orderId: Long, refund: PaymentRefund) {
+        sendRefundMail(orderId, refund, refundConfirmationTemplate, confirmation = true)
+    }
+
+    private fun sendRefundMail(
+        orderId: Long,
+        refund: PaymentRefund,
+        template: String,
+        confirmation: Boolean,
+    ) {
+        val order = orderRepository.findById(orderId).orElseThrow {
+            IllegalStateException("Cannot send refund email for missing order $orderId")
+        }
+        val customer = userRepository.findById(order.customerId).orElseThrow {
+            IllegalStateException("Cannot send refund email for missing customer ${order.customerId}")
+        }
+        order.paymentIntentId?.let { expectedPaymentIntentId ->
+            require(refund.providerPaymentId == expectedPaymentIntentId) {
+                "Refund ${refund.providerRefundId} belongs to PaymentIntent ${refund.providerPaymentId}, " +
+                    "expected $expectedPaymentIntentId"
+            }
+        }
+        order.stripeRefundId?.let { expectedRefundId ->
+            require(refund.providerRefundId == expectedRefundId) {
+                "Refund ${refund.providerRefundId} does not match order ${order.orderNo} refund $expectedRefundId"
+            }
+        }
+        val customerName = listOf(customer.firstName, customer.lastName)
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .joinToString(" ")
+            .ifBlank { customer.username }
+        val money = { amount: java.math.BigDecimal, currency: String ->
+            "$currency ${amount.setScale(2, RoundingMode.HALF_UP).toPlainString()}"
+        }
+        val orderTotal = money(order.totalAmount, order.currency)
+        val refundAmount = money(refund.amount.value, refund.amount.currency)
+        val refundStatus = refund.status.name
+            .replace('_', ' ')
+            .lowercase()
+            .replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        val requestedAt = order.refundRequestedAt
+            ?.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            ?.takeIf(String::isNotBlank)
+            ?: "Not available"
+        val refundedAt = order.refundedAt
+            ?.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            ?.takeIf(String::isNotBlank)
+            ?: "Not available"
+        val reason = listOfNotNull(
+            order.refundReason?.trim()?.takeIf { it.isNotBlank() },
+            order.refundReasonDetail?.trim()?.takeIf { it.isNotBlank() },
+        ).joinToString(" - ").ifBlank { "Not provided" }
+        val itemSummary = if (confirmation) "" else {
+            orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(orderId).joinToString("<br>") { item ->
+                val name = runCatching {
+                    objectMapper.readTree(item.productSnapshot).get("name")?.asString()?.trim()
+                }.getOrNull()?.takeIf { it.isNotBlank() } ?: "ShopMall item"
+                "${HtmlUtils.htmlEscape(name)} &times;${item.quantity} &middot; ${HtmlUtils.htmlEscape(money(item.lineTotal, order.currency))}"
+            }.ifBlank { "No item details available" }
+        }
+        var html = template
+        mapOf(
+            "{{customer_name}}" to HtmlUtils.htmlEscape(customerName),
+            "{{order_no}}" to HtmlUtils.htmlEscape(order.orderNo),
+            "{{order_total}}" to HtmlUtils.htmlEscape(orderTotal),
+            "{{refund_id}}" to HtmlUtils.htmlEscape(refund.providerRefundId),
+            "{{refund_amount}}" to HtmlUtils.htmlEscape(refundAmount),
+            "{{refund_status}}" to HtmlUtils.htmlEscape(refundStatus),
+            "{{requested_at}}" to HtmlUtils.htmlEscape(requestedAt),
+            "{{refunded_at}}" to HtmlUtils.htmlEscape(refundedAt),
+            "{{refund_reason}}" to HtmlUtils.htmlEscape(reason),
+            "{{item_summary}}" to itemSummary,
+        ).forEach { (token, value) -> html = html.replace(token, value) }
+        val text = buildString {
+            appendLine(if (confirmation) "PELISSA refund confirmed" else "PELISSA refund request received")
+            appendLine()
+            appendLine("Hello $customerName,")
+            appendLine(
+                if (confirmation) {
+                    "Stripe confirmed a refund for order ${order.orderNo}."
+                } else {
+                    "We sent your refund request for order ${order.orderNo} to Stripe."
+                },
+            )
+            appendLine()
+            if (!confirmation) {
+                appendLine("Order total: $orderTotal")
+                if (itemSummary.isNotBlank()) {
+                    appendLine("Items: ${HtmlUtils.htmlUnescape(itemSummary.replace("<br>", "; "))}")
+                }
+                if (requestedAt.isNotBlank()) appendLine("Requested at: $requestedAt")
+                if (reason.isNotBlank()) appendLine("Reason: $reason")
+            }
+            appendLine("Refund ID: ${refund.providerRefundId}")
+            appendLine("Refund amount: $refundAmount")
+            appendLine("Refund status: $refundStatus")
+            if (refundedAt.isNotBlank()) appendLine("Confirmed at: $refundedAt")
+        }
+        try {
+            val message = mailSender.createMimeMessage()
+            MimeMessageHelper(message, true, "UTF-8").apply {
+                setTo(customer.email)
+                setFrom(properties.from.ifBlank { mailUsername })
+                setSubject(
+                    if (confirmation) {
+                        "${properties.subjectPrefix} | Refund confirmed · ${order.orderNo}"
+                    } else {
+                        "${properties.subjectPrefix} | Refund request received · ${order.orderNo}"
+                    },
+                )
+                setText(text, html)
+            }
+            mailSender.send(message)
+        } catch (ex: Exception) {
+            throw IllegalStateException("Unable to send refund email for order ${order.orderNo}", ex)
         }
     }
 }
