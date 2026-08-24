@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import type { CustomerOrder, CustomerProfile, CustomerShipment } from '~/types/customer-account'
-import { customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
+import { customerRequestDetails, customerRequestMessage, useCustomerAccountApi } from '~/composables/useCustomerAccountApi'
 import {
   customerStatusTone,
   orderItemCount,
@@ -45,7 +45,9 @@ const selectedOrder = computed(() => {
 })
 const selectedOrderShipments = computed(() => {
   const orderNo = selectedShipment.value?.order_no
-  return orderNo ? shipments.value.filter(shipment => shipment.order_no === orderNo) : []
+  return orderNo
+    ? shipments.value.filter(shipment => shipment.order_no === orderNo && shipment.status !== 'DELETED')
+    : []
 })
 const shipmentProgress = computed(() => {
   const status = selectedShipment.value?.status
@@ -78,18 +80,42 @@ async function selectOrder(orderNo: string) {
 }
 
 async function selectShipment(shipment: CustomerShipment, fetchDetail = true) {
+  if (shipment.status === 'DELETED') {
+    shipments.value = shipments.value.filter(item => (
+      item.shipment_no !== shipment.shipment_no || item.order_no !== shipment.order_no
+    ))
+    selectedShipment.value = null
+    requestError.value = t('accountLogistics.errors.unavailable')
+    return
+  }
   selectedShipment.value = shipment
   if (!fetchDetail) return
 
   isLoadingDetail.value = true
   try {
-    selectedShipment.value = await api.getShipment(shipment.order_no, shipment.shipment_no)
+    const detail = await api.getShipment(shipment.order_no, shipment.shipment_no)
     const index = shipments.value.findIndex(item => item.shipment_no === shipment.shipment_no && item.order_no === shipment.order_no)
-    if (index >= 0) shipments.value[index] = selectedShipment.value
+    if (detail.status === 'DELETED') {
+      if (index >= 0) shipments.value.splice(index, 1)
+      selectedShipment.value = null
+      requestError.value = t('accountLogistics.errors.unavailable')
+      return
+    }
+    selectedShipment.value = detail
+    if (index >= 0) shipments.value[index] = detail
   } catch (error: unknown) {
+    const failure = customerRequestDetails(error, t('accountLogistics.errors.latest'))
+    if (failure.status === 404) {
+      shipments.value = shipments.value.filter(item => (
+        item.shipment_no !== shipment.shipment_no || item.order_no !== shipment.order_no
+      ))
+      selectedShipment.value = null
+      requestError.value = t('accountLogistics.errors.unavailable')
+      return
+    }
     // The list response already contains a useful timeline; retain it when a
     // detail refresh is temporarily unavailable.
-    requestError.value = customerRequestMessage(error, t('accountLogistics.errors.latest'))
+    requestError.value = failure.message
   } finally {
     isLoadingDetail.value = false
   }
@@ -102,7 +128,9 @@ async function loadShipmentsForOrders(orderList: CustomerOrder[]) {
   const candidates = orderList.filter(order => !['PENDING_PAYMENT', 'CANCELLED', 'DELETED'].includes(order.status)).slice(0, 12)
   const results = await Promise.allSettled(candidates.map(order => api.getShipments(order.order_no)))
   for (const result of results) {
-    if (result.status === 'fulfilled') shipments.value.push(...(result.value.list || []))
+    if (result.status === 'fulfilled') {
+      shipments.value.push(...(result.value.list || []).filter(shipment => shipment.status !== 'DELETED'))
+    }
   }
   const requested = requestedOrderNo.value
   const first = requested
@@ -161,6 +189,12 @@ async function lookupTracking() {
   lookupLoading.value = true
   try {
     const result = await api.trackShipment(carrier, trackingNo)
+    if (result.status === 'DELETED') {
+      shipments.value = shipments.value.filter(item => item.shipment_no !== result.shipment_no)
+      if (selectedShipment.value?.shipment_no === result.shipment_no) selectedShipment.value = null
+      lookupError.value = t('accountLogistics.errors.unavailable')
+      return
+    }
     const existingIndex = shipments.value.findIndex(item => item.shipment_no === result.shipment_no)
     if (existingIndex >= 0) shipments.value[existingIndex] = result
     else shipments.value.unshift(result)

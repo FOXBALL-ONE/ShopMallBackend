@@ -14,6 +14,10 @@ interface LogisticsIdempotencyRepository : JpaRepository<LogisticsIdempotency, L
     ): LogisticsIdempotency?
 
     @Modifying(flushAutomatically = true)
+    @Query("delete from LogisticsIdempotency i where i.shipmentId = :shipmentId")
+    fun deleteAllByShipmentId(@Param("shipmentId") shipmentId: Long): Int
+
+    @Modifying(flushAutomatically = true)
     @Query("delete from LogisticsIdempotency i where i.shipmentId in :shipmentIds")
     fun deleteAllByShipmentIdIn(@Param("shipmentIds") shipmentIds: Collection<Long>): Int
 

@@ -234,6 +234,7 @@ export default defineI18nLocale(() => ({
       load: 'We could not load your delivery history.',
       lookupRequired: 'Enter both a carrier code and a tracking number.',
       lookup: 'We could not find that shipment. Check the carrier code and tracking number.',
+      unavailable: 'This shipment has been deleted or is no longer available for tracking.',
     },
     refresh: 'Refresh',
     chooseJourney: 'CHOOSE A JOURNEY',

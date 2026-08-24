@@ -72,7 +72,7 @@ class ShipmentTrackingScheduler(
     // 不可恢复判定：仅 CarrierException 且 message 命中「单号无效/不存在」关键词；其余异常按临时故障处理。
     private fun isTrackingNoInvalid(ex: Throwable): Boolean {
         if (ex !is CarrierException) return false
-        val msg = ex.message?.lowercase() ?: return false
+        val msg = ex.message.lowercase()
         return INVALID_TRACKING_NO_KEYWORDS.any { msg.contains(it) }
     }
 

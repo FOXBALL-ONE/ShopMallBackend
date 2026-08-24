@@ -254,11 +254,30 @@ function canCancel(shipment: AdminShipment): boolean {
 
 function canMarkDelivered(shipment: AdminShipment): boolean {
   const { carrier, status } = shipment.shipment
-  return carrier === 'manual' && !['DELIVERED', 'CANCEL_PENDING', 'CANCELLED', 'DELETED'].includes(status)
+  return carrier === 'manual' && ['LABEL_CREATED', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'].includes(status)
 }
 
 function canDeleteShipment(shipment: AdminShipment): boolean {
   return ['DELIVERED', 'CANCELLED', 'DELETED'].includes(shipment.shipment.status)
+}
+
+function actionValidationMessage(type: ShipmentAction, shipment: AdminShipment): string | null {
+  if (shipment.shipment.status === 'DELETED') {
+    return '已逻辑删除的运单不能再变更状态，只能执行永久删除'
+  }
+  if (type === 'dispatch' && !canDispatch(shipment)) {
+    return '只有待发货（LABEL_CREATED）状态的运单可以确认发货'
+  }
+  if (type === 'cancel' && !canCancel(shipment)) {
+    return '只有待生成面单（LABEL_PENDING）或待发货（LABEL_CREATED）状态的运单可以取消'
+  }
+  if (type === 'delivered' && shipment.shipment.carrier !== 'manual') {
+    return '只有手工承运商（manual）的运单可以手动签收'
+  }
+  if (type === 'delivered' && !canMarkDelivered(shipment)) {
+    return '只有待发货（LABEL_CREATED）、运输中（IN_TRANSIT）或派送中（OUT_FOR_DELIVERY）状态的手工运单可以签收'
+  }
+  return null
 }
 
 function confirmDeleteShipment(shipment: AdminShipment) {
@@ -268,7 +287,7 @@ function confirmDeleteShipment(shipment: AdminShipment) {
     tone: permanent ? 'error' : 'warning',
     title: permanent ? '永久删除运单' : '删除运单',
     content: permanent
-      ? `确认永久删除运单 ${shipmentNo}？相关商品行和物流轨迹将从数据库移除，且无法恢复。`
+      ? `确认永久删除运单 ${shipmentNo}？相关商品行、物流轨迹和物流操作幂等记录将从数据库移除，且无法恢复。`
       : `确认删除运单 ${shipmentNo}？本次仅逻辑删除，并释放仍占用的订单商品行。`,
     positiveText: permanent ? '永久删除' : '删除',
     onConfirm: async () => {
@@ -489,6 +508,11 @@ async function openDetail(shipment: AdminShipment) {
 }
 
 function openAction(type: ShipmentAction, shipment: AdminShipment) {
+  const validationMessage = actionValidationMessage(type, shipment)
+  if (validationMessage) {
+    message.warning(validationMessage)
+    return
+  }
   actionType.value = type
   actionShipment.value = shipment
   actionForm.note = shipment.note ?? ''
@@ -508,16 +532,27 @@ function closeAction() {
 
 function validateActionForm(): boolean {
   if (actionType.value === 'dispatch' && actionForm.note.trim().length > 200) {
-    message.warning('运单备注不能超过 200 个字符')
+    message.warning('运单备注去除首尾空格后最多为 200 个字符')
     return false
   }
-  if ((actionType.value === 'cancel' || actionType.value === 'delivered') && !actionForm.reason.trim()) {
-    message.warning('请填写处理原因')
-    return false
+  if (actionType.value === 'cancel' || actionType.value === 'delivered') {
+    const reasonLabel = actionType.value === 'cancel' ? '取消原因' : '签收原因'
+    const reasonLength = actionForm.reason.trim().length
+    if (reasonLength < 1 || reasonLength > 200) {
+      message.warning(`${reasonLabel}去除首尾空格后必须为 1–200 个字符`)
+      return false
+    }
   }
-  if (actionForm.reason.trim().length > 200) {
-    message.warning('处理原因不能超过 200 个字符')
-    return false
+  if (actionType.value === 'delivered' && actionForm.occurredAt !== null) {
+    if (actionForm.occurredAt > Date.now() + 5 * 60 * 1000) {
+      message.warning('签收时间不得晚于当前时间 5 分钟以上')
+      return false
+    }
+    const shippedAt = Date.parse(actionShipment.value?.shipment.shipped_at ?? '')
+    if (Number.isFinite(shippedAt) && actionForm.occurredAt < shippedAt) {
+      message.warning('签收时间不得早于运单发货时间')
+      return false
+    }
   }
   return true
 }
@@ -528,15 +563,30 @@ async function submitAction() {
 
   actionLoading.value = true
   try {
+    const latest = await api.get(shipment.shipment.shipment_no)
+    updateSelectedShipment(latest)
+    actionShipment.value = latest
+    const validationMessage = actionValidationMessage(actionType.value, latest)
+    if (validationMessage) {
+      message.warning(validationMessage)
+      actionOpen.value = false
+      actionShipment.value = null
+      actionForm.note = ''
+      actionForm.reason = ''
+      actionForm.occurredAt = null
+      return
+    }
+    if (!validateActionForm()) return
+
     let result: ShipmentMutationResponse
     if (actionType.value === 'dispatch') {
-      result = await api.dispatch(shipment.shipment.shipment_no, {
+      result = await api.dispatch(latest.shipment.shipment_no, {
         note: actionForm.note.trim() || undefined,
       })
     } else if (actionType.value === 'cancel') {
-      result = await api.cancel(shipment.shipment.shipment_no, { reason: actionForm.reason.trim() })
+      result = await api.cancel(latest.shipment.shipment_no, { reason: actionForm.reason.trim() })
     } else {
-      result = await api.markDelivered(shipment.shipment.shipment_no, {
+      result = await api.markDelivered(latest.shipment.shipment_no, {
         occurred_at: actionForm.occurredAt ? new Date(actionForm.occurredAt).toISOString() : undefined,
         reason: actionForm.reason.trim(),
       })
@@ -794,6 +844,9 @@ onMounted(() => {
             <NAlert v-if="selectedShipment.last_track_error" type="error" :bordered="false" title="物流同步异常">
               {{ selectedShipment.last_track_error }}
             </NAlert>
+            <NAlert v-if="selected.status === 'DELETED'" type="warning" :bordered="false" title="运单已逻辑删除">
+              该运单不能再发货、取消、签收或接收物流状态更新，只能执行永久删除。永久删除会移除商品行、物流轨迹和物流操作幂等记录，且无法恢复。
+            </NAlert>
             <NAlert v-if="selectedShipment.cancel_reason" type="warning" :bordered="false" title="取消原因">
               {{ selectedShipment.cancel_reason }}
             </NAlert>
@@ -1036,35 +1089,46 @@ onMounted(() => {
         </NDescriptions>
         <NForm label-placement="top">
           <NFormItem v-if="actionType === 'dispatch'" label="运单备注">
-            <NInput
-              v-model:value="actionForm.note"
-              type="textarea"
-              maxlength="200"
-              show-count
-              :autosize="{ minRows: 3, maxRows: 5 }"
-              :disabled="actionLoading"
-              placeholder="可选"
-            />
+            <div class="field-with-hint">
+              <NInput
+                v-model:value="actionForm.note"
+                type="textarea"
+                maxlength="200"
+                show-count
+                :autosize="{ minRows: 3, maxRows: 5 }"
+                :disabled="actionLoading"
+                placeholder="可选"
+              />
+              <small class="field-hint">可选，去除首尾空格后最多为 200 个字符。</small>
+            </div>
           </NFormItem>
           <NFormItem v-else :label="actionType === 'cancel' ? '取消原因' : '签收原因'" required>
-            <NInput
-              v-model:value="actionForm.reason"
-              type="textarea"
-              maxlength="200"
-              show-count
-              :autosize="{ minRows: 3, maxRows: 5 }"
-              :disabled="actionLoading"
-              placeholder="请输入处理原因"
-            />
+            <div class="field-with-hint">
+              <NInput
+                v-model:value="actionForm.reason"
+                type="textarea"
+                maxlength="200"
+                show-count
+                :autosize="{ minRows: 3, maxRows: 5 }"
+                :disabled="actionLoading"
+                :placeholder="actionType === 'cancel' ? '请输入取消原因' : '请输入签收原因'"
+              />
+              <small class="field-hint">
+                {{ actionType === 'cancel' ? '取消原因' : '签收原因' }}必填，去除首尾空格后必须为 1–200 个字符。
+              </small>
+            </div>
           </NFormItem>
           <NFormItem v-if="actionType === 'delivered'" label="签收时间">
-            <NDatePicker
-              v-model:value="actionForm.occurredAt"
-              type="datetime"
-              clearable
-              :disabled="actionLoading"
-              style="width: 100%"
-            />
+            <div class="field-with-hint">
+              <NDatePicker
+                v-model:value="actionForm.occurredAt"
+                type="datetime"
+                clearable
+                :disabled="actionLoading"
+                style="width: 100%"
+              />
+              <small class="field-hint">可选；不填写时使用当前时间。不得早于发货时间，也不得晚于当前时间 5 分钟以上。</small>
+            </div>
           </NFormItem>
         </NForm>
       </NSpace>

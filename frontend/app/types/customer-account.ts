@@ -297,13 +297,23 @@ export interface CustomerShipmentTrack {
   received_at: string | null
 }
 
+export type CustomerShipmentStatus =
+  | 'LABEL_PENDING'
+  | 'LABEL_CREATED'
+  | 'CANCEL_PENDING'
+  | 'IN_TRANSIT'
+  | 'OUT_FOR_DELIVERY'
+  | 'DELIVERED'
+  | 'CANCELLED'
+  | 'DELETED'
+
 export interface CustomerShipment {
   shipment_no: string
   order_no: string
   carrier: string
   tracking_no: string | null
   tracking_url: string | null
-  status: string
+  status: CustomerShipmentStatus
   shipped_at: string | null
   delivered_at: string | null
   last_track_status: string | null

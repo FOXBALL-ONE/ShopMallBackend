@@ -143,7 +143,8 @@ async function loadOrder(showLoading = true) {
 
     if (SHIPMENT_STATUSES.has(result.status)) {
       try {
-        shipments.value = (await api.getShipments(result.order_no)).list || []
+        shipments.value = ((await api.getShipments(result.order_no)).list || [])
+          .filter(shipment => shipment.status !== 'DELETED')
       } catch (error: unknown) {
         shipments.value = []
         shipmentError.value = customerRequestMessage(error, 'Tracking details are temporarily unavailable.')

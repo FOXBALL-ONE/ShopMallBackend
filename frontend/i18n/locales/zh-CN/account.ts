@@ -234,6 +234,7 @@ export default defineI18nLocale(() => ({
       load: '暂时无法加载配送历史。',
       lookupRequired: '请同时填写承运商代码和追踪编号。',
       lookup: '未找到该包裹，请检查承运商代码和追踪编号。',
+      unavailable: '该运单已删除或不可用，无法继续查看物流状态。',
     },
     refresh: '刷新',
     chooseJourney: '选择一段旅程',
