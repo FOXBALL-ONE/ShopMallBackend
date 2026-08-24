@@ -26,7 +26,21 @@ const { data: pageData, status, error, refresh } = await useAsyncData(
 
 const product = computed(() => pageData.value?.product ?? null)
 const definitions = computed(() => pageData.value?.definitions ?? [])
-const variants = computed(() => product.value?.variants ?? [])
+const variants = computed(() => {
+  const seen = new Set<string>()
+  return (product.value?.variants ?? [])
+    .filter(variant => {
+      const attributes = [...variant.attributes]
+        .sort((left, right) => left.code.localeCompare(right.code))
+        .map(attribute => `${attribute.code}:${attribute.value}`)
+        .join('|')
+      const key = [variant.id, variant.sku, variant.size ?? '', variant.color, attributes].join('::')
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .sort((left, right) => left.display_order - right.display_order || left.id - right.id)
+})
 const selectedImage = ref(0)
 const isImagePreviewOpen = ref(false)
 const selection = ref<Record<string, string>>({})
@@ -49,10 +63,24 @@ const dimensions = computed<OptionDimension[]>(() => {
   const result: OptionDimension[] = []
   const sizeValues = [...new Set(variants.value.map(variant => variant.size).filter((value): value is string => Boolean(value)))]
   const colorValues = [...new Set(variants.value.map(variant => variant.color).filter(Boolean))]
-  if (sizeValues.length) result.push({ code: 'size', label: 'Size', values: sizeValues })
   const variantDefinitions = [...definitions.value]
     .filter(definition => definition.active && definition.scope === 'VARIANT')
     .sort((left, right) => left.display_order - right.display_order)
+  const hasSeparateTopAndBottomSizes = ['top_size', 'bottom_size'].every(code =>
+    variantDefinitions.some(definition => definition.code === code),
+  )
+  const sizeIsDerivedFromVariantAttributes = hasSeparateTopAndBottomSizes
+    && variants.value.length > 0
+    && variants.value.every(variant => {
+      const topSize = optionValue(variant, 'top_size')
+      const bottomSize = optionValue(variant, 'bottom_size')
+      return Boolean(topSize && bottomSize && variant.size === `${topSize}/${bottomSize}`)
+    })
+
+  // SKU 同时返回了组合尺码（例如 S/S）和上下分开的规格时，组合尺码是冗余信息，避免用户重复选择。
+  if (sizeValues.length && !sizeIsDerivedFromVariantAttributes) {
+    result.push({ code: 'size', label: 'Size', values: sizeValues })
+  }
   variantDefinitions.forEach(definition => {
     const values = [...new Set(variants.value.map(variant => optionValue(variant, definition.code)).filter(Boolean))]
     if (values.length) result.push({ code: definition.code, label: definition.name, values })
@@ -66,9 +94,15 @@ const selectedVariant = computed(() => {
   return variants.value.find(variant => dimensions.value.every(dimension => optionValue(variant, dimension.code) === selection.value[dimension.code])) ?? null
 })
 
+const hasSelection = computed(() => Object.values(selection.value).some(Boolean))
+
 const displayedPrice = computed(() => {
   if (selectedVariant.value) return formatPrice(Number(selectedVariant.value.price))
-  const prices = variants.value.map(variant => Number(variant.price)).filter(Number.isFinite)
+  const compatibleVariants = matchingVariants(selection.value)
+  // 部分规格已选中时，只展示仍可匹配的 SKU 价格；没有库存时也保留同规格的价格反馈。
+  const prices = (compatibleVariants.length ? compatibleVariants : variants.value)
+    .map(variant => Number(variant.price))
+    .filter(Number.isFinite)
   if (!prices.length) return formatPrice(0)
   const min = Math.min(...prices)
   const max = Math.max(...prices)
@@ -111,31 +145,135 @@ function matchingVariants(candidateSelection: Record<string, string>): CatalogVa
   return variants.value.filter(variant => Object.entries(candidateSelection).every(([code, value]) => !value || optionValue(variant, code) === value))
 }
 
-function selectionThrough(code: string, value?: string): Record<string, string> {
-  const dependentCodes = code === 'size'
-    ? dimensions.value.filter(dimension => dimension.code !== 'size').map(dimension => dimension.code)
-    : code === 'top_size' ? ['bottom_size'] : []
-  const next = Object.fromEntries(
-    Object.entries(selection.value).filter(([selectionCode]) => (
-      !dependentCodes.includes(selectionCode) && (value || selectionCode !== code)
-    )),
-  )
-  if (value) next[code] = value
-  return next
+function hasAvailableVariant(candidateSelection: Record<string, string>): boolean {
+  return matchingVariants(candidateSelection).some(variant => variant.warehouse_volume > 0)
 }
 
-function isOptionAvailable(code: string, value: string): boolean {
-  return matchingVariants(selectionThrough(code, value)).some(variant => variant.warehouse_volume > 0)
+function selectionThrough(code: string, value?: string): Record<string, string> {
+  const next = Object.fromEntries(
+    Object.entries(selection.value).filter(([selectedCode]) => selectedCode !== code),
+  )
+  if (!value) return next
+
+  // 将刚操作的规格放到选择顺序末尾。若组合不存在，优先保留更多已有选择，
+  // 并在同样数量的候选中保留更早选中的规格，避免误清理颜色等独立规格。
+  next[code] = value
+  if (hasAvailableVariant(next)) return next
+
+  const selectedCodes = Object.keys(next).filter(selectedCode => selectedCode !== code)
+  const availableCandidates = variants.value.filter(variant =>
+    variant.warehouse_volume > 0 && optionValue(variant, code) === value,
+  )
+  let bestCandidate: CatalogVariant | null = null
+  let bestKeptCount = -1
+  for (const candidate of availableCandidates) {
+    const keptCount = selectedCodes.reduce((count, selectedCode) =>
+      count + (optionValue(candidate, selectedCode) === next[selectedCode] ? 1 : 0), 0)
+    let keepsEarlierSelection = false
+    if (keptCount === bestKeptCount && bestCandidate) {
+      for (const selectedCode of selectedCodes) {
+        const candidateKeeps = optionValue(candidate, selectedCode) === next[selectedCode]
+        const bestKeeps = optionValue(bestCandidate, selectedCode) === next[selectedCode]
+        if (candidateKeeps === bestKeeps) continue
+        keepsEarlierSelection = candidateKeeps
+        break
+      }
+    }
+    if (keptCount > bestKeptCount || keepsEarlierSelection) {
+      bestCandidate = candidate
+      bestKeptCount = keptCount
+    }
+  }
+
+  if (!bestCandidate) return next
+  const compatibleSelection: Record<string, string> = {}
+  selectedCodes.forEach(selectedCode => {
+    if (optionValue(bestCandidate!, selectedCode) === next[selectedCode]) {
+      compatibleSelection[selectedCode] = next[selectedCode]!
+    }
+  })
+  compatibleSelection[code] = value
+  return compatibleSelection
+}
+
+type OptionAvailability = { available: boolean; adjustsSelection: boolean; soldOut: boolean; title: string }
+
+function optionAvailability(code: string, value: string): OptionAvailability {
+  const directSelection = { ...selection.value, [code]: value }
+  const directMatches = matchingVariants(directSelection)
+  if (directMatches.some(variant => variant.warehouse_volume > 0)) {
+    return { available: true, adjustsSelection: false, soldOut: false, title: 'Available' }
+  }
+
+  const compatibleSelection = selectionThrough(code, value)
+  const hasCompatibleStock = hasAvailableVariant(compatibleSelection)
+  const adjustsSelection = hasCompatibleStock && Object.keys(directSelection).some(
+    selectedCode => compatibleSelection[selectedCode] !== directSelection[selectedCode],
+  )
+  const soldOut = !hasCompatibleStock && directMatches.length > 0
+  return {
+    available: hasCompatibleStock,
+    adjustsSelection,
+    soldOut,
+    title: hasCompatibleStock
+      ? 'Selecting this will update an incompatible option'
+      : soldOut ? 'Sold out for the current selection' : 'Unavailable with the current selection',
+  }
+}
+
+function optionAvailabilityKey(code: string, value: string): string {
+  return `${code}\u0000${value}`
+}
+
+const optionAvailabilityByKey = computed(() => Object.fromEntries(
+  dimensions.value.flatMap(dimension => dimension.values.map(value => [
+    optionAvailabilityKey(dimension.code, value),
+    optionAvailability(dimension.code, value),
+  ])),
+))
+
+function getOptionAvailability(code: string, value: string): OptionAvailability {
+  return optionAvailabilityByKey.value[optionAvailabilityKey(code, value)]
+    ?? { available: false, adjustsSelection: false, soldOut: false, title: 'Unavailable' }
+}
+
+const colorSwatches: Record<string, string> = {
+  black: '#1f1d1d',
+  blue: '#4c78a8',
+  ocean_blue: '#2f6174',
+  navy: '#263b63',
+  pink: '#d894a6',
+  red: '#a84b55',
+  seafoam: '#8eb8ae',
+  white: '#f8f5f0',
+}
+
+function colorSwatch(value: string): string {
+  const normalized = value.trim().toLowerCase().replaceAll(' ', '_')
+  if (/^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(normalized)) return normalized
+  return colorSwatches[normalized] ?? '#d8d0cd'
 }
 
 function selectOption(code: string, value: string) {
-  if (!isOptionAvailable(code, value)) return
+  if (!getOptionAvailability(code, value).available) return
   selection.value = selectionThrough(code, selection.value[code] === value ? undefined : value)
+  isAdded.value = false
+  addError.value = ''
 }
 
 function clearOption(code: string) {
   if (!selection.value[code]) return
   selection.value = selectionThrough(code)
+  isAdded.value = false
+  addError.value = ''
+}
+
+function clearAllSelections() {
+  if (!hasSelection.value) return
+  selection.value = {}
+  quantity.value = 1
+  isAdded.value = false
+  addError.value = ''
 }
 
 function changeQuantity(delta: number) {
@@ -266,6 +404,18 @@ useHead(() => ({
           <p v-if="product.fit_sense" class="product-fit">{{ product.fit_sense }}</p>
 
           <div class="product-options">
+            <div class="product-options-heading">
+              <span>Choose your options</span>
+              <button
+                v-if="hasSelection"
+                type="button"
+                class="clear-all-options"
+                title="Clear all selected options"
+                @click="clearAllSelections"
+              >
+                Clear all
+              </button>
+            </div>
             <fieldset v-for="dimension in dimensions" :key="dimension.code">
               <legend>
                 <span>{{ dimension.label }}</span>
@@ -290,10 +440,12 @@ useHead(() => ({
                   type="button"
                   :class="{ active: selection[dimension.code] === value, color: dimension.code === 'color' }"
                   :aria-pressed="selection[dimension.code] === value"
-                  :disabled="!isOptionAvailable(dimension.code, value)"
+                  :aria-label="`${dimension.label}: ${formatAttribute(value)}. ${getOptionAvailability(dimension.code, value).title}`"
+                  :title="getOptionAvailability(dimension.code, value).title"
+                  :disabled="!getOptionAvailability(dimension.code, value).available"
                   @click="selectOption(dimension.code, value)"
                 >
-                  <span v-if="dimension.code === 'color'" class="option-swatch" :style="{ backgroundColor: value }" />
+                  <span v-if="dimension.code === 'color'" class="option-swatch" :style="{ backgroundColor: colorSwatch(value) }" />
                   {{ formatAttribute(value) }}
                 </button>
               </div>
@@ -665,6 +817,34 @@ useHead(() => ({
 
 .product-options {
   margin-top: 28px;
+}
+
+.product-options-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+  color: var(--store-muted);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.clear-all-options {
+  padding: 0;
+  border: 0;
+  color: var(--store-muted);
+  background: transparent;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.clear-all-options:hover {
+  color: var(--store-ink);
 }
 
 .product-options fieldset {
