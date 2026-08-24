@@ -35,6 +35,10 @@ export interface PasswordResetResponse {
   sessions_revoked: boolean
 }
 
+export interface CustomerEmailVerificationResponse {
+  email_verified: boolean
+}
+
 const formRequestOptions = {
   payloadMode: 'json' as const,
   headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -67,6 +71,16 @@ export function useCustomerAuthApi() {
         email: email.trim()
       }), formRequestOptions)
       return response.message
+    },
+
+    sendEmailVerificationCode() {
+      return http.postRaw<CustomerEmailVerificationResponse>('/auth/email-verification-code')
+    },
+
+    verifyEmail(verificationCode: string) {
+      return http.postRaw<CustomerEmailVerificationResponse, URLSearchParams>('/auth/email-verification', formBody({
+        verification_code: verificationCode.trim()
+      }), formRequestOptions)
     },
 
     async requestPasswordReset(email: string) {

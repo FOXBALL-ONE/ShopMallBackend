@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type {
   CustomerAddress,
   CustomerAddressInput,
@@ -20,6 +20,7 @@ useHead(() => ({
 }))
 
 const api = useCustomerAccountApi()
+const authApi = useCustomerAuthApi()
 const session = useCustomerSession()
 const toast = useToast()
 
@@ -33,6 +34,25 @@ const profileError = ref('')
 const addressError = ref('')
 const addressFormOpen = ref(false)
 const editingAddressId = ref<string | null>(null)
+const isSendingEmailCode = ref(false)
+const isVerifyingEmail = ref(false)
+const emailVerificationSent = ref(false)
+const emailVerificationCode = ref('')
+const emailVerificationError = ref('')
+const emailCodeCooldown = ref(0)
+const emailCodeInput = ref<HTMLInputElement | null>(null)
+let emailCodeCooldownEndsAt = 0
+let emailCodeCooldownTimer: ReturnType<typeof setInterval> | null = null
+
+const isEmailCodeComplete = computed(() => /^\d{6}$/.test(emailVerificationCode.value.trim()))
+
+const emailCodeButtonLabel = computed(() => {
+  if (isSendingEmailCode.value) return t('accountProfile.emailVerification.sending')
+  if (emailCodeCooldown.value > 0) return t('accountProfile.emailVerification.resendIn', { seconds: emailCodeCooldown.value })
+  return emailVerificationSent.value
+    ? t('accountProfile.emailVerification.sendAgain')
+    : t('accountProfile.emailVerification.sendCode')
+})
 
 const profileForm = reactive({
   firstName: '',
@@ -225,6 +245,98 @@ async function saveProfile() {
   }
 }
 
+function startEmailCodeCooldown() {
+  if (emailCodeCooldownTimer) clearInterval(emailCodeCooldownTimer)
+  emailCodeCooldownEndsAt = Date.now() + 60_000
+  emailCodeCooldown.value = 60
+  emailCodeCooldownTimer = setInterval(() => {
+    emailCodeCooldown.value = Math.max(0, Math.ceil((emailCodeCooldownEndsAt - Date.now()) / 1000))
+    if (emailCodeCooldown.value <= 0 && emailCodeCooldownTimer) {
+      clearInterval(emailCodeCooldownTimer)
+      emailCodeCooldownTimer = null
+    }
+  }, 250)
+}
+
+function completeEmailVerification() {
+  if (profile.value) profile.value.email_verified = true
+  emailVerificationCode.value = ''
+  emailVerificationSent.value = false
+  emailVerificationError.value = ''
+  emailCodeCooldown.value = 0
+  emailCodeCooldownEndsAt = 0
+  if (emailCodeCooldownTimer) {
+    clearInterval(emailCodeCooldownTimer)
+    emailCodeCooldownTimer = null
+  }
+}
+
+function updateEmailVerificationCode(event: Event) {
+  const input = event.target as HTMLInputElement
+  const normalized = input.value.replace(/\D/g, '').slice(0, 6)
+  input.value = normalized
+  emailVerificationCode.value = normalized
+  emailVerificationError.value = ''
+}
+
+async function sendEmailVerificationCode() {
+  if (isSendingEmailCode.value || emailCodeCooldown.value > 0 || profile.value?.email_verified) return
+  emailVerificationError.value = ''
+  isSendingEmailCode.value = true
+  try {
+    const response = await authApi.sendEmailVerificationCode()
+    if (response.data.email_verified) {
+      completeEmailVerification()
+      toast.add({
+        title: t('accountProfile.emailVerification.verified'),
+        description: t('accountProfile.emailVerification.verifiedCopy'),
+        color: 'success'
+      })
+      return
+    }
+    emailVerificationSent.value = true
+    startEmailCodeCooldown()
+    await nextTick()
+    emailCodeInput.value?.focus()
+    toast.add({
+      title: t('accountProfile.emailVerification.codeSent'),
+      description: t('accountProfile.emailVerification.codeSentCopy', { email: profile.value?.email || '' }),
+      color: 'success'
+    })
+  } catch (error: unknown) {
+    emailVerificationError.value = customerRequestMessage(error, t('accountProfile.errors.sendEmailCode'))
+    toast.add({ title: t('accountProfile.emailVerification.codeNotSent'), description: emailVerificationError.value, color: 'error' })
+  } finally {
+    isSendingEmailCode.value = false
+  }
+}
+
+async function verifyEmail() {
+  emailVerificationError.value = ''
+  const code = emailVerificationCode.value.trim()
+  if (!isEmailCodeComplete.value) {
+    emailVerificationError.value = t('accountProfile.errors.emailCode')
+    return
+  }
+  if (isVerifyingEmail.value || profile.value?.email_verified) return
+
+  isVerifyingEmail.value = true
+  try {
+    await authApi.verifyEmail(code)
+    completeEmailVerification()
+    toast.add({
+      title: t('accountProfile.emailVerification.verified'),
+      description: t('accountProfile.emailVerification.verifiedCopy'),
+      color: 'success'
+    })
+  } catch (error: unknown) {
+    emailVerificationError.value = customerRequestMessage(error, t('accountProfile.errors.verifyEmail'))
+    toast.add({ title: t('accountProfile.emailVerification.notVerified'), description: emailVerificationError.value, color: 'error' })
+  } finally {
+    isVerifyingEmail.value = false
+  }
+}
+
 function buildAddressInput(): CustomerAddressInput {
   return {
     label: addressForm.label.trim() || undefined,
@@ -338,6 +450,13 @@ async function loadProfilePage() {
 onMounted(() => {
   void loadProfilePage()
 })
+
+onBeforeUnmount(() => {
+  if (emailCodeCooldownTimer) {
+    clearInterval(emailCodeCooldownTimer)
+    emailCodeCooldownTimer = null
+  }
+})
 </script>
 <template>
   <CustomerAccountShell
@@ -378,6 +497,37 @@ onMounted(() => {
             <UIcon :name="profile.email_verified ? 'i-lucide-badge-check' : 'i-lucide-circle-alert'" />
             {{ profile.email_verified ? t('accountProfile.verifiedEmail') : t('accountProfile.unverifiedEmail') }}
           </small>
+          <div v-if="!profile.email_verified" class="email-verification">
+            <p>{{ t('accountProfile.emailVerification.copy') }}</p>
+            <div class="email-verification-actions">
+              <input
+                ref="emailCodeInput"
+                :value="emailVerificationCode"
+                type="text"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                maxlength="6"
+                :placeholder="t('accountProfile.emailVerification.codePlaceholder')"
+                :aria-label="t('accountProfile.emailVerification.codeLabel')"
+                :aria-invalid="Boolean(emailVerificationError)"
+                aria-describedby="email-verification-help email-verification-feedback"
+                @input="updateEmailVerificationCode"
+                @keyup.enter="verifyEmail"
+              >
+              <button type="button" class="email-code-button" :disabled="isSendingEmailCode || emailCodeCooldown > 0" @click="sendEmailVerificationCode">
+                <UIcon :name="isSendingEmailCode ? 'i-lucide-loader-circle' : 'i-lucide-mail'" :class="{ 'is-spinning': isSendingEmailCode }" />
+                {{ emailCodeButtonLabel }}
+              </button>
+              <button type="button" class="email-verify-button" :disabled="isVerifyingEmail || isSendingEmailCode || !isEmailCodeComplete" :title="t('accountProfile.emailVerification.verify')" @click="verifyEmail">
+                <UIcon :name="isVerifyingEmail ? 'i-lucide-loader-circle' : 'i-lucide-check'" :class="{ 'is-spinning': isVerifyingEmail }" />
+                <span>{{ t('accountProfile.emailVerification.verify') }}</span>
+              </button>
+            </div>
+            <span id="email-verification-help" class="email-verification-help">
+              {{ emailVerificationSent ? t('accountProfile.emailVerification.sentHint') : t('accountProfile.emailVerification.sendHint') }}
+            </span>
+            <span id="email-verification-feedback" class="email-verification-error" role="alert" aria-live="polite">{{ emailVerificationError }}</span>
+          </div>
         </div>
       </section>
 
@@ -403,7 +553,7 @@ onMounted(() => {
               <input v-model="profileForm.lastName" type="text" maxlength="50" autocomplete="family-name" :placeholder="t('accountProfile.lastNamePlaceholder')">
             </label>
             <label class="field-label field-span-two">
-              <span>{{ t('accountProfile.email') }} <small>{{ t('accountProfile.verifiedAccountEmail') }}</small></span>
+              <span>{{ t('accountProfile.email') }} <small>{{ profile?.email_verified ? t('accountProfile.verifiedAccountEmail') : t('accountProfile.accountEmail') }}</small></span>
               <div class="input-with-icon">
                 <input :value="profile?.email || ''" type="email" readonly aria-readonly="true">
                 <UIcon name="i-lucide-lock-keyhole" />
@@ -715,6 +865,24 @@ onMounted(() => {
 .profile-intro-email small .iconify { width: 12px; height: 12px; }
 .is-verified { color: #66816a; }
 .is-unverified { color: var(--store-wine); }
+.email-verification { width: min(330px, 100%); margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--store-line); }
+.profile-intro-panel .email-verification > p { margin: 0 0 9px; color: var(--store-muted); font-size: 10px; line-height: 1.5; }
+.email-verification-actions { display: grid; grid-template-columns: minmax(82px, .72fr) minmax(126px, 1.28fr); gap: 7px; }
+.email-verification-actions input { width: 100%; min-width: 0; min-height: 36px; box-sizing: border-box; padding: 0 9px; border: 1px solid rgba(36, 29, 33, .19); border-radius: 0; outline: 0; color: var(--store-ink); background: rgba(251, 247, 245, .82); font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0; }
+.email-verification-actions input:focus { border-color: var(--store-wine); box-shadow: 0 0 0 3px rgba(154, 64, 85, .1); background: #fff; }
+.email-code-button,
+.email-verify-button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 1px solid var(--store-wine); border-radius: 0; color: var(--store-wine); background: transparent; cursor: pointer; font-family: 'DM Mono', monospace; font-size: 8px; letter-spacing: 0; text-transform: uppercase; }
+.email-verify-button { grid-column: 1 / -1; color: #fff; background: var(--store-wine); }
+.email-code-button:disabled,
+.email-verify-button:disabled { cursor: not-allowed; opacity: .55; }
+.email-code-button:disabled:has(.is-spinning),
+.email-verify-button:disabled:has(.is-spinning) { cursor: wait; }
+.email-code-button .iconify,
+.email-verify-button .iconify { width: 13px; height: 13px; flex: 0 0 auto; }
+.email-verification-help,
+.email-verification-error { min-height: 15px; display: block; margin-top: 7px; font-size: 9px; line-height: 1.45; }
+.email-verification-help { color: var(--store-muted); }
+.email-verification-error { color: var(--store-wine); }
 
 .account-panel {
   margin-bottom: 20px;
@@ -847,6 +1015,7 @@ onMounted(() => {
   .profile-intro-email { grid-column: 1 / -1; padding: 14px 0 0; border-top: 1px solid var(--store-line); border-left: 0; }
   .profile-intro-email strong { display: inline-block; margin: 0 10px 0 0; }
   .profile-intro-email small { display: inline-flex; }
+  .email-verification { width: min(430px, 100%); }
   .account-panel { padding: 22px 18px 23px; }
   .panel-heading-row { flex-direction: column; margin-bottom: 22px; }
   .panel-index { order: -1; }
@@ -871,6 +1040,8 @@ onMounted(() => {
   .profile-intro-panel { padding: 17px; }
   .profile-intro-avatar { width: 54px; height: 54px; font-size: 21px; }
   .profile-intro-panel h2 { font-size: 24px; }
+  .email-verification-actions { grid-template-columns: 1fr; }
+  .email-verify-button { grid-column: 1; }
   .form-actions { align-items: stretch; flex-direction: column; }
   .form-actions .store-button { width: 100%; }
   .empty-addresses .outline-button { margin-left: 0; width: 100%; }

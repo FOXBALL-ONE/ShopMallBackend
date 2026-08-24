@@ -58,7 +58,7 @@ class UserController(
         @RequestParam("email") @NotBlank @Email email: String,
         @RequestParam("username") @NotBlank @Size(min = 3, max = 50) username: String,
         @RequestParam("password") @NotBlank @Size(min = 8, max = 72) password: String,
-        @RequestParam("verification_code") @NotBlank verificationCode: String,
+        @RequestParam("verification_code") @NotBlank @Pattern(regexp = "^\\d{6}$") verificationCode: String,
         @RequestParam("first_name", required = false) @Size(max = 50) firstName: String?,
         @RequestParam("last_name", required = false) @Size(max = 50) lastName: String?,
         @RequestParam("marketing_consent", defaultValue = "false") marketingConsent: Boolean,
@@ -89,6 +89,7 @@ class UserController(
                 password = password,
                 firstName = firstName.orEmpty(),
                 lastName = lastName.orEmpty(),
+                emailVerified = true,
                 marketingConsent = marketingConsent,
             ),
         )

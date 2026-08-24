@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import jakarta.validation.constraints.Email
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Pattern
 import jakarta.validation.constraints.Size
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
@@ -147,6 +148,53 @@ class AuthController(
     ): ResponseEntity<Response> {
         mailService.sendCode(email, userAgent.orEmpty(), null, clientIp(request))
         return builder.ok().message("验证码已发送").build()
+    }
+
+    /**
+     * @api 发送当前账户邮箱验证码
+     */
+    @PostMapping("/api/auth/email-verification-code")
+    fun sendEmailVerificationCode(
+        @AuthenticationPrincipal userId: Long,
+        @RequestHeader("User-Agent", required = false) userAgent: String?,
+        request: HttpServletRequest,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("email_verified")
+            val emailVerified: Boolean,
+        )
+
+        val user = userService.getUserById(userId) ?: return builder.notFound().build()
+        if (!user.emailVerified) {
+            mailService.sendCode(user.email, userAgent.orEmpty(), userId, clientIp(request))
+        }
+        val rs = Response(emailVerified = user.emailVerified)
+        return builder.ok().message(if (user.emailVerified) "邮箱已验证" else "验证码已发送").data(rs).build()
+    }
+
+    /**
+     * @api 验证当前账户邮箱
+     * @param verificationCode 邮箱验证码
+     */
+    @PostMapping("/api/auth/email-verification")
+    fun verifyEmail(
+        @AuthenticationPrincipal userId: Long,
+        @RequestParam("verification_code") @NotBlank @Pattern(regexp = "^\\d{6}$") verificationCode: String,
+        @RequestHeader("User-Agent", required = false) userAgent: String?,
+    ): ResponseEntity<Response> {
+        data class Response(
+            @param:JsonProperty("email_verified")
+            val emailVerified: Boolean,
+        )
+
+        val user = userService.getUserById(userId) ?: return builder.notFound().build()
+        if (!user.emailVerified) {
+            mailService.verifyCode(user.email, verificationCode, userAgent.orEmpty(), userId)
+            user.emailVerified = true
+            userService.updateUser(user)
+        }
+        val rs = Response(emailVerified = true)
+        return builder.ok().message("邮箱验证成功").data(rs).build()
     }
 
     /**

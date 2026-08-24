@@ -1,10 +1,15 @@
 package top.foxball.shopmall.controller
 
+import jakarta.validation.Validation
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
+import org.springframework.security.authentication.TestingAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
@@ -14,6 +19,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import top.foxball.shopmall.authentication.LoginTokenAuthentication
 import top.foxball.shopmall.authentication.RefreshCookieService
 import top.foxball.shopmall.config.JwtProperties
+import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.service.AuthService
 import top.foxball.shopmall.service.MailService
 import top.foxball.shopmall.service.PasswordResetService
@@ -24,25 +30,37 @@ class AuthControllerTest {
     private lateinit var authService: AuthService
     private lateinit var refreshCookieService: RefreshCookieService
     private lateinit var passwordResetService: PasswordResetService
+    private lateinit var mailService: MailService
+    private lateinit var userService: UserService
     private lateinit var mockMvc: MockMvc
 
     @BeforeEach
     fun setUp() {
         authService = mock(AuthService::class.java)
+        mailService = mock(MailService::class.java)
+        userService = mock(UserService::class.java)
         passwordResetService = mock(PasswordResetService::class.java)
         refreshCookieService = RefreshCookieService(JwtProperties())
         mockMvc = MockMvcBuilders.standaloneSetup(
             AuthController(
                 authService = authService,
-                mailService = mock(MailService::class.java),
+                mailService = mailService,
                 passwordResetService = passwordResetService,
-                userService = mock(UserService::class.java),
+                userService = userService,
                 loginTokenAuthentication = mock(LoginTokenAuthentication::class.java),
                 refreshCookieService = refreshCookieService,
                 jwtProperties = JwtProperties(),
                 builder = ResponseBuilder(),
             ),
-        ).build()
+        )
+            .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
+            .build()
+        SecurityContextHolder.getContext().authentication = TestingAuthenticationToken(7L, null)
+    }
+
+    @AfterEach
+    fun clearSecurityContext() {
+        SecurityContextHolder.clearContext()
     }
 
     @Test
@@ -116,5 +134,69 @@ class AuthControllerTest {
             .andExpect(jsonPath("$.data.sessions_revoked").value(true))
 
         verify(passwordResetService).resetPassword("one-time-reset-token", "new-password-123")
+    }
+
+    @Test
+    fun `email verification code is bound to current account`() {
+        val user = User(id = 7, email = "customer@example.com", username = "customer", emailVerified = false)
+        `when`(userService.getUserById(7)).thenReturn(user)
+
+        mockMvc.perform(
+            post("/api/auth/email-verification-code")
+                .header("User-Agent", "Browser")
+                .with { request -> request.remoteAddr = "127.0.0.1"; request },
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.email_verified").value(false))
+
+        verify(mailService).sendCode("customer@example.com", "Browser", 7, "127.0.0.1")
+    }
+
+    @Test
+    fun `valid email verification code marks current account verified`() {
+        val user = User(id = 7, email = "customer@example.com", username = "customer", emailVerified = false)
+        `when`(userService.getUserById(7)).thenReturn(user)
+        `when`(userService.updateUser(user)).thenReturn(user)
+
+        mockMvc.perform(
+            post("/api/auth/email-verification")
+                .header("User-Agent", "Browser")
+                .param("verification_code", "123456"),
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.email_verified").value(true))
+
+        verify(mailService).verifyCode("customer@example.com", "123456", "Browser", 7)
+        verify(userService).updateUser(user)
+        kotlin.test.assertTrue(user.emailVerified)
+    }
+
+    @Test
+    fun `email verification rejects a code that is not six digits`() {
+        val controller = AuthController(
+            authService,
+            mailService,
+            passwordResetService,
+            userService,
+            mock(LoginTokenAuthentication::class.java),
+            refreshCookieService,
+            JwtProperties(),
+            ResponseBuilder(),
+        )
+        val method = AuthController::class.java.getMethod(
+            "verifyEmail",
+            Long::class.javaPrimitiveType,
+            String::class.java,
+            String::class.java,
+        )
+        val violations = Validation.buildDefaultValidatorFactory().use { factory ->
+            factory.validator.forExecutables().validateParameters(
+                controller,
+                method,
+                arrayOf<Any?>(7L, "12ab", "Browser"),
+            )
+        }
+
+        kotlin.test.assertTrue(violations.any { it.propertyPath.toString().endsWith("verificationCode") })
     }
 }
