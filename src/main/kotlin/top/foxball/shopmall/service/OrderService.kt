@@ -94,6 +94,9 @@ interface OrderService {
     /** 取消当前客户仍可取消的订单，恢复库存并登记后续支付补偿任务；取消原因可省略。 */
     fun cancel(customerId: Long, orderNo: String, reason: String?): OrderView
 
+    /** 客户确认已送达的订单完成；重复确认保持已完成状态。 */
+    fun complete(customerId: Long, orderNo: String): OrderEntity
+
     /** 客户对尚未发货的已付款订单申请全额退款。 */
     fun refundCustomer(customerId: Long, orderNo: String, reason: String?, reasonDetail: String? = null): OrderView
 

@@ -731,6 +731,33 @@ class OrderController(
     }
 
     /**
+     * @api 确认完成订单
+     * @param orderNo 订单编号
+     */
+    @PostMapping("/api/orders/{order_no}/complete")
+    fun completeOrder(
+        @AuthenticationPrincipal userId: Long,
+        @PathVariable("order_no") orderNo: String,
+    ): ResponseEntity<Response> {
+        data class Response(
+            val id: Long,
+            @param:JsonProperty("order_no")
+            val orderNo: String,
+            val status: String,
+        )
+
+        val order = orderService.complete(userId, orderNo)
+        val rs = Response(
+            id = requireNotNull(order.id),
+            orderNo = order.orderNo,
+            status = order.status.name,
+        )
+        return builder.ok()
+            .data(rs)
+            .build()
+    }
+
+    /**
      * @api 申请退款
      * @param orderNo 订单编号
      * @param reason 退款原因

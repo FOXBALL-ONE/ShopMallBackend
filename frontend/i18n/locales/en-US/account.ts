@@ -160,6 +160,14 @@ export default defineI18nLocale(() => ({
     errors: { missingReference: 'The order reference is missing.', load: 'We could not load this order.', shipment: 'Tracking details are temporarily unavailable.', cancel: 'This order could not be cancelled.', cancelTitle: 'Unable to cancel order', refund: 'This refund request could not be submitted.', refundTitle: 'Unable to request refund', refundStatus: 'We could not check the refund status.', refundStatusTitle: 'Unable to check refund', popup: 'Your browser blocked the payment tab. Allow pop-ups for Pelissa and try again.', unexpectedState: 'The payment provider returned an unexpected order state.', invalidLink: 'The payment provider returned an invalid checkout link.', checkout: 'We could not open Stripe checkout.', checkoutTitle: 'Checkout not opened' },
     notices: { cancelled: 'Order cancelled', cancelledDescription: '{orderNo} has been cancelled.', refundRequested: 'Refund requested', refundRequestedDescription: 'Stripe is processing the refund. The order will be voided when it is confirmed.', refundCompleted: 'Refund completed', refundCompletedDescription: 'Stripe confirmed the refund and the order is now voided.', refundUpdated: 'Refund status updated', refundProcessing: 'Stripe is still processing the refund.', checkoutOpened: 'Stripe checkout opened', checkoutOpenedDescription: 'Order {orderNo} remains reserved while you pay.' },
   },
+  orderCompletion: {
+    complete: 'Confirm completion',
+    completing: 'Confirming...',
+    completedTitle: 'Order completed',
+    completedDescription: 'Order {orderNo} has been marked as completed.',
+    error: 'We could not confirm this order as completed.',
+    errorTitle: 'Order not completed',
+  },
   accountDashboard: {
     seoTitle: 'Your account | Pelissa',
     seoDescription: 'Manage your Pelissa profile, orders, cart, and delivery updates.',

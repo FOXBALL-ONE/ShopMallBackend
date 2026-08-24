@@ -45,6 +45,7 @@ const shipments = ref<CustomerShipment[]>([])
 const isLoading = ref(true)
 const isRefreshing = ref(false)
 const isCancelling = ref(false)
+const isCompleting = ref(false)
 const isRefundRequesting = ref(false)
 const isRefundStatusLoading = ref(false)
 const isOpeningPayment = ref(false)
@@ -85,6 +86,7 @@ const remainingSeconds = computed(() => expiresAt.value === null
   : Math.max(0, Math.floor((expiresAt.value - now.value) / 1000)))
 const isPaymentExpired = computed(() => remainingSeconds.value !== null && remainingSeconds.value <= 0)
 const canCancel = computed(() => order.value?.status === 'PENDING_PAYMENT')
+const canComplete = computed(() => order.value?.status === 'DELIVERED')
 const canRequestRefund = computed(() => order.value?.status === 'PAID' && order.value.payment_status === 'PAID')
 const isRefunding = computed(() => order.value?.payment_status === 'REFUNDING')
 const canQueryRefundStatus = computed(() => ['REFUNDING', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(order.value?.payment_status || ''))
@@ -205,6 +207,27 @@ async function cancelOrder() {
     toast.add({ title: t('orderDetail.errors.cancelTitle'), description: requestError.value, color: 'error' })
   } finally {
     isCancelling.value = false
+  }
+}
+
+async function completeOrder() {
+  if (!order.value || !canComplete.value || isCompleting.value) return
+
+  isCompleting.value = true
+  requestError.value = ''
+  try {
+    await api.completeOrder(order.value.order_no)
+    toast.add({
+      title: t('orderCompletion.completedTitle'),
+      description: t('orderCompletion.completedDescription', { orderNo: order.value.order_no }),
+      color: 'success'
+    })
+    await loadOrder(false)
+  } catch (error: unknown) {
+    requestError.value = customerRequestMessage(error, t('orderCompletion.error'))
+    toast.add({ title: t('orderCompletion.errorTitle'), description: requestError.value, color: 'error' })
+  } finally {
+    isCompleting.value = false
   }
 }
 
@@ -549,6 +572,7 @@ onBeforeUnmount(() => {
 
           <div class="summary-actions">
             <button v-if="canResumePayment" class="primary-button" type="button" :disabled="isOpeningPayment" @click="openStripeCheckout"><UIcon :name="isOpeningPayment ? 'i-lucide-loader-circle' : 'i-lucide-external-link'" :class="{ spinning: isOpeningPayment }" /> {{ isOpeningPayment ? t('orderDetail.openingStripe') : t('orderDetail.payWithStripe') }}</button>
+            <button v-if="canComplete" class="primary-button" type="button" :disabled="isCompleting" @click="completeOrder"><UIcon :name="isCompleting ? 'i-lucide-loader-circle' : 'i-lucide-circle-check'" :class="{ spinning: isCompleting }" /> {{ isCompleting ? t('orderCompletion.completing') : t('orderCompletion.complete') }}</button>
             <button v-if="canCancel" class="danger-link" type="button" :disabled="isCancelling" @click="cancelFormOpen = !cancelFormOpen"><UIcon name="i-lucide-circle-x" /> {{ cancelFormOpen ? t('orderDetail.closeCancellation') : t('orderDetail.cancel') }}</button>
             <button v-if="canRequestRefund" class="danger-link" type="button" :disabled="isRefundRequesting" @click="openRefundForm"><UIcon :name="isRefundRequesting ? 'i-lucide-loader-circle' : 'i-lucide-rotate-ccw'" :class="{ spinning: isRefundRequesting }" /> {{ isRefundRequesting ? t('orderDetail.requestingRefund') : t('orderDetail.requestRefund') }}</button>
             <button v-if="canQueryRefundStatus" class="outline-button" type="button" :disabled="isRefundStatusLoading" @click="queryRefundStatus"><UIcon :name="isRefundStatusLoading ? 'i-lucide-loader-circle' : 'i-lucide-refresh-cw'" :class="{ spinning: isRefundStatusLoading }" /> {{ isRefundStatusLoading ? t('orderDetail.checkingRefund') : t('orderDetail.checkRefund') }}</button>

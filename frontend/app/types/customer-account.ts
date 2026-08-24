@@ -226,6 +226,12 @@ export interface CustomerOrderCancellation {
   items: Array<Omit<CustomerOrderItem, 'created_at'>>
 }
 
+export interface CustomerOrderCompletion {
+  id: number
+  order_no: string
+  status: CustomerOrderStatus
+}
+
 export type CustomerPaymentStatus =
   | 'PENDING_PAYMENT'
   | 'PAID'

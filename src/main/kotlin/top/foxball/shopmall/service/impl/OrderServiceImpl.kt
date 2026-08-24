@@ -398,6 +398,30 @@ class OrderServiceImpl(
         return view(reload(orderId))
     }
 
+    @Transactional
+    override fun complete(customerId: Long, orderNo: String): OrderEntity {
+        val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
+        if (order.status == OrderStatus.DELETED) throw OrderNotFoundException()
+        if (order.customerId != customerId) throw ForbiddenException("只能操作自己的订单")
+        if (order.status == OrderStatus.COMPLETED) return order
+
+        val orderId = requireNotNull(order.id)
+        if (
+            orderRepository.transitionStatus(
+                orderId,
+                OrderStatus.DELIVERED,
+                OrderStatus.COMPLETED,
+            ) == 0
+        ) {
+            if (orderRepository.findStatusById(orderId) == OrderStatus.COMPLETED) {
+                return reload(orderId)
+            }
+            throw OrderStatusException("只有已送达的订单可以确认完成")
+        }
+        publishOrderEvent(orderId, "COMPLETED")
+        return reload(orderId)
+    }
+
     override fun listAdmin(adminId: Long, query: AdminOrderQuery): Page<OrderView> {
         adminAccessService.requireAdmin(adminId)
         val pageable = pageRequest(query.page, query.size)

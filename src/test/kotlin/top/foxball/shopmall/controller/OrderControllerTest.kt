@@ -221,6 +221,22 @@ class OrderControllerTest {
     }
 
     @Test
+    fun `customer can confirm a delivered order as completed`() {
+        authenticate(7L)
+        `when`(orderService.complete(7L, "ORD-API-1")).thenReturn(
+            OrderEntity(id = 10, orderNo = "ORD-API-1", customerId = 7, status = OrderStatus.COMPLETED),
+        )
+
+        mockMvc.perform(post("/api/orders/ORD-API-1/complete"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.data.id").value(10))
+            .andExpect(jsonPath("$.data.order_no").value("ORD-API-1"))
+            .andExpect(jsonPath("$.data.status").value("COMPLETED"))
+
+        verify(orderService).complete(7L, "ORD-API-1")
+    }
+
+    @Test
     fun `admin list forwards pagination and filters`() {
         authenticate(99L)
         val page = PageImpl(listOf(orderView()), PageRequest.of(0, 5), 6)

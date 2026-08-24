@@ -7,6 +7,7 @@ import type {
   CustomerOrder,
   CustomerOrderCheckout,
   CustomerOrderCancellation,
+  CustomerOrderCompletion,
   CustomerOrderIdempotencyKey,
   CustomerOrderPayment,
   CustomerOrderRefund,
@@ -169,6 +170,10 @@ export function useCustomerAccountApi() {
         `/orders/${encodeURIComponent(orderNo)}/cancel`,
         reason ? { reason } : undefined
       )
+    },
+
+    completeOrder(orderNo: string) {
+      return http.post<CustomerOrderCompletion>(`/orders/${encodeURIComponent(orderNo)}/complete`)
     },
 
     refundOrder(orderNo: string, reason?: string, reasonDetail?: string) {

@@ -23,6 +23,7 @@ import top.foxball.shopmall.entity.jdbc.User
 import top.foxball.shopmall.entity.jdbc.Product
 import top.foxball.shopmall.entity.jdbc.ProductType
 import top.foxball.shopmall.entity.jdbc.ProductVariant
+import top.foxball.shopmall.handler.ForbiddenException
 import top.foxball.shopmall.handler.OrderStatusException
 import top.foxball.shopmall.repository.OrderItemRepository
 import top.foxball.shopmall.repository.OrderRepository
@@ -183,6 +184,106 @@ class OrderServiceImplTest {
         assertEquals(OrderStatus.CANCELLED, result.order.status)
         verify(variantRepository).restock(10, 2)
         verify(paymentService).cancelOrRefund(order, "customer-cancel")
+    }
+
+    @Test
+    fun `customer can complete a delivered order`() {
+        val order = OrderEntity(
+            id = 105,
+            orderNo = "ORDER-105",
+            customerId = 5,
+            status = OrderStatus.DELIVERED,
+            paymentStatus = OrderPaymentStatus.PAID,
+        )
+        val completed = OrderEntity(
+            id = 105,
+            orderNo = order.orderNo,
+            customerId = order.customerId,
+            status = OrderStatus.COMPLETED,
+            paymentStatus = OrderPaymentStatus.PAID,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(
+            orderRepository.transitionStatus(
+                105,
+                OrderStatus.DELIVERED,
+                OrderStatus.COMPLETED,
+            ),
+        ).thenReturn(1)
+        `when`(orderRepository.findById(105)).thenReturn(Optional.of(completed))
+
+        val result = service.complete(5, order.orderNo)
+
+        assertEquals(OrderStatus.COMPLETED, result.status)
+        verify(eventPublisher).publishInTx("ORDER", 105, "COMPLETED", "{\"orderId\":105}")
+    }
+
+    @Test
+    fun `customer cannot complete an order before delivery`() {
+        val order = OrderEntity(
+            id = 106,
+            orderNo = "ORDER-106",
+            customerId = 5,
+            status = OrderStatus.SHIPPED,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+        `when`(
+            orderRepository.transitionStatus(
+                106,
+                OrderStatus.DELIVERED,
+                OrderStatus.COMPLETED,
+            ),
+        ).thenReturn(0)
+        `when`(orderRepository.findStatusById(106)).thenReturn(OrderStatus.SHIPPED)
+
+        assertFailsWith<OrderStatusException> {
+            service.complete(5, order.orderNo)
+        }
+
+        verify(eventPublisher, never()).publishInTx("ORDER", 106, "COMPLETED", "{\"orderId\":106}")
+    }
+
+    @Test
+    fun `repeating customer completion keeps an order completed without another event`() {
+        val order = OrderEntity(
+            id = 107,
+            orderNo = "ORDER-107",
+            customerId = 5,
+            status = OrderStatus.COMPLETED,
+            paymentStatus = OrderPaymentStatus.PAID,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+
+        val result = service.complete(5, order.orderNo)
+
+        assertEquals(OrderStatus.COMPLETED, result.status)
+        verify(orderRepository, never()).transitionStatus(
+            107,
+            OrderStatus.DELIVERED,
+            OrderStatus.COMPLETED,
+        )
+        verify(eventPublisher, never()).publishInTx("ORDER", 107, "COMPLETED", "{\"orderId\":107}")
+    }
+
+    @Test
+    fun `customer cannot complete another customer's order`() {
+        val order = OrderEntity(
+            id = 108,
+            orderNo = "ORDER-108",
+            customerId = 6,
+            status = OrderStatus.DELIVERED,
+        )
+        `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+
+        assertFailsWith<ForbiddenException> {
+            service.complete(5, order.orderNo)
+        }
+
+        verify(orderRepository, never()).transitionStatus(
+            108,
+            OrderStatus.DELIVERED,
+            OrderStatus.COMPLETED,
+        )
     }
 
     @Test
