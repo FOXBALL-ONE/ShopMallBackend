@@ -43,10 +43,10 @@ const currentYear = new Date().getFullYear()
 
       <div class="store-footer-column">
         <strong>{{ t('footer.help') }}</strong>
-        <a href="#">{{ t('footer.shippingReturns') }}</a>
-        <NuxtLink to="/account/logistics">{{ t('footer.trackOrder') }}</NuxtLink>
-        <a href="#">{{ t('footer.contact') }}</a>
-        <a href="#">{{ t('footer.faqs') }}</a>
+        <NuxtLink to="/shipping-returns">{{ t('footer.shippingReturns') }}</NuxtLink>
+        <NuxtLink to="/track-order">{{ t('footer.trackOrder') }}</NuxtLink>
+        <NuxtLink to="/contact-us">{{ t('footer.contact') }}</NuxtLink>
+        <NuxtLink to="/faqs">{{ t('footer.faqs') }}</NuxtLink>
       </div>
     </div>
 

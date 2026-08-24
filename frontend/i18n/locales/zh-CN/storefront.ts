@@ -222,4 +222,16 @@ export default defineI18nLocale(() => ({
       cart: { label: '购物车', note: '等待结账的商品' },
     },
   },
+  shippingReturns: {
+    seoTitle: '配送与退货 | Pelissa', seoDescription: '了解 Pelissa 的配送时效、配送方式与退货流程。', eyebrow: '贴心指南 · 01', title: '从我们手中，安心到你手中。', intro: '清晰的配送时效、用心的包装，以及简单的 30 天退货期限。', shippingEyebrow: '配送概览', shippingTitle: '配送信息，一目了然。', shippingIntro: '我们在周一至周五处理订单。包裹离开工作室后，你会收到物流邮件。', standardDays: '工作日 · 标准配送', freeThreshold: '满额免标准配送费', returnDays: '天内可发起退货', standardTitle: '标准配送', standardCopy: '覆盖美国大多数地区的可靠、可追踪配送。', standardMeta: '3–5 个工作日 · $6.00', expressTitle: '加急配送', expressCopy: '符合条件的地址可在结账时选择。', expressMeta: '1–2 个工作日 · 结账时计算', returnsEyebrow: '退货流程', returnsTitle: '在家试穿，轻松退货。', returnStepOne: '在签收后 30 天内，从账户或联系我们发起退货。', returnStepTwo: '商品需未穿着，并保留原始吊牌和卫生保护贴。', returnStepThree: '使用我们提供的退货标签，检查完成后退款原路退回。', note: '最终销售商品、已穿着商品，以及缺少原始卫生保护的商品不支持退货。', contactLink: '咨询退货',
+  },
+  orderLookup: {
+    seoTitle: '查询订单 | Pelissa', seoDescription: '查询 Pelissa 订单并查看最新配送信息。', eyebrow: '订单服务台 · 02', title: '你的订单，随时都在。', intro: '输入订单编号，查看订单状态、收货地址和包裹轨迹。', formEyebrow: '订单查询', formTitle: '查找你的订单。', formCopy: '订单编号位于确认邮件中，通常以 PEL- 或 SM- 开头。', orderNumber: '订单编号', placeholder: '例如 PEL-10482', hint: '请输入 4–40 位字母、数字或连字符。', required: '请输入订单编号。', format: '订单编号需为 4–40 位字母、数字或连字符。', submit: '查看订单', signInNote: '查看私密订单详情前，需要先登录。', sideTitle: '登录后信息更完整。', sideCopy: '登录后可以在订单记录中同时查看支付、配送和退货信息。', viewOrders: '打开订单记录', tipOneTitle: '检查收件箱', tipOneCopy: '确认邮件中包含准确的订单编号。', tipTwoTitle: '追踪包裹', tipTwoCopy: '订单发出后，物流节点会显示在订单详情中。', tipThreeTitle: '仍然不确定？', tipThreeCopy: '提供订单编号、邮箱或配送问题，支持团队就能帮助你。',
+  },
+  contact: {
+    seoTitle: '联系我们 | Pelissa', seoDescription: '联系 Pelissa 支持团队，获取订单、配送、商品和退货帮助。', eyebrow: '保持联系 · 03', title: '有问题，我们一起解决。', intro: '无论是尺码、配送还是退货问题，我们都会认真为你提供建议。', formEyebrow: '发送消息', formTitle: '我们能帮你什么？', formCopy: '填写信息后，会在你的邮件应用中生成邮件。', name: '你的姓名', email: '邮箱地址', topic: '问题类型', topicOrder: '订单', topicDelivery: '配送', topicReturns: '退货', topicProduct: '商品与尺码', topicOther: '其他', message: '消息内容', messagePlaceholder: '告诉我们发生了什么，或你想了解什么……', required: '请输入姓名、邮箱地址和消息内容。', emailFormat: '请输入格式为 name@example.com 的邮箱地址。', submit: '准备邮件', success: '消息已准备好，请打开邮件应用发送给我们。', openEmail: '打开邮件应用', mailSubjectPrefix: 'Pelissa 客服 · ', mailName: '姓名', mailEmail: '邮箱', detailsEyebrow: '联系方式', emailLabel: '邮箱', hoursLabel: '回复时间', hoursValue: '周一至周五 · 美国东部时间 9:00–18:00', accountLabel: '账户支持', accountValue: '登录后可以创建带订单信息的支持工单。', openSupport: '打开支持工单', signInSupport: '登录后获取工单支持',
+  },
+  faqs: {
+    seoTitle: '常见问题 | Pelissa', seoDescription: '查看 Pelissa 关于订单、配送、退货和商品的常见问题解答。', eyebrow: '问题解答 · 04', title: '欢迎提出好问题。', intro: '整理了一些下单前、配送中和收货后的实用答案。', asideEyebrow: '还需要人工帮助？', asideTitle: '还有疑问？', asideCopy: '如果这里没有你的问题，欢迎联系我们。', contactButton: '联系团队', listLabel: '常见问题列表', q1: '配送需要多长时间？', a1: '标准配送通常在发货后 3–5 个工作日送达；加急配送通常需要 1–2 个工作日。', q2: '可以修改或取消订单吗？', a2: '请尽快登录并打开订单；如果订单还未进入履约流程，我们会尽力协助。', q3: '如何发起退货？', a3: '请在签收后 30 天内从账户发起退货或联系我们。商品需未穿着并保留吊牌。', q4: '在哪里可以找到订单编号？', a4: '订单编号位于确认邮件中，登录后也可以在“账户 → 订单”里查看。', q5: '如何选择合适的尺码？', a5: '商品页的“版型与细节”会展示尺寸和穿着建议，有疑问欢迎联系我们。', q6: '包裹延迟了怎么办？', a6: '先查看订单详情中的最新物流节点。如果几个工作日没有更新，请提供订单编号联系我们。',
+  },
 }))

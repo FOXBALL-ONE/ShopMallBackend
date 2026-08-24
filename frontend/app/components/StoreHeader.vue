@@ -84,7 +84,7 @@ watch(() => session.userId.value, userId => {
             {{ announcementCenter.currentCount.value >= 50 ? '50+' : announcementCenter.currentCount.value }}
           </b>
         </NuxtLink>
-        <NuxtLink class="store-help" to="/search">{{ t('header.help') }}</NuxtLink>
+        <NuxtLink class="store-help" to="/faqs">{{ t('header.help') }}</NuxtLink>
       </div>
 
       <div class="store-brand-row store-container">
