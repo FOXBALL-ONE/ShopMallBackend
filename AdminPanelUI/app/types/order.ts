@@ -74,6 +74,8 @@ export interface RefundOrderResponse {
     status: OrderStatus;
     payment_status: OrderPaymentStatus;
     cancel_reason: string | null;
+    refund_reason?: string | null;
+    refund_reason_detail?: string | null;
     updated_at: string | null;
 }
 
@@ -142,6 +144,8 @@ export interface OrderDetail {
     shipped_at: string | null;
     delivered_at: string | null;
     cancel_reason: string | null;
+    refund_reason?: string | null;
+    refund_reason_detail?: string | null;
     created_at: string | null;
     updated_at: string | null;
     items: OrderDetailItem[];

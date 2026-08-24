@@ -95,7 +95,7 @@ interface OrderService {
     fun cancel(customerId: Long, orderNo: String, reason: String?): OrderView
 
     /** 客户对尚未发货的已付款订单申请全额退款。 */
-    fun refundCustomer(customerId: Long, orderNo: String, reason: String?): OrderView
+    fun refundCustomer(customerId: Long, orderNo: String, reason: String?, reasonDetail: String? = null): OrderView
 
     /** 查询客户退款状态；Stripe 已确认成功时同步本地订单与付款状态。 */
     fun queryCustomerRefund(customerId: Long, orderNo: String): OrderRefundView
@@ -110,7 +110,7 @@ interface OrderService {
     fun updateAdminStatus(adminId: Long, orderNo: String, status: OrderStatus): OrderEntity
 
     /** 由管理员为未发货的已付款订单申请退款，Stripe 确认成功后再恢复库存。 */
-    fun refund(adminId: Long, orderNo: String, reason: String): OrderView
+    fun refund(adminId: Long, orderNo: String, reason: String?, reasonDetail: String? = null): OrderView
 
     /** 将订单标记为已删除；重复调用保持逻辑删除状态，不执行物理删除。 */
     fun delete(adminId: Long, orderNo: String): OrderEntity

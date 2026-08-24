@@ -54,12 +54,23 @@ const pagination = reactive({
 
 const refundForm = reactive({
   reason: '',
+  reasonDetail: '',
 })
+
+const refundReasonOptions = [
+  { label: '改变主意', value: '改变主意' },
+  { label: '误下单', value: '误下单' },
+  { label: '找到更优惠价格', value: '找到更优惠价格' },
+  { label: '支付问题', value: '支付问题' },
+  { label: '其他', value: '其他' },
+]
 
 const refundRules: FormRules = {
   reason: [
-    { required: true, message: '请输入退款原因', trigger: ['blur', 'input'] },
-    { max: 200, message: '退款原因不能超过 200 个字符', trigger: ['blur', 'input'] },
+    { max: 64, message: '退款原因最多选择 64 个字符', trigger: ['blur', 'input'] },
+  ],
+  reasonDetail: [
+    { max: 200, message: '补充说明不能超过 200 个字符', trigger: ['blur', 'input'] },
   ],
 }
 
@@ -378,6 +389,7 @@ function openRefund(order: OrderListItem) {
   detailOpen.value = false
   selectedOrder.value = order
   refundForm.reason = ''
+  refundForm.reasonDetail = ''
   refundOpen.value = true
 }
 
@@ -385,6 +397,7 @@ function closeRefund() {
   if (refundLoading.value) return
   refundOpen.value = false
   refundForm.reason = ''
+  refundForm.reasonDetail = ''
   refundFormRef.value?.restoreValidation()
 }
 
@@ -403,7 +416,7 @@ async function submitRefund() {
 
   refundLoading.value = true
   try {
-    const result = await api.refund(order.order_no, refundForm.reason.trim())
+    const result = await api.refund(order.order_no, refundForm.reason.trim() || undefined, refundForm.reasonDetail.trim() || undefined)
     const matchedOrder = orders.value.find(item => item.id === result.id)
     if (matchedOrder) {
       matchedOrder.status = result.status
@@ -420,6 +433,7 @@ async function submitRefund() {
     }
     refundOpen.value = false
     refundForm.reason = ''
+    refundForm.reasonDetail = ''
     message.success(`订单 ${result.order_no} 已提交退款`)
     await loadOrders()
   } catch (error) {
@@ -767,6 +781,12 @@ onMounted(() => {
               <NDescriptionsItem label="本地付款状态">
                 {{ localPaymentStatusLabel(selectedOrder.payment_status) }}
               </NDescriptionsItem>
+              <NDescriptionsItem v-if="selectedOrderDetail?.refund_reason" label="退款原因">
+                {{ selectedOrderDetail?.refund_reason }}
+              </NDescriptionsItem>
+              <NDescriptionsItem v-if="selectedOrderDetail?.refund_reason_detail" label="退款补充说明" :span="2">
+                {{ selectedOrderDetail?.refund_reason_detail }}
+              </NDescriptionsItem>
             </NDescriptions>
 
             <template v-if="selectedOrderDetail">
@@ -1043,16 +1063,27 @@ onMounted(() => {
           </NDescriptionsItem>
         </NDescriptions>
         <NForm ref="refundFormRef" :model="refundForm" :rules="refundRules">
-          <NFormItem label="退款原因" path="reason">
-            <NInput
+          <NFormItem label="退款原因（可选）" path="reason">
+            <NSelect
               v-model:value="refundForm.reason"
+              :options="refundReasonOptions"
+              clearable
+              placeholder="请选择退款原因"
+              :disabled="refundLoading"
+            />
+            <NText depth="3" class="refund-field-hint">可选原因最长 64 个字符，也可以留空。</NText>
+          </NFormItem>
+          <NFormItem label="补充说明（可选）" path="reasonDetail">
+            <NInput
+              v-model:value="refundForm.reasonDetail"
               type="textarea"
               maxlength="200"
               show-count
               :autosize="{ minRows: 3, maxRows: 6 }"
-              placeholder="请输入退款原因，该原因会记录到订单中"
+              placeholder="可填写退款补充说明"
               :disabled="refundLoading"
             />
+            <NText depth="3" class="refund-field-hint">补充说明可留空，最多 200 个字符。</NText>
           </NFormItem>
         </NForm>
       </NSpace>
@@ -1151,6 +1182,12 @@ onMounted(() => {
 
 .amount-match-tag {
   margin-left: 8px;
+}
+
+.refund-field-hint {
+  display: block;
+  margin-top: -6px;
+  font-size: 12px;
 }
 
 .order-item-row {

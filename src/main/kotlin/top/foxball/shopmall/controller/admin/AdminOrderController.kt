@@ -202,6 +202,10 @@ class AdminOrderController(
             val paidAt: Instant?,
             @param:JsonProperty("refund_requested_at")
             val refundRequestedAt: java.time.LocalDateTime?,
+            @param:JsonProperty("refund_reason")
+            val refundReason: String?,
+            @param:JsonProperty("refund_reason_detail")
+            val refundReasonDetail: String?,
             @param:JsonProperty("refunded_at")
             val refundedAt: java.time.LocalDateTime?,
             @param:JsonProperty("cancelled_at")
@@ -274,6 +278,8 @@ class AdminOrderController(
             expiresAt = order.expiresAt,
             paidAt = order.paidAt,
             refundRequestedAt = order.refundRequestedAt,
+            refundReason = order.refundReason,
+            refundReasonDetail = order.refundReasonDetail,
             refundedAt = order.refundedAt,
             cancelledAt = order.cancelledAt,
             shippedAt = order.shippedAt,
@@ -371,6 +377,10 @@ class AdminOrderController(
             val paymentStatus: String,
             @param:JsonProperty("cancel_reason")
             val cancelReason: String?,
+            @param:JsonProperty("refund_reason")
+            val refundReason: String?,
+            @param:JsonProperty("refund_reason_detail")
+            val refundReasonDetail: String?,
             @param:JsonProperty("updated_at")
             val updatedAt: Instant?,
         )
@@ -382,6 +392,8 @@ class AdminOrderController(
             status = order.status.name,
             paymentStatus = order.paymentStatus.name,
             cancelReason = order.cancelReason,
+            refundReason = order.refundReason,
+            refundReasonDetail = order.refundReasonDetail,
             updatedAt = order.updatedAt,
         )
         return builder.ok()
@@ -398,7 +410,8 @@ class AdminOrderController(
     fun refundOrder(
         @AuthenticationPrincipal adminId: Long,
         @PathVariable("order_no") orderNo: String,
-        @RequestParam("reason") @NotBlank @Size(max = 200) reason: String,
+        @RequestParam("reason", required = false) @Size(max = 64) reason: String?,
+        @RequestParam("reason_detail", required = false) @Size(max = 200) reasonDetail: String?,
     ): ResponseEntity<Response> {
         data class Response(
             val id: Long,
@@ -409,11 +422,15 @@ class AdminOrderController(
             val paymentStatus: String,
             @param:JsonProperty("cancel_reason")
             val cancelReason: String?,
+            @param:JsonProperty("refund_reason")
+            val refundReason: String?,
+            @param:JsonProperty("refund_reason_detail")
+            val refundReasonDetail: String?,
             @param:JsonProperty("updated_at")
             val updatedAt: Instant?,
         )
 
-        val view = orderService.refund(adminId, orderNo, reason)
+        val view = orderService.refund(adminId, orderNo, reason, reasonDetail)
         val order = view.order
         val rs = Response(
             id = requireNotNull(order.id),
@@ -421,6 +438,8 @@ class AdminOrderController(
             status = order.status.name,
             paymentStatus = order.paymentStatus.name,
             cancelReason = order.cancelReason,
+            refundReason = order.refundReason,
+            refundReasonDetail = order.refundReasonDetail,
             updatedAt = order.updatedAt,
         )
         return builder.ok()

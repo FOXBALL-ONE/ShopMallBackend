@@ -154,7 +154,8 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(
         "update OrderEntity o set o.status = :nextStatus, o.paymentStatus = :nextPaymentStatus, " +
-            "o.refundRequestedAt = :at, o.cancelReason = :reason " +
+            "o.refundRequestedAt = :at, o.cancelReason = :reason, " +
+            "o.refundReason = :refundReason, o.refundReasonDetail = :refundReasonDetail " +
             "where o.id = :id and o.status = :expectedStatus and o.paymentStatus = :expectedPaymentStatus",
     )
     fun markRefunding(
@@ -165,6 +166,8 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
         @Param("nextPaymentStatus") nextPaymentStatus: OrderPaymentStatus,
         @Param("at") at: LocalDateTime,
         @Param("reason") reason: String?,
+        @Param("refundReason") refundReason: String?,
+        @Param("refundReasonDetail") refundReasonDetail: String?,
     ): Int
 
     @org.springframework.transaction.annotation.Transactional

@@ -127,6 +127,16 @@ class OrderEntity(
     @Column(name = "refund_requested_at")
     var refundRequestedAt: LocalDateTime? = null,
 
+    /** 退款申请时选择的标准化原因，可由客户或管理员填写；仅退款流程使用。 */
+    @field:Size(max = 64)
+    @Column(name = "refund_reason", length = 64)
+    var refundReason: String? = null,
+
+    /** 退款申请时补充的自由文本说明；仅退款流程使用。 */
+    @field:Size(max = 200)
+    @Column(name = "refund_reason_detail", length = 200)
+    var refundReasonDetail: String? = null,
+
     /** Stripe 确认退款成功的本地时间。 */
     @Column(name = "refunded_at")
     var refundedAt: LocalDateTime? = null,

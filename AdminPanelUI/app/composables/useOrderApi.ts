@@ -32,8 +32,11 @@ export const useOrderApi = () => {
         return get<OrderListResponse>("/orders", {...query});
     }
 
-    function refund(orderNo: string, reason: string): Promise<RefundOrderResponse> {
-        return post<RefundOrderResponse>(`/orders/${encodeURIComponent(orderNo)}/refund`, {reason});
+    function refund(orderNo: string, reason?: string, reasonDetail?: string): Promise<RefundOrderResponse> {
+        return post<RefundOrderResponse>(`/orders/${encodeURIComponent(orderNo)}/refund`, {
+            ...(reason ? {reason} : {}),
+            ...(reasonDetail ? {reason_detail: reasonDetail} : {}),
+        });
     }
 
     function detail(orderNo: string): Promise<OrderDetail> {

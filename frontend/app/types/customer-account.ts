@@ -204,6 +204,8 @@ export interface CustomerOrder {
   shipped_at: string | null
   delivered_at: string | null
   cancel_reason: string | null
+  refund_reason: string | null
+  refund_reason_detail: string | null
   created_at: string | null
   updated_at: string | null
   items: CustomerOrderItem[]
@@ -265,6 +267,8 @@ export interface CustomerOrderRefund {
   status: CustomerOrderStatus
   payment_status: CustomerPaymentStatus
   cancel_reason: string | null
+  refund_reason: string | null
+  refund_reason_detail: string | null
   refund_requested_at: string | null
 }
 

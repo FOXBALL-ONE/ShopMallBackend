@@ -347,12 +347,13 @@ class OrderServiceImpl(
     }
 
     @Transactional
-    override fun refundCustomer(customerId: Long, orderNo: String, reason: String?): OrderView {
-        val normalizedReason = normalizeReason(reason, required = false)
+    override fun refundCustomer(customerId: Long, orderNo: String, reason: String?, reasonDetail: String?): OrderView {
+        val normalizedReason = normalizeReason(reason, required = false, maxLength = MAX_REFUND_REASON_LENGTH)
+        val normalizedDetail = normalizeReason(reasonDetail, required = false, maxLength = MAX_REFUND_REASON_DETAIL_LENGTH)
         val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
         if (order.status == OrderStatus.DELETED) throw OrderNotFoundException()
         if (order.customerId != customerId) throw ForbiddenException("只能操作自己的订单")
-        return requestRefund(order, normalizedReason)
+        return requestRefund(order, normalizedReason, normalizedDetail)
     }
 
     override fun queryCustomerRefund(customerId: Long, orderNo: String): OrderRefundView {
@@ -482,14 +483,15 @@ class OrderServiceImpl(
     }
 
     @Transactional
-    override fun refund(adminId: Long, orderNo: String, reason: String): OrderView {
+    override fun refund(adminId: Long, orderNo: String, reason: String?, reasonDetail: String?): OrderView {
         adminAccessService.requireAdmin(adminId)
-        val normalizedReason = requireNotNull(normalizeReason(reason, required = true))
+        val normalizedReason = normalizeReason(reason, required = false, maxLength = MAX_REFUND_REASON_LENGTH)
+        val normalizedDetail = normalizeReason(reasonDetail, required = false, maxLength = MAX_REFUND_REASON_DETAIL_LENGTH)
         val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
-        return requestRefund(order, normalizedReason)
+        return requestRefund(order, normalizedReason, normalizedDetail)
     }
 
-    private fun requestRefund(order: OrderEntity, reason: String?): OrderView {
+    private fun requestRefund(order: OrderEntity, reason: String?, reasonDetail: String?): OrderView {
         val orderId = requireNotNull(order.id)
         val changed = orderRepository.markRefunding(
             orderId,
@@ -499,6 +501,8 @@ class OrderServiceImpl(
             OrderPaymentStatus.REFUNDING,
             LocalDateTime.now(clock),
             reason,
+            reason,
+            reasonDetail,
         )
         if (changed == 0) {
             if (orderRepository.findStatusById(orderId) == OrderStatus.REFUNDING) {
@@ -572,13 +576,13 @@ class OrderServiceImpl(
         }
     }
 
-    private fun normalizeReason(reason: String?, required: Boolean): String? {
+    private fun normalizeReason(reason: String?, required: Boolean, maxLength: Int = MAX_REASON_LENGTH): String? {
         val normalized = reason?.trim()?.takeIf(String::isNotEmpty)
         if (required && normalized == null) {
             throw ParamErrorException("原因不能为空")
         }
-        if (normalized != null && normalized.length > MAX_REASON_LENGTH) {
-            throw ParamErrorException("原因不能超过 $MAX_REASON_LENGTH 个字符")
+        if (normalized != null && normalized.length > maxLength) {
+            throw ParamErrorException("原因不能超过 $maxLength 个字符")
         }
         return normalized
     }
@@ -629,6 +633,8 @@ class OrderServiceImpl(
         const val MAX_ORDER_LINES = 10
         const val MAX_CLIENT_MESSAGE_LENGTH = 500
         const val MAX_REASON_LENGTH = 200
+        const val MAX_REFUND_REASON_LENGTH = 64
+        const val MAX_REFUND_REASON_DETAIL_LENGTH = 200
         const val MAX_PAGE_SIZE = 100
         val ZERO_MONEY: BigDecimal = BigDecimal.ZERO.setScale(MONEY_SCALE)
         val logger = LoggerFactory.getLogger(OrderServiceImpl::class.java)

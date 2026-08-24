@@ -171,10 +171,13 @@ export function useCustomerAccountApi() {
       )
     },
 
-    refundOrder(orderNo: string, reason?: string) {
-      return http.post<CustomerOrderRefund, { reason?: string }>(
+    refundOrder(orderNo: string, reason?: string, reasonDetail?: string) {
+      const payload: { reason?: string, reason_detail?: string } = {}
+      if (reason) payload.reason = reason
+      if (reasonDetail) payload.reason_detail = reasonDetail
+      return http.post<CustomerOrderRefund, { reason?: string, reason_detail?: string }>(
         `/orders/${encodeURIComponent(orderNo)}/refund`,
-        reason ? { reason } : undefined
+        Object.keys(payload).length ? payload : undefined
       )
     },
 
@@ -192,7 +195,6 @@ export function useCustomerAccountApi() {
       )
     },
 
-    trackShipment(carrier: string, trackingNo: string) {
     markShipmentDelivered(orderNo: string, shipmentNo: string, idempotencyKey: string) {
       return http.post<CustomerShipment>(
         `/orders/${encodeURIComponent(orderNo)}/shipments/${encodeURIComponent(shipmentNo)}/delivered`,
@@ -201,6 +203,7 @@ export function useCustomerAccountApi() {
       )
     },
 
+    trackShipment(carrier: string, trackingNo: string) {
       return http.get<CustomerShipment>(
         `/logistics/track/${encodeURIComponent(carrier)}/${encodeURIComponent(trackingNo)}`
       )
