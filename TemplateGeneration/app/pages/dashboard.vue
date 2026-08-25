@@ -25,6 +25,9 @@ const projectMenuOpen = ref(false)
 const activeProject = ref('NOIR · 春夏系列')
 const taskFilter = ref<'全部' | Task['status']>('全部')
 const toast = ref('')
+const {user, refresh} = useAuthUser()
+
+await refresh()
 
 const navItems = [
   { label: '概览', icon: '⌂' },
@@ -96,7 +99,7 @@ function selectProject(project: Project) {
         <section class="welcome">
           <div>
             <p class="eyebrow">CREATIVE OPERATIONS</p>
-            <h1>欢迎回来，Lin</h1>
+            <h1>欢迎回来，{{ user?.username ?? '当前用户' }}</h1>
             <p>管理今天的素材、生成与审核节奏。</p>
           </div>
           <div class="welcome-actions">

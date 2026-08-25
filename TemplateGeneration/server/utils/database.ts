@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3'
+import {hashPassword, PASSWORD_MIN_LENGTH} from './password'
 import {resolve} from 'node:path'
 
 const databaseFileName = 'template-generation.sqlite'
@@ -78,7 +79,81 @@ export function getDatabase() {
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))
     );
+
+    CREATE TABLE IF NOT EXISTS api_provider_models (
+      provider_id INTEGER NOT NULL REFERENCES api_providers(id) ON DELETE CASCADE,
+      model TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (provider_id, model)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_api_provider_models_provider_id ON api_provider_models(provider_id);
+
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      password_salt TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
     `)
+
+    const providerCount = connection.prepare('SELECT COUNT(*) AS count FROM api_providers').get() as {count: number}
+    if (providerCount.count === 0) {
+      const insertProvider = connection.prepare("INSERT INTO api_providers (name, type, base_url, auth, credential_value, model, enabled) VALUES (?, ?, ?, ?, '', ?, ?)")
+      const insertModel = connection.prepare('INSERT INTO api_provider_models (provider_id, model, position) VALUES (?, ?, ?)')
+      const seedProviders = [
+        {name: 'OpenAI Production', type: 'OpenAI', baseUrl: 'https://api.openai.com/v1', auth: 'Bearer Token', model: 'gpt-4o', enabled: 1, models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini']},
+        {name: 'Anthropic Review', type: 'Anthropic', baseUrl: 'https://api.anthropic.com/v1', auth: 'Custom Header', model: 'claude-3-5-sonnet', enabled: 1, models: ['claude-3-5-sonnet', 'claude-3-5-haiku']},
+        {name: '本地推理网关', type: '兼容网关', baseUrl: 'http://127.0.0.1:8080/v1', auth: '无需认证', model: 'local-model', enabled: 0, models: ['local-model']},
+      ]
+      connection.transaction(() => {
+        seedProviders.forEach((provider) => {
+          const result = insertProvider.run(provider.name, provider.type, provider.baseUrl, provider.auth, provider.model, provider.enabled)
+          provider.models.forEach((model, position) => insertModel.run(result.lastInsertRowid, model, position))
+        })
+      })()
+    }
+
+    const providersWithoutModels = connection.prepare(`
+      SELECT api_providers.id, api_providers.model
+      FROM api_providers
+      LEFT JOIN api_provider_models ON api_provider_models.provider_id = api_providers.id
+      GROUP BY api_providers.id
+      HAVING COUNT(api_provider_models.model) = 0
+    `).all() as Array<{id: number; model: string}>
+    const insertMissingModel = connection.prepare('INSERT INTO api_provider_models (provider_id, model, position) VALUES (?, ?, 0)')
+    providersWithoutModels.forEach((provider) => insertMissingModel.run(provider.id, provider.model))
+
+    const userCount = connection.prepare('SELECT COUNT(*) AS count FROM users').get() as {count: number}
+    if (userCount.count === 0) {
+      const username = process.env.TEMPLATE_INITIAL_USERNAME?.trim()
+      const password = process.env.TEMPLATE_INITIAL_PASSWORD
+
+      if (!username || !password) {
+        throw new Error('首次启动必须设置 TEMPLATE_INITIAL_USERNAME 和 TEMPLATE_INITIAL_PASSWORD 环境变量。')
+      }
+      if (username.length < 3 || username.length > 64) {
+        throw new Error('TEMPLATE_INITIAL_USERNAME 长度必须为 3-64 个字符。')
+      }
+      if (password.length < PASSWORD_MIN_LENGTH) {
+        throw new Error(`TEMPLATE_INITIAL_PASSWORD 长度必须至少为 ${PASSWORD_MIN_LENGTH} 个字符。`)
+      }
+
+      const {hash, salt} = hashPassword(password)
+      connection.prepare('INSERT INTO users (username, password_hash, password_salt) VALUES (?, ?, ?)').run(username, hash, salt)
+    }
   } catch (error) {
     connection.close()
     throw error

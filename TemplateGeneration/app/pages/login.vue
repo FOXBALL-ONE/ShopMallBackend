@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 
 definePageMeta({ layout: false })
 
@@ -7,36 +7,34 @@ const loading = ref(false)
 const showPassword = ref(false)
 const errorMessage = ref('')
 const submitted = ref(false)
+const route = useRoute()
 
 const form = reactive({
-  email: '',
+  username: '',
   password: '',
 })
-
-const emailIsValid = computed(() => !form.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
-
-const demoAccounts = [
-  { label: '管理员', email: 'admin@atelier.studio', password: 'Admin123!' },
-  { label: '制作人员', email: 'creator@atelier.studio', password: 'Creator123!' },
-  { label: '审核人员', email: 'reviewer@atelier.studio', password: 'Reviewer123!' },
-]
-
-function useDemoAccount(account: (typeof demoAccounts)[number]) {
-  form.email = account.email
-  form.password = account.password
-  errorMessage.value = ''
-  submitted.value = false
-}
 
 async function handleSubmit() {
   submitted.value = true
   errorMessage.value = ''
-  if (!form.email || !form.password || !emailIsValid.value) return
+  if (!form.username || !form.password) return
 
   loading.value = true
-  await new Promise((resolve) => setTimeout(resolve, 550))
-  loading.value = false
-  errorMessage.value = '演示环境已就绪，请使用下方演示身份进入工作站。'
+  try {
+    await $fetch('/api/auth/login', {
+      method: 'POST',
+      body: {username: form.username, password: form.password},
+    })
+    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
+      ? route.query.redirect
+      : '/dashboard'
+    await navigateTo(redirect)
+  } catch (error: unknown) {
+    const requestError = error as {data?: {statusMessage?: string; message?: string}; statusMessage?: string; message?: string}
+    errorMessage.value = requestError.data?.statusMessage ?? requestError.data?.message ?? requestError.statusMessage ?? requestError.message ?? '登录失败，请稍后重试。'
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -78,16 +76,18 @@ async function handleSubmit() {
         <div v-if="errorMessage" class="form-message" role="status">{{ errorMessage }}</div>
 
         <label class="field">
-          <span>邮箱</span>
+          <span>用户名</span>
           <input
-            v-model="form.email"
-            type="email"
-            autocomplete="email"
-            placeholder="name@atelier.studio"
-            :aria-invalid="submitted && (!form.email || !emailIsValid)"
+            v-model="form.username"
+            type="text"
+            autocomplete="username"
+            placeholder="输入用户名"
+            minlength="3"
+            maxlength="64"
+            :aria-invalid="submitted && !form.username"
           >
-          <small v-if="submitted && !form.email">请输入邮箱地址。</small>
-          <small v-else-if="submitted && !emailIsValid">请输入格式正确的邮箱地址。</small>
+          <small>用户名长度为 3-64 个字符。</small>
+          <small v-if="submitted && !form.username">请输入用户名。</small>
         </label>
 
         <label class="field">
@@ -117,14 +117,7 @@ async function handleSubmit() {
           {{ loading ? '正在进入…' : '进入工作站' }}
         </button>
 
-        <div class="demo-accounts">
-          <span>演示身份</span>
-          <button v-for="account in demoAccounts" :key="account.label" type="button" @click="useDemoAccount(account)">
-            {{ account.label }}
-          </button>
-        </div>
-
-        <p class="security-note"><span class="status-dot" />仅限受邀团队成员访问</p>
+        <p class="security-note"><span class="status-dot" />账号由部署环境初始化，仅限受邀团队成员访问</p>
       </form>
     </section>
   </main>
@@ -184,10 +177,6 @@ button { cursor: pointer; }
 .submit-button:disabled { cursor: wait; opacity: .7; }
 .spinner { width: 13px; height: 13px; border: 2px solid #ffffff66; border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
 .form-message { margin: 0 0 17px; padding: 10px 12px; color: #795b45; background: #f1e8df; border-radius: 8px; font-size: 11px; line-height: 1.5; }
-.demo-accounts { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
-.demo-accounts > span { margin-right: 4px; color: #8b857d; font-size: 10px; }
-.demo-accounts button { padding: 6px 10px; color: #5f5951; background: #fff; border: 1px solid #ddd7ce; border-radius: 20px; font-size: 9px; transition: border-color .2s, color .2s; }
-.demo-accounts button:hover { color: #1d1c19; border-color: #a58c68; }
 .security-note { display: flex; align-items: center; gap: 7px; margin: 28px 0 0; color: #a39b91; font-size: 10px; }
 .status-dot { width: 6px; height: 6px; background: #7f9c84; border-radius: 50%; }
 @keyframes spin { to { transform: rotate(360deg); } }
