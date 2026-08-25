@@ -10,7 +10,6 @@ export default defineNuxtConfig({
     '@nuxt/eslint',
     '@nuxtjs/tailwindcss',
     '@pinia/nuxt',
-    'dayjs-nuxt',
     'nuxtjs-naive-ui'
   ],
   ssr: true,
