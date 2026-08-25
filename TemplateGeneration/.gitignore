@@ -13,6 +13,11 @@ node_modules
 logs
 *.log
 
+# Runtime database
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
 # Misc
 .DS_Store
 .fleet

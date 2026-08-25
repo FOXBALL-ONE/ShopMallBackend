@@ -22,7 +22,7 @@ bun install
 
 ## Development Server
 
-Start the development server on `http://localhost:3000`:
+Start the development server on `http://localhost:8040`:
 
 ```bash
 # npm
@@ -37,6 +37,15 @@ yarn dev
 # bun
 bun run dev
 ```
+
+The Nitro server initializes SQLite at startup. The database file is named
+`template-generation.sqlite` and is created in the process working directory.
+For example, running `pnpm dev` from this directory creates
+`TemplateGeneration/template-generation.sqlite`.
+Run the production server from the directory where this database file should
+be stored.
+
+Storage readiness is available at `GET /api/health/storage`.
 
 ## Production
 
