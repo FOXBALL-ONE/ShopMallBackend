@@ -1,16 +1,34 @@
 import Database from 'better-sqlite3'
 import {hashPassword, PASSWORD_MIN_LENGTH} from './password'
+import {rmSync} from 'node:fs'
 import {resolve} from 'node:path'
 
 const databaseFileName = 'template-generation.sqlite'
+const databaseInitializationEnv = 'TEMPLATE_DATABASE_INITIALIZATION_ENABLED'
 
 let database: Database.Database | undefined
+
+function isEnabled(value: string | undefined) {
+  return ['1', 'true', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '')
+}
+
+function forceInitializeDatabase(databasePath: string) {
+  // SQLite may keep recent writes in sidecar files while WAL mode is active.
+  // Remove every database/ journal file so initialization can never retain old records.
+  for (const filePath of [databasePath, `${databasePath}-wal`, `${databasePath}-shm`, `${databasePath}-journal`]) {
+    rmSync(filePath, {force: true})
+  }
+  console.warn(`[TemplateGeneration] ${databaseInitializationEnv}=true，已删除现有 SQLite 数据库并执行强制初始化。`)
+}
 
 /** Opens the template workspace database once per Nitro process and creates its base schema. */
 export function getDatabase() {
   if (database) return database
 
   const databasePath = resolve(process.cwd(), databaseFileName)
+  if (isEnabled(process.env[databaseInitializationEnv])) {
+    forceInitializeDatabase(databasePath)
+  }
   const connection = new Database(databasePath)
 
   try {

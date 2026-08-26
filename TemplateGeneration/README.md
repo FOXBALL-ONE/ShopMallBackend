@@ -23,6 +23,15 @@ bun install
 Before the first run, copy `.env.example` to `.env` and replace the sample
 initial password with a private value.
 
+`TEMPLATE_DATABASE_INITIALIZATION_ENABLED` controls destructive database
+initialization. Set it to `true` (also accepts `1`, `yes`, or `on`) when a
+clean database is required. When enabled, every process startup deletes
+`template-generation.sqlite` and its SQLite journal/WAL sidecar files before creating
+the schema and seed records; existing projects, assets, providers, tasks,
+results, users and sessions are not compatible and cannot be recovered.
+Leave this value as `false` in any environment that contains data you need to
+keep.
+
 Set `TEMPLATE_STORAGE_BASE_PATH` to the file storage root used by the
 application. Absolute paths are recommended in production; relative paths
 are resolved from the TemplateGeneration process working directory. The
