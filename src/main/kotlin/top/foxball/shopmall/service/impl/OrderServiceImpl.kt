@@ -353,7 +353,12 @@ class OrderServiceImpl(
         val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
         if (order.status == OrderStatus.DELETED) throw OrderNotFoundException()
         if (order.customerId != customerId) throw ForbiddenException("只能操作自己的订单")
-        return requestRefund(order, normalizedReason, normalizedDetail)
+        return requestRefund(
+            order,
+            normalizedReason,
+            normalizedDetail,
+            allowedStatuses = setOf(OrderStatus.PAID),
+        )
     }
 
     override fun queryCustomerRefund(customerId: Long, orderNo: String): OrderRefundView {
@@ -512,14 +517,29 @@ class OrderServiceImpl(
         val normalizedReason = normalizeReason(reason, required = false, maxLength = MAX_REFUND_REASON_LENGTH)
         val normalizedDetail = normalizeReason(reasonDetail, required = false, maxLength = MAX_REFUND_REASON_DETAIL_LENGTH)
         val order = orderRepository.lockByOrderNo(orderNo) ?: throw OrderNotFoundException()
-        return requestRefund(order, normalizedReason, normalizedDetail)
+        return requestRefund(
+            order,
+            normalizedReason,
+            normalizedDetail,
+            allowedStatuses = setOf(
+                OrderStatus.PAID,
+                OrderStatus.SHIPPED,
+                OrderStatus.DELIVERED,
+                OrderStatus.COMPLETED,
+            ),
+        )
     }
 
-    private fun requestRefund(order: OrderEntity, reason: String?, reasonDetail: String?): OrderView {
+    private fun requestRefund(
+        order: OrderEntity,
+        reason: String?,
+        reasonDetail: String?,
+        allowedStatuses: Set<OrderStatus>,
+    ): OrderView {
         val orderId = requireNotNull(order.id)
         val changed = orderRepository.markRefunding(
             orderId,
-            OrderStatus.PAID,
+            allowedStatuses,
             OrderPaymentStatus.PAID,
             OrderStatus.REFUNDING,
             OrderPaymentStatus.REFUNDING,
@@ -532,7 +552,13 @@ class OrderServiceImpl(
             if (orderRepository.findStatusById(orderId) == OrderStatus.REFUNDING) {
                 return view(reload(orderId))
             }
-            throw OrderStatusException("只有未发货的已成功付款订单可以退款")
+            throw OrderStatusException(
+                if (allowedStatuses.size > 1) {
+                    "只有已收到付款且尚未退款的订单可以退款"
+                } else {
+                    "只有未发货的已成功付款订单可以退款"
+                },
+            )
         }
         paymentService.requestRefund(order)
         return view(reload(orderId))

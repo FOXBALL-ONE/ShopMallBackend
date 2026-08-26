@@ -156,11 +156,11 @@ interface OrderRepository : JpaRepository<OrderEntity, Long> {
         "update OrderEntity o set o.status = :nextStatus, o.paymentStatus = :nextPaymentStatus, " +
             "o.refundRequestedAt = :at, o.cancelReason = :reason, " +
             "o.refundReason = :refundReason, o.refundReasonDetail = :refundReasonDetail " +
-            "where o.id = :id and o.status = :expectedStatus and o.paymentStatus = :expectedPaymentStatus",
+            "where o.id = :id and o.status in :expectedStatuses and o.paymentStatus = :expectedPaymentStatus",
     )
     fun markRefunding(
         @Param("id") id: Long,
-        @Param("expectedStatus") expectedStatus: OrderStatus,
+        @Param("expectedStatuses") expectedStatuses: Collection<OrderStatus>,
         @Param("expectedPaymentStatus") expectedPaymentStatus: OrderPaymentStatus,
         @Param("nextStatus") nextStatus: OrderStatus,
         @Param("nextPaymentStatus") nextPaymentStatus: OrderPaymentStatus,

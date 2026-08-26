@@ -37,6 +37,7 @@ import top.foxball.shopmall.shared.OrderNoGenerator
 import java.math.BigDecimal
 import java.time.Clock
 import java.time.Instant
+import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.util.Optional
 import java.util.UUID
@@ -404,6 +405,64 @@ class OrderServiceImplTest {
             clock.instant(),
             "管理员根据 Stripe 查询结果手动取消",
         )
+    }
+
+    @Test
+    fun `administrator can refund any paid order after fulfillment starts`() {
+        val refundableStatuses = listOf(
+            OrderStatus.PAID,
+            OrderStatus.SHIPPED,
+            OrderStatus.DELIVERED,
+            OrderStatus.COMPLETED,
+        )
+        val allowedStatuses = refundableStatuses.toSet()
+
+        refundableStatuses.forEachIndexed { index, status ->
+            val orderId = 109L + index
+            val order = OrderEntity(
+                id = orderId,
+                orderNo = "ORDER-$orderId",
+                customerId = 5,
+                status = status,
+                paymentStatus = OrderPaymentStatus.PAID,
+                paymentIntentId = "pi-$orderId",
+            )
+            val refunding = OrderEntity(
+                id = orderId,
+                orderNo = order.orderNo,
+                customerId = order.customerId,
+                status = OrderStatus.REFUNDING,
+                paymentStatus = OrderPaymentStatus.REFUNDING,
+                paymentIntentId = order.paymentIntentId,
+            )
+            `when`(orderRepository.lockByOrderNo(order.orderNo)).thenReturn(order)
+            `when`(
+                orderRepository.markRefunding(
+                    orderId,
+                    allowedStatuses,
+                    OrderPaymentStatus.PAID,
+                    OrderStatus.REFUNDING,
+                    OrderPaymentStatus.REFUNDING,
+                    LocalDateTime.of(2026, 7, 25, 3, 0),
+                    "fulfillment-refund",
+                    "fulfillment-refund",
+                    "admin approved a post-payment refund",
+                ),
+            ).thenReturn(1)
+            `when`(orderRepository.findById(orderId)).thenReturn(Optional.of(refunding))
+            `when`(orderItemRepository.findAllByOrder_IdOrderByVariantIdAsc(orderId)).thenReturn(emptyList())
+
+            val result = service.refund(
+                99,
+                order.orderNo,
+                "fulfillment-refund",
+                "admin approved a post-payment refund",
+            )
+
+            assertEquals(OrderStatus.REFUNDING, result.order.status)
+            assertEquals(OrderPaymentStatus.REFUNDING, result.order.paymentStatus)
+            verify(paymentService).requestRefund(order)
+        }
     }
 
     private fun variant(variantId: Long, productId: Long, price: String): ProductVariant {

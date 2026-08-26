@@ -91,7 +91,7 @@ const pageStats = computed(() => ({
   fulfilling: orders.value.filter(order => order.status === 'SHIPPED' || order.status === 'DELIVERED').length,
 }))
 
-const refundOrder = computed(() => selectedOrder.value?.status === 'PAID' && selectedOrder.value.payment_status === 'PAID'
+const refundOrder = computed(() => ['PAID', 'SHIPPED', 'DELIVERED', 'COMPLETED'].includes(selectedOrder.value?.status || '') && selectedOrder.value?.payment_status === 'PAID'
   ? selectedOrder.value
   : null)
 const canQueryRefundStatus = computed(() => ['REFUNDING', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(selectedOrderDetail.value?.payment_status || ''))
@@ -410,7 +410,7 @@ async function submitRefund() {
 
   const order = refundOrder.value
   if (!order) {
-    message.warning('只有未发货的已支付订单可以退款')
+    message.warning('只有已收到付款且尚未退款的订单可以退款')
     return
   }
 
@@ -571,7 +571,7 @@ const columns: DataTableColumns<OrderListItem> = [
           size: 'small',
           tertiary: true,
           type: 'error',
-          disabled: row.status !== 'PAID',
+          disabled: !['PAID', 'SHIPPED', 'DELIVERED', 'COMPLETED'].includes(row.status) || row.payment_status !== 'PAID',
           onClick: () => openRefund(row),
         },
         { default: () => '退款' },
@@ -614,7 +614,7 @@ onMounted(() => {
       <div class="page-heading">
         <div>
           <h2>订单管理</h2>
-          <NText depth="3">查询订单状态与金额，并处理未发货订单的退款。</NText>
+          <NText depth="3">查询订单状态与金额，并处理已收到付款订单的退款。</NText>
         </div>
         <NSpace>
           <NButton :disabled="loading || orders.length === 0" @click="exportCurrentPage">
@@ -735,12 +735,12 @@ onMounted(() => {
             </div>
 
             <NAlert
-              v-if="selectedOrder.status === 'PAID'"
+              v-if="['PAID', 'SHIPPED', 'DELIVERED', 'COMPLETED'].includes(selectedOrder.status) && selectedOrder.payment_status === 'PAID'"
               title="订单可以退款"
               type="info"
               :bordered="false"
             >
-              当前订单已支付且尚未发货。退款会取消订单、恢复库存并触发支付渠道退款。
+              当前订单已收到付款。管理员退款会使订单进入退款中，Stripe 确认成功后恢复库存并作废订单。
             </NAlert>
             <NAlert
               v-else-if="selectedOrder.status === 'CANCELLED'"
@@ -1026,7 +1026,7 @@ onMounted(() => {
             <NButton @click="detailOpen = false">关闭</NButton>
             <NButton
               type="error"
-              :disabled="selectedOrder?.status !== 'PAID' || selectedOrder.payment_status !== 'PAID'"
+              :disabled="!selectedOrder || !['PAID', 'SHIPPED', 'DELIVERED', 'COMPLETED'].includes(selectedOrder.status) || selectedOrder.payment_status !== 'PAID'"
               @click="selectedOrder && openRefund(selectedOrder)"
             >
               退款
