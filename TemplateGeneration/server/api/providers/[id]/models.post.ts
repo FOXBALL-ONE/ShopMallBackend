@@ -1,6 +1,6 @@
 import {readBody} from 'h3'
-import {requireAuthenticatedUser} from '../../utils/auth'
-import {fetchProviderModels, getProviderId, refreshProviderModels} from '../../utils/providers'
+import {requireAuthenticatedUser} from '../../../utils/auth'
+import {fetchProviderModels, getProviderId, refreshProviderModels} from '../../../utils/providers'
 
 type ModelPreviewInput = {
   type?: unknown

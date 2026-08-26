@@ -1,6 +1,6 @@
 import {readBody} from 'h3'
-import {requireAuthenticatedUser} from '../../utils/auth'
-import {getProviderId, saveProviderModelCatalog} from '../../utils/providers'
+import {requireAuthenticatedUser} from '../../../utils/auth'
+import {getProviderId, saveProviderModelCatalog} from '../../../utils/providers'
 
 type ModelCatalogInput = {
   models?: unknown

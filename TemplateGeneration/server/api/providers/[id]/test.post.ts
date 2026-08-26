@@ -1,6 +1,6 @@
 import {readBody, createError} from 'h3'
-import {requireAuthenticatedUser} from '../../utils/auth'
-import {getProviderId, testProviderModel} from '../../utils/providers'
+import {requireAuthenticatedUser} from '../../../utils/auth'
+import {getProviderId, testProviderModel} from '../../../utils/providers'
 
 type ModelTestInput = {
   model_id?: unknown
