@@ -5,7 +5,7 @@ definePageMeta({layout: false})
 
 type ProviderType = 'OpenAI' | 'Anthropic' | '兼容网关'
 type ProviderAuth = 'Bearer Token' | 'Custom Header' | '无需认证'
-type ProviderModel = { id: number; name: string }
+type ProviderModel = { id: number; name: string; selected?: boolean }
 type Provider = { id: number; name: string; type: ProviderType; baseUrl: string; protocol: 'HTTPS' | 'HTTP'; auth: ProviderAuth; credentialValue: string; credentialConfigured: boolean; enabled: boolean; modelId: number | null; model: string; models: ProviderModel[]; updatedAt: string }
 
 const providers = ref<Provider[]>([])
@@ -26,6 +26,7 @@ const selected = computed(() => providers.value.find((item) => item.id === selec
 const editingProvider = computed(() => draft.value ?? selected.value)
 const emptyProvider: Provider = {id: 0, name: '', type: 'OpenAI', baseUrl: '', protocol: 'HTTPS', auth: 'Bearer Token', credentialValue: '', credentialConfigured: false, enabled: false, modelId: null, model: '', models: [], updatedAt: ''}
 const modelProvider = computed<Provider>(() => editingProvider.value ?? emptyProvider)
+const selectedModels = computed(() => modelProvider.value.models.filter((model) => model.selected !== false))
 const visible = computed(() => providers.value.filter((item) => (filter.value === '全部' || (filter.value === '已启用' ? item.enabled : !item.enabled)) && `${item.name} ${item.type}`.toLowerCase().includes(query.value.toLowerCase())))
 
 function notify(message: string) {
@@ -87,15 +88,39 @@ function cancelEdit() {
   reveal.value = false
 }
 
+function toggleModelSelection(model: ProviderModel) {
+  if (!editing.value || saving.value) return
+  const provider = modelProvider.value
+  const currentlySelected = model.selected !== false
+  if (currentlySelected && selectedModels.value.length <= 1) {
+    notify('模型列表至少需要保留一个模型。')
+    return
+  }
+  model.selected = !currentlySelected
+  if (!model.selected && provider.modelId === model.id) {
+    const next = selectedModels.value[0]
+    provider.modelId = next?.id ?? null
+    provider.model = next?.name ?? ''
+  }
+  modelTestResult.value = null
+}
+
 async function testModel() {
   const provider = modelProvider.value
-  if (!provider?.id || !provider.modelId || testingModel.value) return
+  if (!provider?.id || !provider.model || testingModel.value) return
   testingModel.value = true
   modelTestResult.value = null
   try {
     const response = await $fetch<{ok: boolean; model: string; latency_ms: number}>(`/api/providers/${provider.id}/test`, {
       method: 'POST',
-      body: {model_id: provider.modelId},
+      body: {
+        model_id: provider.modelId && provider.modelId > 0 ? provider.modelId : undefined,
+        model: provider.model,
+        type: provider.type,
+        baseUrl: provider.baseUrl,
+        auth: provider.auth,
+        credentialValue: provider.credentialValue || undefined,
+      },
     })
     modelTestResult.value = {ok: true, message: `${response.model} 测活成功，响应耗时 ${response.latency_ms} ms。`, latencyMs: response.latency_ms}
   } catch (error: unknown) {
@@ -140,8 +165,8 @@ async function save() {
         auth: editingProvider.value.auth,
         credentialValue: editingProvider.value.credentialValue || undefined,
         model: editingProvider.value.model,
-        modelId: editingProvider.value.modelId ?? undefined,
-        models: editingProvider.value.models.map((model) => model.name),
+        modelId: editingProvider.value.modelId && editingProvider.value.modelId > 0 ? editingProvider.value.modelId : undefined,
+        models: editingProvider.value.models.filter((model) => model.selected !== false).map((model) => model.name),
         enabled: editingProvider.value.enabled,
       },
     })
@@ -156,12 +181,31 @@ async function save() {
 }
 
 async function refreshModels() {
-  if (!selected.value || refreshingModels.value) return
+  const provider = editingProvider.value ?? selected.value
+  if (!provider || refreshingModels.value) return
   refreshingModels.value = true
   try {
-    const response = await $fetch<{provider: Provider}>(`/api/providers/${selected.value.id}/models`, {method: 'POST'})
-    replaceProvider(response.provider)
-    notify(`已获取并保存 ${response.provider.models.length} 个模型，模型 ID 已持久化。`)
+    const response = await $fetch<{provider?: Provider; models?: Array<{name: string}>}>(`/api/providers/${provider.id}/models`, {
+      method: 'POST',
+      body: editing.value ? {
+        type: provider.type,
+        baseUrl: provider.baseUrl,
+        auth: provider.auth,
+        credentialValue: provider.credentialValue || undefined,
+      } : undefined,
+    })
+    if (editingProvider.value && response.models) {
+      const selectedName = provider.model
+      const models = response.models.map((model, index) => ({id: -(index + 1), name: model.name}))
+      provider.models = models.map((model) => ({...model, selected: true}))
+      provider.model = models.some((model) => model.name === selectedName) ? selectedName : models[0]?.name ?? ''
+      provider.modelId = models.find((model) => model.name === provider.model)?.id ?? null
+      modelTestResult.value = null
+      notify(`已从 Node.js 服务获取 ${models.length} 个模型，请人工选择后保存配置。`)
+    } else if (response.provider) {
+      replaceProvider(response.provider)
+      notify(`已获取并保存 ${response.provider.models.length} 个模型，模型 ID 已持久化。`)
+    }
   } catch (error: unknown) {
     notify(errorMessage(error, '模型列表获取失败，请检查提供商连接配置。'))
   } finally {
@@ -172,12 +216,18 @@ async function refreshModels() {
 async function saveModelSelection() {
   const provider = editingProvider.value
   if (!provider || saving.value) return
+  if (draft.value?.id === provider.id) {
+    const selectedModel = provider.models.find((model) => model.id === provider.modelId)
+    if (selectedModel) provider.model = selectedModel.name
+    modelTestResult.value = null
+    return
+  }
   saving.value = true
   modelTestResult.value = null
   try {
     const response = await $fetch<{provider: Provider}>(`/api/providers/${provider.id}/models`, {
       method: 'PUT',
-      body: {models: provider.models.map((model) => model.name), model_id: provider.modelId},
+      body: {models: provider.models.filter((model) => model.selected !== false).map((model) => model.name), model_id: provider.modelId},
     })
     if (draft.value?.id === provider.id) {
       draft.value.model = response.provider.model
@@ -228,7 +278,7 @@ async function addModel() {
   beginEdit()
   if (!draft.value) return
   const name = `custom-model-${draft.value.models.length + 1}`
-  draft.value.models.push({id: 0, name})
+  draft.value.models.push({id: -(draft.value.models.length + 1), name, selected: true})
   draft.value.model = name
   draft.value.modelId = null
   modelTestResult.value = null
@@ -246,7 +296,7 @@ await refreshProviders()
       <section v-if="selected" class="detail-panel"><div class="panel-head"><div><p class="eyebrow">{{ editing ? 'EDIT PROVIDER' : 'PROVIDER OVERVIEW' }}</p><h2>{{ editing ? '编辑连接' : selected.name }}</h2></div><div class="actions"><button v-if="!editing" class="quiet" type="button" @click="beginEdit">编辑</button><button class="danger" type="button" @click="remove">删除</button></div></div>
         <div v-if="!editing" class="overview"><div><span>提供商类型</span><strong>{{ selected.type }}</strong></div><div><span>连接协议</span><strong>{{ selected.protocol }}</strong></div><div><span>基础路由</span><strong>{{ selected.baseUrl }}</strong></div><div><span>认证方式</span><strong>{{ selected.auth }}</strong></div><div><span>访问密钥</span><strong>{{ selected.credentialConfigured ? '已配置（不会回显）' : '未配置' }}</strong></div><div><span>最近更新</span><strong>{{ selected.updatedAt }}</strong></div></div>
         <form v-else-if="editingProvider" class="form" @submit.prevent="save"><label class="wide"><span>提供商名称</span><input v-model="editingProvider.name" type="text" maxlength="120" /><small>用于团队识别，不影响服务调用。</small></label><label><span>提供商类型</span><select v-model="editingProvider.type"><option>OpenAI</option><option>Anthropic</option><option>兼容网关</option></select><small>可选择 OpenAI 协议类型或 Anthropic 类型。</small></label><label><span>协议</span><select v-model="editingProvider.protocol" @change="changeProtocol"><option>HTTPS</option><option>HTTP</option></select></label><label class="wide"><span>基础路由</span><input v-model="editingProvider.baseUrl" type="url" placeholder="https://api.example.com/v1" /><small>填写完整 HTTP/HTTPS 地址，例如 https://api.example.com/v1。</small></label><label><span>认证方式</span><select v-model="editingProvider.auth"><option>Bearer Token</option><option>Custom Header</option><option>无需认证</option></select></label><label v-if="editingProvider.auth !== '无需认证'"><span>访问密钥</span><div class="secret-field"><input v-model="editingProvider.credentialValue" :type="reveal?'text':'password'" :placeholder="editingProvider.credentialConfigured ? '已保存密钥，留空则保持不变' : '输入服务凭据'" /><button type="button" @click="reveal = !reveal">{{ reveal ? '隐藏' : '显示' }}</button></div><small>服务端只返回是否已配置，不会回显密钥。</small></label><div class="wide form-buttons"><button class="quiet" type="button" @click="cancelEdit">取消</button><button class="dark" type="submit" :disabled="saving">{{ saving ? '正在保存…' : '保存配置' }}</button></div></form>
-        <div class="models"><div class="model-head"><div><p class="eyebrow">MODEL CATALOG</p><h3>模型与当前选择</h3></div><div class="model-actions"><button type="button" :disabled="refreshingModels" @click="refreshModels">{{ refreshingModels ? '正在获取…' : '获取模型列表' }}</button><button type="button" @click="addModel">＋ 添加模型</button></div></div><p class="model-protocol-note">通过 OpenAI 协议 GET /models 读取响应中的 data[].id。</p><p v-if="!modelProvider.models.length" class="model-empty">暂无已保存模型，请先获取模型列表或添加模型。</p><div v-else class="model-control"><label><span>当前使用模型</span><select v-model="modelProvider.modelId" :disabled="saving || testingModel" @change="saveModelSelection"><option v-for="model in modelProvider.models" :key="model.id" :value="model.id">{{ model.name }} · ID {{ model.id }}</option></select></label><button class="use" :class="{active:selected.enabled}" type="button" @click="setCurrent">{{ selected.enabled ? '当前正在使用' : '先启用后切换' }}</button><button class="test-model" type="button" :disabled="!modelProvider.modelId || testingModel || saving" @click="testModel">{{ testingModel ? '测活中…' : modelTestResult?.ok ? '重新测活' : '模型测活' }}</button></div><p v-if="modelTestResult" class="model-test-result" :class="{success:modelTestResult.ok, failure:!modelTestResult.ok}" role="status">{{ modelTestResult.message }}</p><div class="model-tags"><span v-for="model in modelProvider.models" :key="model.id" :class="{active:model.id===modelProvider.modelId}">{{ model.name }} <small>ID {{ model.id }}</small><b v-if="model.id===modelProvider.modelId">当前</b></span></div></div>
+        <div class="models"><div class="model-head"><div><p class="eyebrow">MODEL CATALOG</p><h3>模型与当前选择</h3></div><div class="model-actions"><button type="button" :disabled="refreshingModels" @click="refreshModels">{{ refreshingModels ? '正在获取…' : '获取模型列表' }}</button><button type="button" @click="addModel">＋ 添加模型</button></div></div><p class="model-protocol-note">通过本地 Node.js 服务按 OpenAI 协议 GET /models 读取 data[].id；编辑时可人工勾选后保存。</p><p v-if="!modelProvider.models.length" class="model-empty">暂无已保存模型，请先获取模型列表或添加模型。</p><div v-else class="model-control"><label><span>当前使用模型</span><select v-model="modelProvider.modelId" :disabled="saving || testingModel" @change="saveModelSelection"><option v-for="model in modelProvider.models.filter((item) => item.selected !== false)" :key="model.id" :value="model.id">{{ model.name }} · ID {{ model.id }}</option></select></label><button class="use" :class="{active:selected.enabled}" type="button" @click="setCurrent">{{ selected.enabled ? '当前正在使用' : '先启用后切换' }}</button><button class="test-model" type="button" :disabled="!modelProvider.model || testingModel || saving" @click="testModel">{{ testingModel ? '测活中…' : modelTestResult?.ok ? '重新测活' : '模型测活' }}</button></div><p v-if="editing" class="model-selection-note">已保留 {{ selectedModels.length }} 个模型，取消勾选的模型将在保存时移除。</p><p v-if="modelTestResult" class="model-test-result" :class="{success:modelTestResult.ok, failure:!modelTestResult.ok}" role="status">{{ modelTestResult.message }}</p><div class="model-tags"><button v-for="model in modelProvider.models" :key="model.id" type="button" class="model-tag" :class="{active:model.id===modelProvider.modelId,unselected:model.selected===false}" @click="toggleModelSelection(model)">{{ model.name }} <small>ID {{ model.id }}</small><b v-if="model.id===modelProvider.modelId">当前</b><i>{{ model.selected === false ? '已取消' : editing ? '保留' : '' }}</i></button></div></div>
         <div class="status-line"><span>连接状态</span><strong :class="{disabled:!selected.enabled}">{{ selected.enabled ? '● 已启用' : '● 已停用' }}</strong><button type="button" @click="toggle(selected)">{{ selected.enabled ? '停用连接' : '启用连接' }}</button></div>
       </section>
     </section><p class="note">配置保存在 SQLite，并通过当前登录会话访问；访问密钥不会在列表接口中回显。</p>
@@ -257,6 +307,7 @@ await refreshProviders()
 .model-actions{display:flex;align-items:center;gap:10px}
 .test-model{min-height:38px;padding:9px 12px;color:#546857;background:#e5ede5;border:1px solid #d1dfd1;border-radius:8px;font-size:9px}.test-model:disabled{cursor:wait;opacity:.55}.model-test-result{margin:9px 0 0;padding:9px 11px;border-radius:7px;font-size:9px}.model-test-result.success{color:#4f6654;background:#e8f0e8}.model-test-result.failure{color:#986f66;background:#fff4f1;border:1px solid #ead9d4}
 .model-protocol-note{margin:-7px 0 10px;color:#979087;font-size:8px}
+.model-selection-note{margin:9px 0 0;color:#89775f;font-size:8px}.model-tag{padding:7px 9px;color:#756d64;background:#f4f0e9;border:0;border-radius:6px;font-size:8px}.model-tag.unselected{opacity:.48;text-decoration:line-through}.model-tag i{margin-left:5px;color:#986f66;font-size:7px;font-style:normal}
 .model-actions button:disabled{cursor:wait;opacity:.55}.model-empty{margin:0 0 10px;padding:12px;color:#8f887f;background:#faf8f4;border:1px dashed #e1d9cf;border-radius:7px;font-size:8px}
 .secret-field{display:flex;gap:6px}.secret-field input{min-width:0;flex:1}.secret-field button{padding:0 9px;color:#756d64;background:#f4f0e9;border:0;border-radius:7px;font-size:9px}
 .heading-actions{display:flex;gap:8px}.dark:disabled,.quiet:disabled{cursor:wait;opacity:.55}.load-error{display:flex;flex-direction:column;align-items:center;gap:9px}.load-error button{padding:6px 10px;color:#665e54;background:#f4f0e9;border:0;border-radius:6px;font-size:9px}

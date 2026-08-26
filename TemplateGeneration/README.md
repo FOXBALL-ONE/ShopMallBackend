@@ -81,12 +81,17 @@ but are never returned by list or detail responses. Provider API responses
 use private no-store caching, and unauthenticated API calls return JSON 401
 responses instead of browser redirects.
 
-`GET` or `POST /api/providers/:id/models` requests the provider's OpenAI-compatible
-`GET /models` endpoint and reads model identifiers exclusively from the response's
-`data[].id` entries. It replaces the saved model catalog and returns each model's
-stable SQLite ID together with the upstream model ID as its name. Generation task submissions include both
+`GET /api/providers/:id/models` or `POST /api/providers/:id/models` requests the provider's OpenAI-compatible
+`GET /models` endpoint through the local Node.js server and reads model identifiers exclusively from
+the response's `data[].id` entries. A POST with draft connection fields only previews the list;
+the API management page lets an operator manually choose the models before `PUT /models` persists
+the selected catalog. It returns each model's stable SQLite ID together with the upstream model ID as its name. Generation task submissions include both
 `provider_id` and `model_id`; the server verifies that the model belongs to the
 selected enabled provider and stores both IDs in the task audit snapshot.
+
+`POST /api/providers/:id/test` also runs through the local Node.js server. It can test a saved
+model ID or an unsaved draft model using the draft connection fields, without exposing the upstream
+API request to the browser.
 
 ## Workflow persistence
 

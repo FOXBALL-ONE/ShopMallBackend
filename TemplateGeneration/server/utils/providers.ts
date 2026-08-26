@@ -36,6 +36,20 @@ export type ProviderInput = {
   enabled?: unknown
 }
 
+type ProviderConnection = {
+  type: ProviderType
+  baseUrl: string
+  auth: ProviderAuth
+  credentialValue: string
+}
+
+type ProviderConnectionOverrides = {
+  type?: unknown
+  baseUrl?: unknown
+  auth?: unknown
+  credentialValue?: unknown
+}
+
 function getProviderId(event: H3Event) {
   const rawId = getRouterParam(event, 'id')
   const id = Number(rawId)
@@ -136,10 +150,11 @@ function readBaseUrl(value: unknown) {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw createError({statusCode: 400, statusMessage: '基础路由只支持 HTTP 或 HTTPS 协议。'})
   }
-  return baseUrl.replace(/\/$/, '')
+  const normalized = baseUrl.replace(/\/+$/, '')
+  return parsed.pathname === '/' || !parsed.pathname ? `${normalized}/v1` : normalized
 }
 
-function readModels(value: unknown, currentModel: string) {
+function readModels(value: unknown, currentModel: string, includeCurrent = true) {
   const values = Array.isArray(value) ? value : [currentModel]
   const models = [...new Set(values.map((item) => {
     if (typeof item === 'string') return item.trim()
@@ -147,11 +162,12 @@ function readModels(value: unknown, currentModel: string) {
     if (item && typeof item === 'object' && 'model' in item && typeof item.model === 'string') return item.model.trim()
     return ''
   }).filter(Boolean))]
-  if (!models.length) models.push(currentModel)
+  if (!models.length && includeCurrent) models.push(currentModel)
+  if (!models.length) throw createError({statusCode: 400, statusMessage: '模型列表至少需要保留一个模型。'})
   if (models.length > 100) {
     throw createError({statusCode: 400, statusMessage: '模型列表最多只能保存 100 个模型。'})
   }
-  if (!models.includes(currentModel)) models.unshift(currentModel)
+  if (includeCurrent && !models.includes(currentModel)) models.unshift(currentModel)
   return models
 }
 
@@ -181,18 +197,45 @@ export function validateProviderInput(body: ProviderInput, existingCredential = 
     throw createError({statusCode: 400, statusMessage: '访问密钥长度不能超过 20000 个字符。'})
   }
 
-  return {name, type, baseUrl, auth, model, modelId, credentialValue, models: readModels(body.models, model)}
+  const models = readModels(body.models, model, false)
+  if (!models.includes(model)) {
+    throw createError({statusCode: 400, statusMessage: '当前模型必须包含在已选择的模型列表中。'})
+  }
+  return {name, type, baseUrl, auth, model, modelId, credentialValue, models}
 }
 
-export async function fetchProviderModels(providerId: number) {
-  const provider = getDatabase().prepare('SELECT id, base_url, auth, credential_value FROM api_providers WHERE id = ?').get(providerId) as {id: number; base_url: string; auth: ProviderAuth; credential_value: string} | undefined
-  if (!provider) throw createError({statusCode: 404, statusMessage: '提供商不存在。'})
-  const endpoint = `${provider.base_url.replace(/\/$/, '')}/models`
+function getProviderConnection(providerId: number, overrides: ProviderConnectionOverrides = {}): ProviderConnection {
+  const row = getDatabase().prepare('SELECT type, base_url, auth, credential_value FROM api_providers WHERE id = ?').get(providerId) as {type: ProviderType; base_url: string; auth: ProviderAuth; credential_value: string} | undefined
+  if (!row) throw createError({statusCode: 404, statusMessage: '提供商不存在。'})
+
+  const type = overrides.type === undefined ? row.type : readProviderType(overrides.type)
+  const baseUrl = overrides.baseUrl === undefined ? row.base_url : readBaseUrl(overrides.baseUrl)
+  const auth = overrides.auth === undefined ? row.auth : readProviderAuth(overrides.auth)
+  const credentialValue = auth === '无需认证'
+    ? ''
+    : overrides.credentialValue === undefined
+      ? row.credential_value
+      : typeof overrides.credentialValue === 'string'
+        ? overrides.credentialValue.trim()
+        : ''
+  if (credentialValue.length > 20000) throw createError({statusCode: 400, statusMessage: '访问密钥长度不能超过 20000 个字符。'})
+  return {type, baseUrl, auth, credentialValue}
+}
+
+function buildProviderHeaders(connection: ProviderConnection) {
   const headers: Record<string, string> = {Accept: 'application/json'}
-  if (provider.credential_value && provider.auth !== '无需认证') {
-    if (provider.auth === 'Custom Header') headers['x-api-key'] = provider.credential_value
-    else headers.Authorization = `Bearer ${provider.credential_value}`
+  if (connection.credentialValue && connection.auth !== '无需认证') {
+    if (connection.type === 'Anthropic' || connection.auth === 'Custom Header') headers['x-api-key'] = connection.credentialValue
+    else headers.Authorization = `Bearer ${connection.credentialValue}`
   }
+  if (connection.type === 'Anthropic') headers['anthropic-version'] = '2023-06-01'
+  return headers
+}
+
+export async function fetchProviderModels(providerId: number, overrides: ProviderConnectionOverrides = {}) {
+  const connection = getProviderConnection(providerId, overrides)
+  const endpoint = `${connection.baseUrl}/models`
+  const headers = buildProviderHeaders(connection)
   let response: Response
   try {
     response = await fetch(endpoint, {
@@ -221,7 +264,7 @@ export async function fetchProviderModels(providerId: number) {
   const models = [...new Set(source.map((item) => {
     if (!item || typeof item !== 'object' || !('id' in item) || typeof item.id !== 'string') return ''
     return item.id.trim()
-  }).filter(Boolean))].map((name) => ({id: name, name}))
+  }).filter(Boolean))].map((name) => ({name}))
   if (!models.length) throw createError({statusCode: 502, statusMessage: 'OpenAI 模型列表响应的 data 中没有可用模型 ID。'})
   if (models.length > 100) throw createError({statusCode: 502, statusMessage: '模型列表超过 100 个，请在提供商侧筛选后重试。'})
   return models
@@ -249,9 +292,10 @@ export async function refreshProviderModels(providerId: number) {
 }
 
 /** Performs a minimal request against one persisted model to verify connectivity and credentials. */
-export async function testProviderModel(providerId: number, modelId: number) {
+export async function testProviderModel(providerId: number, modelId: number | null, modelNameValue?: unknown, overrides: ProviderConnectionOverrides = {}) {
   const database = getDatabase()
-  const record = database.prepare(`
+  const record = modelId
+    ? database.prepare(`
     SELECT
       api_providers.id,
       api_providers.type,
@@ -272,30 +316,34 @@ export async function testProviderModel(providerId: number, modelId: number) {
     model_id: number
     model: string
   } | undefined
+    : undefined
 
-  if (!record) {
+  if (modelId && !record) {
     const provider = database.prepare('SELECT id FROM api_providers WHERE id = ?').get(providerId)
     if (!provider) throw createError({statusCode: 404, statusMessage: '提供商不存在。'})
     throw createError({statusCode: 400, statusMessage: '模型 ID 不属于当前模型提供商。'})
   }
-
-  const headers: Record<string, string> = {Accept: 'application/json', 'Content-Type': 'application/json'}
-  if (record.credential_value && record.auth !== '无需认证') {
-    if (record.type === 'Anthropic' || record.auth === 'Custom Header') headers['x-api-key'] = record.credential_value
-    else headers.Authorization = `Bearer ${record.credential_value}`
+  if (!modelId && !database.prepare('SELECT id FROM api_providers WHERE id = ?').get(providerId)) {
+    throw createError({statusCode: 404, statusMessage: '提供商不存在。'})
   }
+  const model = record?.model ?? (typeof modelNameValue === 'string' ? modelNameValue.trim() : '')
+  if (!model) throw createError({statusCode: 400, statusMessage: '模型名称不能为空。'})
+  if (model.length > 200) throw createError({statusCode: 400, statusMessage: '模型名称长度不能超过 200 个字符。'})
 
-  const baseUrl = record.base_url.replace(/\/$/, '')
-  const isAnthropic = record.type === 'Anthropic'
+  const connection = getProviderConnection(providerId, overrides)
+  const headers: Record<string, string> = {...buildProviderHeaders(connection), 'Content-Type': 'application/json'}
+
+  const isAnthropic = connection.type === 'Anthropic'
+  const baseUrl = connection.baseUrl
   const endpoint = `${baseUrl}/${isAnthropic ? 'messages' : 'chat/completions'}`
   const body = isAnthropic
     ? {
-        model: record.model,
+        model,
         max_tokens: 1,
         messages: [{role: 'user', content: 'ping'}],
       }
     : {
-        model: record.model,
+        model,
         messages: [{role: 'user', content: 'ping'}],
         max_tokens: 1,
       }
@@ -325,8 +373,8 @@ export async function testProviderModel(providerId: number, modelId: number) {
   return {
     ok: true,
     provider_id: providerId,
-    model_id: record.model_id,
-    model: record.model,
+    model_id: record?.model_id ?? null,
+    model,
     latency_ms: Math.max(0, Date.now() - startedAt),
   }
 }
@@ -335,7 +383,7 @@ export function saveProviderModelCatalog(providerId: number, modelsValue: unknow
   const database = getDatabase()
   const provider = database.prepare('SELECT id, model FROM api_providers WHERE id = ?').get(providerId) as {id: number; model: string} | undefined
   if (!provider) throw createError({statusCode: 404, statusMessage: '提供商不存在。'})
-  const models = readModels(modelsValue, provider.model)
+  const models = readModels(modelsValue, provider.model, false)
   const modelId = readOptionalModelId(modelIdValue)
   const upsertModel = database.prepare('INSERT INTO api_provider_models (provider_id, model, position) VALUES (?, ?, ?) ON CONFLICT(provider_id, model) DO UPDATE SET position = excluded.position')
   const deleteModel = database.prepare('DELETE FROM api_provider_models WHERE id = ?')
