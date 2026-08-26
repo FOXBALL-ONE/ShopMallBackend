@@ -11,7 +11,11 @@ type WorkflowVersion = {
   savedAt: string
   garment: string
   model: string
+  definition: WorkflowDefinition
 }
+type WorkflowDefinition = { garmentAssetId: number; modelAssetId: number; creativePrompt: string; negativePrompt: string; aspectRatio: string; camera: string; lighting: string; outputCount: number; highDefinition: boolean; faceConsistency: boolean }
+type WorkflowResponse = { id: number; name: string; version: number; versionLabel: string; savedAt: string; createdAt: string; definition: WorkflowDefinition }
+type LibraryAsset = { id: number; type: 'GARMENT' | 'MODEL' | 'REFERENCE'; name: string; code: string; description: string; authorizationStatus: string | null; file: {downloadUrl: string; contentType: string} }
 
 const route = useRoute()
 const projectId = computed(() => String(route.params.projectId || 'prj_noir'))
@@ -29,6 +33,11 @@ const lighting = ref('柔和侧光')
 const outputCount = ref(4)
 const highDefinition = ref(true)
 const faceConsistency = ref(true)
+const loadingWorkflows = ref(true)
+const savingWorkflow = ref(false)
+const readingWorkflowId = ref<number | null>(null)
+const workflowError = ref('')
+const historyOpen = ref(false)
 
 const steps: { id: StepId; title: string; hint: string }[] = [
   { id: 1, title: '素材组合', hint: '服装与授权模特' },
@@ -37,23 +46,14 @@ const steps: { id: StepId; title: string; hint: string }[] = [
   { id: 4, title: '确认保存', hint: '检查并形成版本' },
 ]
 
-const garments = [
-  { id: 'moonlight', name: '月光三角杯文胸', meta: 'NW-2601 · 象牙白法式蕾丝', palette: 'cream' },
-  { id: 'midnight', name: '雾黑丝缎套装', meta: 'NW-2602 · 黑色轻薄网纱', palette: 'charcoal' },
-]
+const libraryAssets = ref<LibraryAsset[]>([])
+const garments = computed(() => libraryAssets.value.filter((asset) => asset.type === 'GARMENT').map((asset) => ({id: String(asset.id), name: asset.name, meta: `${asset.code} · ${asset.description}`, palette: 'cream', imageUrl: asset.file.downloadUrl, contentType: asset.file.contentType})))
+const models = computed(() => libraryAssets.value.filter((asset) => asset.type === 'MODEL' && asset.authorizationStatus === '已确认授权').map((asset) => ({id: String(asset.id), name: asset.name, meta: `${asset.code} · ${asset.description}`, palette: 'taupe', imageUrl: asset.file.downloadUrl, contentType: asset.file.contentType})))
 
-const models = [
-  { id: 'model-a', name: 'Model A · Editorial', meta: 'MODEL-014 · 正面半身', palette: 'taupe' },
-  { id: 'model-b', name: 'Mia Zhou · Natural', meta: 'MODEL-021 · 三分之二侧身', palette: 'stone' },
-]
+const versions = ref<WorkflowVersion[]>([])
 
-const versions = ref<WorkflowVersion[]>([
-  { id: 1, name: '晨光主视觉', version: 'IMAGE · V3', savedAt: '今日 09:42', garment: '月光三角杯文胸', model: 'Model A · Editorial' },
-  { id: 2, name: '黑色丝缎细节', version: 'IMAGE · V2', savedAt: '昨日 16:18', garment: '雾黑丝缎套装', model: 'Mia Zhou · Natural' },
-])
-
-const selectedGarmentData = computed(() => garments.find((item) => item.id === selectedGarment.value))
-const selectedModelData = computed(() => models.find((item) => item.id === selectedModel.value))
+const selectedGarmentData = computed(() => garments.value.find((item) => item.id === selectedGarment.value))
+const selectedModelData = computed(() => models.value.find((item) => item.id === selectedModel.value))
 const isStepOneValid = computed(() => Boolean(selectedGarment.value && selectedModel.value))
 const isStepTwoValid = computed(() => creativePrompt.value.trim().length >= 12)
 const isStepThreeValid = computed(() => Boolean(aspectRatio.value && camera.value && lighting.value && outputCount.value > 0))
@@ -66,6 +66,7 @@ const reviewItems = computed(() => [
 ])
 
 function showToast(message: string) {
+  if (!import.meta.client) return
   toast.value = message
   window.setTimeout(() => {
     if (toast.value === message) toast.value = ''
@@ -115,33 +116,94 @@ function previousStep() {
   if (activeStep.value > 1) activeStep.value = (activeStep.value - 1) as StepId
 }
 
-function saveVersion() {
-  if (!validateCurrentStep()) return
-  const nextVersion = versions.value.length + 1
-  versions.value.unshift({
-    id: Date.now(),
-    name: workflowName.value.trim() || '未命名工作流',
-    version: `IMAGE · V${nextVersion}`,
-    savedAt: '刚刚',
-    garment: selectedGarmentData.value?.name || '未选择',
-    model: selectedModelData.value?.name || '未选择',
-  })
-  showToast(`已保存“${workflowName.value.trim() || '未命名工作流'}”的新版本`)
+function workflowToVersion(workflow: WorkflowResponse): WorkflowVersion {
+  const garment = garments.value.find((item) => item.id === String(workflow.definition.garmentAssetId))
+  const model = models.value.find((item) => item.id === String(workflow.definition.modelAssetId))
+  return {id: workflow.id, name: workflow.name, version: workflow.versionLabel, savedAt: workflow.savedAt, garment: garment?.name || '未选择', model: model?.name || '未选择', definition: workflow.definition}
 }
 
-function loadVersion(version: WorkflowVersion) {
-  const garment = garments.find((item) => item.name === version.garment)
-  const model = models.find((item) => item.name === version.model)
-  workflowName.value = version.name
-  selectedGarment.value = garment?.id || ''
-  selectedModel.value = model?.id || ''
-  activeStep.value = 1
-  furthestStep.value = 4
-  showToast(`已载入“${version.name}”，可以继续编辑`)
+async function saveVersion() {
+  if (!validateCurrentStep()) return
+  if (!workflowName.value.trim()) return showToast('请输入工作流名称')
+  savingWorkflow.value = true
+  try {
+    const response = await $fetch<{workflow: WorkflowResponse}>(`/api/projects/${encodeURIComponent(projectId.value)}/workflows`, {
+      method: 'POST',
+      body: {
+        name: workflowName.value,
+        garment_asset_id: selectedGarment.value,
+        model_asset_id: selectedModel.value,
+        creative_prompt: creativePrompt.value,
+        negative_prompt: negativePrompt.value,
+        aspect_ratio: aspectRatio.value,
+        camera: camera.value,
+        lighting: lighting.value,
+        output_count: outputCount.value,
+        high_definition: highDefinition.value,
+        face_consistency: faceConsistency.value,
+      },
+    })
+    versions.value.unshift(workflowToVersion(response.workflow))
+    activeStep.value = 1
+    furthestStep.value = 1
+    showToast(`已保存“${response.workflow.name}”的 ${response.workflow.versionLabel} 版本`)
+  } catch (error: unknown) {
+    const requestError = error as {data?: {statusMessage?: string; message?: string}; statusMessage?: string; message?: string}
+    showToast(requestError.data?.statusMessage ?? requestError.data?.message ?? requestError.statusMessage ?? requestError.message ?? '工作流保存失败，请重试')
+  } finally {
+    savingWorkflow.value = false
+  }
+}
+
+async function loadVersion(version: WorkflowVersion) {
+  if (readingWorkflowId.value) return
+  readingWorkflowId.value = version.id
+  try {
+    const response = await $fetch<{workflow: WorkflowResponse}>(`/api/projects/${encodeURIComponent(projectId.value)}/workflows/${version.id}`)
+    const loaded = response.workflow
+    const garment = garments.value.find((item) => item.id === String(loaded.definition.garmentAssetId))
+    const model = models.value.find((item) => item.id === String(loaded.definition.modelAssetId))
+    workflowName.value = loaded.name
+    selectedGarment.value = garment?.id || ''
+    selectedModel.value = model?.id || ''
+    creativePrompt.value = loaded.definition.creativePrompt
+    negativePrompt.value = loaded.definition.negativePrompt
+    aspectRatio.value = loaded.definition.aspectRatio
+    camera.value = loaded.definition.camera
+    lighting.value = loaded.definition.lighting
+    outputCount.value = loaded.definition.outputCount
+    highDefinition.value = loaded.definition.highDefinition
+    faceConsistency.value = loaded.definition.faceConsistency
+    activeStep.value = 1
+    furthestStep.value = 4
+    showToast(`已载入“${loaded.name}”，可以继续编辑`)
+  } catch (error: unknown) {
+    const requestError = error as {data?: {statusMessage?: string; message?: string}; statusMessage?: string; message?: string}
+    showToast(requestError.data?.statusMessage ?? requestError.data?.message ?? requestError.statusMessage ?? requestError.message ?? '工作流读取失败，请重试')
+  } finally {
+    readingWorkflowId.value = null
+  }
 }
 
 function saveTemplate() {
   showToast('已将当前配置另存为工作流模板')
+}
+
+const requestFetch = import.meta.server ? useRequestFetch() : $fetch
+try {
+  const [assetResponse, workflowResponse] = await Promise.all([
+    requestFetch<{assets: LibraryAsset[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/assets`),
+    requestFetch<{workflows: WorkflowResponse[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/workflows`),
+  ])
+  libraryAssets.value = assetResponse.assets
+  versions.value = workflowResponse.workflows.map(workflowToVersion)
+  selectedGarment.value = garments.value[0]?.id ?? ''
+  selectedModel.value = models.value[0]?.id ?? ''
+} catch (error: unknown) {
+  workflowError.value = '工作流或素材库暂时无法加载，请重试。'
+  showToast(workflowError.value)
+} finally {
+  loadingWorkflows.value = false
 }
 </script>
 
@@ -158,8 +220,9 @@ function saveTemplate() {
       <main class="content">
         <section class="heading">
           <div><p class="eyebrow">WORKFLOW BUILDER</p><h1>创建生成工作流</h1><span>每次保存都会形成可追溯、不可覆盖的版本。</span></div>
-          <div class="heading-actions"><button class="quiet-button" type="button" @click="saveTemplate">另存模板</button><button class="dark-button" type="button" @click="activeStep = 4; furthestStep = 4">保存新版本</button></div>
+          <div class="heading-actions"><button class="quiet-button" type="button" @click="saveTemplate">另存模板</button><button class="dark-button" type="button" :disabled="savingWorkflow || loadingWorkflows" @click="activeStep = 4; furthestStep = 4">{{ savingWorkflow ? '正在保存…' : '保存新版本' }}</button></div>
         </section>
+        <p v-if="workflowError" class="load-error" role="alert">{{ workflowError }}</p>
 
         <div class="workflow-layout">
           <aside class="workflow-steps" aria-label="工作流步骤">
@@ -173,17 +236,19 @@ function saveTemplate() {
             <div v-if="activeStep === 1" class="step-view">
               <div class="editor-head"><p class="eyebrow">STEP 01</p><h2>组合创作素材</h2><span>至少选择一份服装和一位已授权模特。</span></div>
               <h3 class="field-title">服装 <small>单选</small></h3>
-              <div class="choice-grid">
+              <div v-if="garments.length" class="choice-grid">
                 <button v-for="garment in garments" :key="garment.id" type="button" class="choice-card" :class="[`palette-${garment.palette}`, { selected: selectedGarment === garment.id }]" @click="selectedGarment = garment.id">
-                  <span class="asset-shape garment-shape"><i /></span><span class="choice-copy"><strong>{{ garment.name }}</strong><small>{{ garment.meta }}</small></span><span class="select-mark">{{ selectedGarment === garment.id ? '✓' : '选择' }}</span>
+                  <span class="asset-shape garment-shape"><img v-if="garment.contentType.startsWith('image/')" :src="garment.imageUrl" :alt="garment.name" loading="lazy"><i v-else /></span><span class="choice-copy"><strong>{{ garment.name }}</strong><small>{{ garment.meta }}</small></span><span class="select-mark">{{ selectedGarment === garment.id ? '✓' : '选择' }}</span>
                 </button>
               </div>
+              <p v-else class="empty-version">当前项目还没有服装素材，请先前往素材库上传。</p>
               <h3 class="field-title">模特 <small>需已授权</small></h3>
-              <div class="choice-grid">
+              <div v-if="models.length" class="choice-grid">
                 <button v-for="model in models" :key="model.id" type="button" class="choice-card" :class="[`palette-${model.palette}`, { selected: selectedModel === model.id }]" @click="selectedModel = model.id">
-                  <span class="asset-shape model-shape"><i /></span><span class="choice-copy"><strong>{{ model.name }}</strong><small>{{ model.meta }}</small></span><span class="authorization">已授权</span><span class="select-mark">{{ selectedModel === model.id ? '✓' : '选择' }}</span>
+                  <span class="asset-shape model-shape"><img v-if="model.contentType.startsWith('image/')" :src="model.imageUrl" :alt="model.name" loading="lazy"><i v-else /></span><span class="choice-copy"><strong>{{ model.name }}</strong><small>{{ model.meta }}</small></span><span class="authorization">已授权</span><span class="select-mark">{{ selectedModel === model.id ? '✓' : '选择' }}</span>
                 </button>
               </div>
+              <p v-else class="empty-version">当前项目没有已确认授权的模特素材。</p>
             </div>
 
             <div v-else-if="activeStep === 2" class="step-view">
@@ -211,13 +276,42 @@ function saveTemplate() {
               <div class="version-note"><span>版本策略</span><strong>保存为 IMAGE · V{{ versions.length + 1 }}</strong><small>旧版本会保留，任何更新都不会覆盖已有生成记录。</small></div>
             </div>
 
-            <footer class="editor-footer"><button class="quiet-button" type="button" :disabled="activeStep === 1" @click="previousStep">上一步</button><span class="step-progress">{{ activeStep }} / 4</span><button class="dark-button" type="button" @click="nextStep">{{ activeStep === 4 ? '保存新版本' : '继续' }} <span>{{ activeStep === 4 ? '✓' : '→' }}</span></button></footer>
+            <footer class="editor-footer"><button class="quiet-button" type="button" :disabled="activeStep === 1" @click="previousStep">上一步</button><span class="step-progress">{{ activeStep }} / 4</span><button class="dark-button" type="button" :disabled="savingWorkflow || loadingWorkflows" @click="nextStep">{{ activeStep === 4 ? (savingWorkflow ? '正在保存…' : '保存新版本') : '继续' }} <span>{{ activeStep === 4 ? '✓' : '→' }}</span></button></footer>
           </section>
 
-          <aside class="version-panel"><p class="eyebrow">SAVED WORKFLOWS</p><h2>历史与复用</h2><div v-if="versions.length" class="version-list"><article v-for="version in versions" :key="version.id" class="version-card"><div><strong>{{ version.name }}</strong><small>{{ version.version }} · {{ version.savedAt }}</small></div><button type="button" @click="loadVersion(version)">编辑 <span>→</span></button></article></div><p v-else class="empty-version">还没有保存的工作流</p><button class="panel-link" type="button" @click="showToast('历史版本已全部展示')">查看全部版本 <span>→</span></button></aside>
+          <aside class="version-panel"><p class="eyebrow">SAVED WORKFLOWS</p><h2>历史与复用</h2><p v-if="loadingWorkflows" class="empty-version">正在读取已保存工作流…</p><div v-else-if="versions.length" class="version-list"><article v-for="version in versions" :key="version.id" class="version-card"><div><strong>{{ version.name }}</strong><small>{{ version.version }} · {{ version.savedAt }}</small></div><button type="button" :disabled="readingWorkflowId !== null" @click="loadVersion(version)">{{ readingWorkflowId === version.id ? '读取中…' : '读取' }} <span>→</span></button></article></div><p v-else class="empty-version">还没有保存的工作流</p><button class="panel-link" type="button" :disabled="loadingWorkflows" @click="historyOpen = true">查看全部版本 <span>→</span></button></aside>
         </div>
       </main>
     </section>
+
+    <div v-if="historyOpen" class="modal-backdrop" @click.self="historyOpen = false">
+      <section class="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
+        <header class="history-modal-head">
+          <div><p class="eyebrow">WORKFLOW HISTORY</p><h2 id="history-modal-title">历史工作流</h2><span>查看每个不可覆盖版本的配置，并载入任意版本继续编辑。</span></div>
+          <button class="close-button" type="button" aria-label="关闭历史工作流" @click="historyOpen = false">×</button>
+        </header>
+
+        <p v-if="!versions.length" class="history-empty">当前项目还没有保存的工作流版本。</p>
+        <div v-else class="history-list">
+          <article v-for="version in versions" :key="version.id" class="history-record">
+            <div class="history-record-head">
+              <div><strong>{{ version.name }}</strong><small>{{ version.version }} · 保存于 {{ version.savedAt }}</small></div>
+              <button class="history-load-button" type="button" :disabled="readingWorkflowId !== null" @click="historyOpen = false; loadVersion(version)">{{ readingWorkflowId === version.id ? '读取中…' : '读取并编辑' }} <span>→</span></button>
+            </div>
+            <dl class="history-meta">
+              <div><dt>服装</dt><dd>{{ version.garment }}</dd></div>
+              <div><dt>模特</dt><dd>{{ version.model }}</dd></div>
+              <div><dt>画幅比例</dt><dd>{{ version.definition.aspectRatio }}</dd></div>
+              <div><dt>镜头 / 光线</dt><dd>{{ version.definition.camera }} · {{ version.definition.lighting }}</dd></div>
+              <div><dt>生成数量</dt><dd>{{ version.definition.outputCount }} 张</dd></div>
+              <div><dt>输出选项</dt><dd>{{ version.definition.highDefinition ? '高清输出' : '标准输出' }} · {{ version.definition.faceConsistency ? '保持模特一致性' : '不保持模特一致性' }}</dd></div>
+            </dl>
+            <div class="history-prompt"><span>画面描述</span><p>{{ version.definition.creativePrompt || '未填写' }}</p></div>
+            <div v-if="version.definition.negativePrompt" class="history-prompt"><span>排除项</span><p>{{ version.definition.negativePrompt }}</p></div>
+          </article>
+        </div>
+      </section>
+    </div>
 
     <Transition name="toast"><div v-if="toast" class="toast" role="status">{{ toast }}</div></Transition>
   </div>
@@ -244,13 +338,18 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .dark-button, .quiet-button { display: flex; align-items: center; gap: 7px; min-height: 42px; padding: 10px 14px; border-radius: 8px; font-size: 10px; }.dark-button { color: #fff; background: #1d1c19; border: 0; }.quiet-button { color: #5d5750; background: #fff; border: 1px solid var(--line); }.dark-button:hover { background: #37342f; }.quiet-button:hover { border-color: #bfb6aa; }
 .workflow-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr) 230px; align-items: start; gap: 15px; }.workflow-steps { display: flex; flex-direction: column; gap: 5px; }.step-button { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 11px; color: #8a837a; text-align: left; background: transparent; border: 0; border-radius: 9px; }.step-button.clickable { color: #403c36; }.step-button.active { background: #eae5dd; }.step-number { display: grid; place-items: center; flex: 0 0 auto; width: 23px; height: 23px; border: 1px solid #cfc7bc; border-radius: 50%; color: #70695f; font-size: 10px; }.step-button.active .step-number { color: #fff; background: #292722; border-color: #292722; }.step-button.complete .step-number { color: #fff; background: #8a7659; border-color: #8a7659; }.step-button > span:last-child { display: flex; flex-direction: column; gap: 3px; padding-top: 1px; }.step-button strong { font-size: 11px; font-weight: 600; }.step-button small { color: #918a81; font-size: 8px; }
 .editor-panel, .version-panel { background: #fff; border: 1px solid #e5dfd6; border-radius: 12px; }.editor-panel { min-width: 0; padding: 26px 25px 22px; }.editor-head { border-bottom: 1px solid #eee9e2; padding-bottom: 20px; }.editor-head h2, .version-panel h2 { margin: 5px 0 6px; font: 400 25px Georgia, serif; }.editor-head > span { color: #8a847c; font-size: 10px; }.field-title { display: flex; align-items: center; gap: 8px; margin: 22px 0 10px; font-size: 10px; }.field-title small { color: #a49c91; font-size: 8px; font-weight: 400; }
-.choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }.choice-card { position: relative; display: flex; align-items: center; gap: 12px; min-height: 79px; overflow: hidden; padding: 10px 11px; color: var(--ink); text-align: left; background: #fcfbf8; border: 1px solid #e5dfd6; border-radius: 9px; }.choice-card:hover, .choice-card.selected { border-color: #a18455; box-shadow: 0 0 0 2px #a1845522; }.choice-card.selected { background: #faf7f1; }.choice-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }.choice-copy strong { overflow: hidden; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }.choice-copy small { color: #8f887f; font-size: 8px; }.select-mark { position: absolute; right: 10px; bottom: 9px; color: #9a9288; font-size: 8px; }.choice-card.selected .select-mark { color: #8a7659; font-weight: 700; }.authorization { position: absolute; top: 9px; right: 9px; padding: 3px 5px; color: #537059; background: #e6eee7; border-radius: 12px; font-size: 7px; }.asset-shape { position: relative; display: block; flex: 0 0 53px; height: 57px; overflow: hidden; border-radius: 7px; }.palette-cream { background: linear-gradient(135deg, #d8cfc3, #f5f0e9); }.palette-charcoal { background: linear-gradient(135deg, #302e2b, #827b73); }.palette-taupe { background: linear-gradient(135deg, #b6a99d, #e0d5c8); }.palette-stone { background: linear-gradient(135deg, #b7b6b1, #e5e1d8); }.garment-shape i, .model-shape i { position: absolute; inset: 8px 13px; background: #fff9; border-radius: 45% 45% 22% 22%; clip-path: polygon(0 0, 48% 24%, 100% 0, 81% 100%, 50% 72%, 19% 100%); }.palette-charcoal .garment-shape i { background: #292521d9; }.model-shape i { inset: 5px 17px 2px; background: #8b7d72; border-radius: 48% 48% 15% 15%; clip-path: polygon(28% 0, 72% 0, 87% 25%, 100% 100%, 0 100%, 13% 25%); }
+.choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }.choice-card { position: relative; display: flex; align-items: center; gap: 12px; min-height: 79px; overflow: hidden; padding: 10px 11px; color: var(--ink); text-align: left; background: #fcfbf8; border: 1px solid #e5dfd6; border-radius: 9px; }.choice-card:hover, .choice-card.selected { border-color: #a18455; box-shadow: 0 0 0 2px #a1845522; }.choice-card.selected { background: #faf7f1; }.choice-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }.choice-copy strong { overflow: hidden; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }.choice-copy small { color: #8f887f; font-size: 8px; }.select-mark { position: absolute; right: 10px; bottom: 9px; color: #9a9288; font-size: 8px; }.choice-card.selected .select-mark { color: #8a7659; font-weight: 700; }.authorization { position: absolute; top: 9px; right: 9px; padding: 3px 5px; color: #537059; background: #e6eee7; border-radius: 12px; font-size: 7px; }.asset-shape { position: relative; display: block; flex: 0 0 53px; height: 57px; overflow: hidden; border-radius: 7px; }.asset-shape img { display: block; width: 100%; height: 100%; object-fit: cover; }.palette-cream { background: linear-gradient(135deg, #d8cfc3, #f5f0e9); }.palette-charcoal { background: linear-gradient(135deg, #302e2b, #827b73); }.palette-taupe { background: linear-gradient(135deg, #b6a99d, #e0d5c8); }.palette-stone { background: linear-gradient(135deg, #b7b6b1, #e5e1d8); }.garment-shape i, .model-shape i { position: absolute; inset: 8px 13px; background: #fff9; border-radius: 45% 45% 22% 22%; clip-path: polygon(0 0, 48% 24%, 100% 0, 81% 100%, 50% 72%, 19% 100%); }.palette-charcoal .garment-shape i { background: #292521d9; }.model-shape i { inset: 5px 17px 2px; background: #8b7d72; border-radius: 48% 48% 15% 15%; clip-path: polygon(28% 0, 72% 0, 87% 25%, 100% 100%, 0 100%, 13% 25%); }
 .form-label { display: flex; flex-direction: column; gap: 8px; margin: 20px 0 0; color: #59554f; font-size: 10px; }.form-label small { color: #989087; font-size: 8px; font-weight: 400; }.form-label textarea, .form-label input, .form-label select { width: 100%; padding: 12px 13px; color: var(--ink); background: #fcfbf8; border: 1px solid #ddd7ce; border-radius: 8px; outline: 0; resize: vertical; font-size: 11px; }.form-label textarea:focus, .form-label input:focus, .form-label select:focus { border-color: #9c835f; box-shadow: 0 0 0 3px #a1845518; }.form-label textarea::placeholder, .form-label input::placeholder { color: #aba39a; }.prompt-suggestions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 13px; color: #9a9288; font-size: 8px; }.prompt-suggestions button { padding: 6px 8px; color: #756e66; background: #f3efe9; border: 0; border-radius: 14px; font-size: 8px; }.prompt-suggestions button:hover { background: #e9e2d8; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 15px; }.stepper { display: flex; align-items: center; justify-content: space-between; height: 41px; padding: 4px; background: #fcfbf8; border: 1px solid #ddd7ce; border-radius: 8px; }.stepper button { display: grid; place-items: center; width: 30px; height: 30px; color: #5b554d; background: #f1ece5; border: 0; border-radius: 6px; }.stepper output { color: #282521; font: 16px Georgia, serif; }.toggle-list { margin-top: 22px; border-top: 1px solid #eee9e2; }.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 15px 0; border-bottom: 1px solid #eee9e2; }.toggle-row > span { display: flex; flex-direction: column; gap: 4px; }.toggle-row strong { font-size: 10px; font-weight: 600; }.toggle-row small { color: #938c83; font-size: 8px; }.toggle-row input { position: absolute; opacity: 0; pointer-events: none; }.toggle-row i { position: relative; display: block; flex: 0 0 auto; width: 35px; height: 20px; background: #d8d1c8; border-radius: 20px; transition: background .2s; }.toggle-row i::after { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px #0002; content: ''; transition: transform .2s; }.toggle-row input:checked + i { background: #807256; }.toggle-row input:checked + i::after { transform: translateX(15px); }
 .review-view { min-height: 355px; }.workflow-name { max-width: 500px; }.review-list { margin-top: 25px; border-top: 1px solid #eee9e2; }.review-row { display: grid; grid-template-columns: 100px 1fr; gap: 15px; padding: 13px 0; border-bottom: 1px solid #eee9e2; }.review-row span { color: #958e85; font-size: 9px; }.review-row strong { overflow: hidden; color: #38342e; font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }.version-note { display: flex; flex-direction: column; gap: 5px; margin-top: 22px; padding: 14px; background: #f4efe8; border-radius: 8px; }.version-note span { color: #9a9187; font-size: 8px; }.version-note strong { font: 400 14px Georgia, serif; }.version-note small { color: #817970; font-size: 8px; }
 .editor-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eee9e2; }.step-progress { color: #a39b91; font: 11px Georgia, serif; }.version-panel { padding: 24px; }.version-panel h2 { margin-bottom: 16px; }.version-list { border-top: 1px solid #e5dfd6; }.version-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 14px 0; border-bottom: 1px solid #eee9e2; }.version-card > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }.version-card strong { overflow: hidden; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }.version-card small { color: #938b81; font-size: 8px; }.version-card button, .panel-link { flex: 0 0 auto; padding: 0; color: #6e665d; background: transparent; border: 0; font-size: 8px; }.version-card button:hover, .panel-link:hover { color: #a18455; }.panel-link { display: flex; justify-content: space-between; width: 100%; margin-top: 18px; padding-top: 15px; border-top: 1px solid #eee9e2; }.empty-version { color: #938b81; font-size: 9px; }
-.toast { position: fixed; right: 24px; bottom: 24px; z-index: 50; padding: 11px 15px; color: #fff; background: #292722; border-radius: 8px; box-shadow: 0 10px 30px #0002; font-size: 10px; }.toast-enter-active, .toast-leave-active { transition: opacity .2s, transform .2s; }.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(8px); }
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: #24221fcc; }
+.history-modal { width: min(760px, 100%); max-height: min(820px, calc(100vh - 48px)); overflow: auto; padding: 26px; background: #fff; border: 1px solid #e5dfd6; border-radius: 12px; box-shadow: 0 24px 70px #0004; }
+.history-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee9e2; }.history-modal-head h2 { margin: 5px 0 6px; font: 400 26px Georgia, serif; }.history-modal-head span { color: #8a847c; font-size: 10px; line-height: 1.5; }.close-button { display: grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; color: #6c655d; background: #f5f1eb; border: 0; border-radius: 50%; font-size: 18px; line-height: 1; }.close-button:hover { color: var(--ink); background: #ebe4da; }
+.history-list { display: flex; flex-direction: column; gap: 14px; padding-top: 18px; }.history-record { padding: 17px; background: #fcfbf8; border: 1px solid #e8e2da; border-radius: 9px; }.history-record-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; padding-bottom: 14px; border-bottom: 1px solid #eee9e2; }.history-record-head > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }.history-record-head strong { color: #302c27; font-size: 12px; }.history-record-head small { color: #938b81; font-size: 8px; }.history-load-button { flex: 0 0 auto; padding: 0; color: #8a6c4c; background: transparent; border: 0; font-size: 9px; }.history-load-button:hover { color: #5f4935; }.history-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 18px; margin: 15px 0 0; }.history-meta div { min-width: 0; }.history-meta dt, .history-prompt span { color: #9a9288; font-size: 8px; }.history-meta dd { margin: 4px 0 0; overflow: hidden; color: #4a443d; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }.history-prompt { margin-top: 14px; padding-top: 12px; border-top: 1px solid #eee9e2; }.history-prompt p { margin: 5px 0 0; color: #4a443d; font-size: 9px; line-height: 1.6; white-space: pre-wrap; }.history-empty { padding: 28px 0 8px; color: #938b81; font-size: 10px; text-align: center; }
+.load-error { margin: -16px 0 22px; padding: 10px 12px; color: #875d4c; background: #f8ece7; border: 1px solid #edd7ce; border-radius: 8px; font-size: 10px; }.toast { position: fixed; right: 24px; bottom: 24px; z-index: 50; padding: 11px 15px; color: #fff; background: #292722; border-radius: 8px; box-shadow: 0 10px 30px #0002; font-size: 10px; }.toast-enter-active, .toast-leave-active { transition: opacity .2s, transform .2s; }.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(8px); }
 @media (max-width: 1100px) { .workflow-layout { grid-template-columns: 165px minmax(0, 1fr); }.version-panel { grid-column: 2; }.editor-panel { grid-column: 2; grid-row: 1; } }
 @media (max-width: 800px) { .workspace-layout { display: block; }.sidebar { position: static; flex-direction: row; align-items: center; height: auto; padding: 13px 16px; }.brand { padding: 0; }.space-card, .nav-list, .tip-card, .profile > span:nth-child(2), .profile button { display: none; }.profile { margin: 0 0 0 auto; padding: 0; border: 0; }.topbar { height: 58px; padding: 0 18px; }.service-state, .icon-button { display: none; }.content { padding: 30px 16px 55px; }.heading { align-items: flex-start; flex-direction: column; }.heading-actions { width: 100%; }.heading-actions button { flex: 1; justify-content: center; }.workflow-layout { display: flex; flex-direction: column; gap: 14px; }.workflow-steps { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; }.step-button { flex-direction: column; align-items: center; gap: 6px; padding: 9px 4px; text-align: center; }.step-button > span:last-child { align-items: center; }.step-button small { display: none; }.editor-panel, .version-panel { width: 100%; }.version-panel { order: 3; }.choice-grid { grid-template-columns: 1fr; } }
-@media (max-width: 480px) { .content { padding-inline: 13px; }.heading h1 { font-size: 36px; }.editor-panel, .version-panel { padding: 20px 16px; }.form-grid { grid-template-columns: 1fr; }.review-row { grid-template-columns: 80px 1fr; }.workflow-steps { gap: 2px; }.step-button strong { font-size: 9px; }.editor-footer .quiet-button, .editor-footer .dark-button { padding-inline: 10px; } }
+ @media (max-width: 800px) { .modal-backdrop { align-items: end; padding: 0; }.history-modal { max-height: calc(100vh - 20px); padding: 21px 17px; border-radius: 12px 12px 0 0; }.history-meta { grid-template-columns: 1fr; }.history-record-head { flex-direction: column; }.history-load-button { align-self: flex-start; } }
+ @media (max-width: 480px) { .content { padding-inline: 13px; }.heading h1 { font-size: 36px; }.editor-panel, .version-panel { padding: 20px 16px; }.form-grid { grid-template-columns: 1fr; }.review-row { grid-template-columns: 80px 1fr; }.workflow-steps { gap: 2px; }.step-button strong { font-size: 9px; }.editor-footer .quiet-button, .editor-footer .dark-button { padding-inline: 10px; } }
 </style>
