@@ -248,6 +248,89 @@ export async function refreshProviderModels(providerId: number) {
   return getProvider(providerId)
 }
 
+/** Performs a minimal request against one persisted model to verify connectivity and credentials. */
+export async function testProviderModel(providerId: number, modelId: number) {
+  const database = getDatabase()
+  const record = database.prepare(`
+    SELECT
+      api_providers.id,
+      api_providers.type,
+      api_providers.base_url,
+      api_providers.auth,
+      api_providers.credential_value,
+      api_provider_models.id AS model_id,
+      api_provider_models.model
+    FROM api_providers
+    INNER JOIN api_provider_models ON api_provider_models.provider_id = api_providers.id
+    WHERE api_providers.id = ? AND api_provider_models.id = ?
+  `).get(providerId, modelId) as {
+    id: number
+    type: ProviderType
+    base_url: string
+    auth: ProviderAuth
+    credential_value: string
+    model_id: number
+    model: string
+  } | undefined
+
+  if (!record) {
+    const provider = database.prepare('SELECT id FROM api_providers WHERE id = ?').get(providerId)
+    if (!provider) throw createError({statusCode: 404, statusMessage: '提供商不存在。'})
+    throw createError({statusCode: 400, statusMessage: '模型 ID 不属于当前模型提供商。'})
+  }
+
+  const headers: Record<string, string> = {Accept: 'application/json', 'Content-Type': 'application/json'}
+  if (record.credential_value && record.auth !== '无需认证') {
+    if (record.type === 'Anthropic' || record.auth === 'Custom Header') headers['x-api-key'] = record.credential_value
+    else headers.Authorization = `Bearer ${record.credential_value}`
+  }
+
+  const baseUrl = record.base_url.replace(/\/$/, '')
+  const isAnthropic = record.type === 'Anthropic'
+  const endpoint = `${baseUrl}/${isAnthropic ? 'messages' : 'chat/completions'}`
+  const body = isAnthropic
+    ? {
+        model: record.model,
+        max_tokens: 1,
+        messages: [{role: 'user', content: 'ping'}],
+      }
+    : {
+        model: record.model,
+        messages: [{role: 'user', content: 'ping'}],
+        max_tokens: 1,
+      }
+  if (isAnthropic) headers['anthropic-version'] = '2023-06-01'
+
+  const startedAt = Date.now()
+  let response: Response
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    })
+  } catch {
+    throw createError({statusCode: 502, statusMessage: '模型测活请求失败，请检查基础路由、凭据和网络连接。'})
+  }
+  if (!response.ok) {
+    const reason = response.status === 401 || response.status === 403
+      ? '凭据无效或无权访问该模型。'
+      : response.status === 404
+        ? '模型接口或模型不存在，请检查基础路由和模型配置。'
+        : `上游服务返回 HTTP ${response.status}。`
+    throw createError({statusCode: 502, statusMessage: `模型测活失败：${reason}`})
+  }
+
+  return {
+    ok: true,
+    provider_id: providerId,
+    model_id: record.model_id,
+    model: record.model,
+    latency_ms: Math.max(0, Date.now() - startedAt),
+  }
+}
+
 export function saveProviderModelCatalog(providerId: number, modelsValue: unknown, modelIdValue: unknown) {
   const database = getDatabase()
   const provider = database.prepare('SELECT id, model FROM api_providers WHERE id = ?').get(providerId) as {id: number; model: string} | undefined
