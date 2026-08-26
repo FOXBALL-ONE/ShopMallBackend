@@ -1,0 +1,173 @@
+:root {
+  --theme-bg: #f7f5f0;
+  --theme-surface: #ffffff;
+  --theme-surface-muted: #eee9e1;
+  --theme-surface-soft: #fcfbf8;
+  --theme-text: #24221f;
+  --theme-muted: #817b73;
+  --theme-border: #e7e1d8;
+  --theme-accent: #a18455;
+  --theme-accent-strong: #1d1c19;
+  --theme-accent-soft: #f2ece2;
+  --theme-accent-contrast: #ffffff;
+  --theme-success: #7f9b82;
+}
+
+html[data-theme='ocean'] {
+  --theme-bg: #eef5f6;
+  --theme-surface: #ffffff;
+  --theme-surface-muted: #e0edef;
+  --theme-surface-soft: #f6fbfb;
+  --theme-text: #18343b;
+  --theme-muted: #607b82;
+  --theme-border: #d2e2e5;
+  --theme-accent: #39788a;
+  --theme-accent-strong: #1d5363;
+  --theme-accent-soft: #dcecef;
+  --theme-success: #4f8b7a;
+}
+
+html[data-theme='rose'] {
+  --theme-bg: #fbf1f3;
+  --theme-surface: #ffffff;
+  --theme-surface-muted: #f3e2e6;
+  --theme-surface-soft: #fff9fa;
+  --theme-text: #42252d;
+  --theme-muted: #866b73;
+  --theme-border: #ead5da;
+  --theme-accent: #b25570;
+  --theme-accent-strong: #87384f;
+  --theme-accent-soft: #f4dfe5;
+  --theme-success: #6b947c;
+}
+
+html[data-theme='forest'] {
+  --theme-bg: #eff5ef;
+  --theme-surface: #ffffff;
+  --theme-surface-muted: #e0ebe0;
+  --theme-surface-soft: #f8fcf8;
+  --theme-text: #22382a;
+  --theme-muted: #687b6c;
+  --theme-border: #d5e2d5;
+  --theme-accent: #568064;
+  --theme-accent-strong: #315a3f;
+  --theme-accent-soft: #deebe0;
+  --theme-success: #568064;
+}
+
+html[data-theme='sunset'] {
+  --theme-bg: #fbf2e9;
+  --theme-surface: #ffffff;
+  --theme-surface-muted: #f1e3d5;
+  --theme-surface-soft: #fffaf5;
+  --theme-text: #432a21;
+  --theme-muted: #896f64;
+  --theme-border: #ead9c9;
+  --theme-accent: #bd6947;
+  --theme-accent-strong: #8f432d;
+  --theme-accent-soft: #f4e0d4;
+  --theme-success: #6f9475;
+}
+
+/* Keep legacy page-level variables in sync with the active palette. */
+html[data-theme] {
+  --ink: var(--theme-text);
+  --muted: var(--theme-muted);
+  --line: var(--theme-border);
+  --paper: var(--theme-bg);
+  --gold: var(--theme-accent);
+}
+
+html[data-theme] body {
+  background: var(--theme-bg);
+  color: var(--theme-text);
+  transition: background-color .2s ease, color .2s ease;
+}
+
+html[data-theme] .studio-section-layout,
+html[data-theme] .workspace-layout,
+html[data-theme] .team-layout,
+html[data-theme] .review-layout,
+html[data-theme] .account-layout,
+html[data-theme] .api-layout,
+html[data-theme] .generation-layout,
+html[data-theme] .results-layout { background: var(--theme-bg) !important; color: var(--theme-text) !important; }
+
+html[data-theme] .studio-sidebar,
+html[data-theme] .sidebar { background: var(--theme-surface-soft) !important; border-color: var(--theme-border) !important; }
+html[data-theme] .studio-topbar,
+html[data-theme] .topbar,
+html[data-theme] .team-topbar,
+html[data-theme] .review-topbar,
+html[data-theme] .account-topbar,
+html[data-theme] .generation-topbar,
+html[data-theme] .results-topbar { background: color-mix(in srgb, var(--theme-surface-soft) 92%, transparent) !important; border-color: var(--theme-border) !important; }
+
+html[data-theme] .studio-project-card,
+html[data-theme] .space-card,
+html[data-theme] .tip-card,
+html[data-theme] .studio-tip-card,
+html[data-theme] .scope-note { background: var(--theme-surface-muted) !important; }
+html[data-theme] .studio-nav-item:hover,
+html[data-theme] .studio-nav-item.active,
+html[data-theme] .nav-item:hover,
+html[data-theme] .nav-item.active { color: var(--theme-text) !important; background: var(--theme-accent-soft) !important; }
+html[data-theme] .studio-nav-item.active .studio-nav-icon,
+html[data-theme] .nav-item.active .nav-icon,
+html[data-theme] .lifecycle-step.active b,
+html[data-theme] .lifecycle-step.active span { color: var(--theme-accent) !important; }
+
+html[data-theme] .studio-top-action,
+html[data-theme] .studio-section-action,
+html[data-theme] .new-button,
+html[data-theme] .dark-button,
+html[data-theme] .launch-button,
+html[data-theme] .modal-submit { color: var(--theme-accent-contrast) !important; background: var(--theme-accent-strong) !important; }
+html[data-theme] .studio-top-action:hover,
+html[data-theme] .studio-section-action:hover,
+html[data-theme] .new-button:hover,
+html[data-theme] .dark-button:hover,
+html[data-theme] .launch-button:hover { filter: brightness(1.08); }
+
+html[data-theme] .studio-section-panel,
+html[data-theme] .panel,
+html[data-theme] .member-panel,
+html[data-theme] .list-panel,
+html[data-theme] .detail-panel,
+html[data-theme] .launch-panel,
+html[data-theme] .queue-panel,
+html[data-theme] .asset-card,
+html[data-theme] .project-card { background: var(--theme-surface) !important; border-color: var(--theme-border) !important; }
+html[data-theme] .stats-grid,
+html[data-theme] .stats-grid article + article,
+html[data-theme] .collection-list,
+html[data-theme] .section-list,
+html[data-theme] .activity-list,
+html[data-theme] .studio-section-panel-head { border-color: var(--theme-border) !important; }
+html[data-theme] .quiet-button,
+html[data-theme] .icon-button,
+html[data-theme] .filter-tabs,
+html[data-theme] .search-field,
+html[data-theme] .tools input,
+html[data-theme] .tools select { background: var(--theme-surface) !important; border-color: var(--theme-border) !important; }
+html[data-theme] .filter-tabs button.active,
+html[data-theme] .scope-tabs button.active { color: var(--theme-text) !important; }
+html[data-theme] .scope-tabs,
+html[data-theme] .scope-tabs button.active { border-color: var(--theme-border) !important; }
+html[data-theme] .studio-section-row,
+html[data-theme] .member-row,
+html[data-theme] .project-actions { border-color: var(--theme-border) !important; }
+html[data-theme] .studio-section-row em,
+html[data-theme] .eyebrow,
+html[data-theme] .panel-eyebrow,
+html[data-theme] .project-code,
+html[data-theme] .asset-details > small { color: var(--theme-accent) !important; }
+
+html[data-theme] input:focus,
+html[data-theme] select:focus,
+html[data-theme] textarea:focus { border-color: var(--theme-accent) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 12%, transparent) !important; }
+html[data-theme] .studio-project-menu button:hover,
+html[data-theme] .studio-project-menu button[aria-selected='true'] { background: var(--theme-accent-soft) !important; }
+html[data-theme] .studio-service i,
+html[data-theme] .service-state i,
+html[data-theme] .pulse { background: var(--theme-success) !important; }
