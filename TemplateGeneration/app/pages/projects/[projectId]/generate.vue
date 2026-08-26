@@ -15,10 +15,11 @@ type QueueTask = {
 type ProviderModel = { id: number; name: string }
 type Provider = { id: number; name: string; type: string; enabled: boolean; modelId: number | null; model: string; models: ProviderModel[] }
 type TaskResponse = { id: number; workflowName: string; media: 'IMAGE' | 'VIDEO'; type: '图片' | '视频'; statusLabel: TaskStatus; progress: number; provider: {name: string; modelId: number | null; model: string}; batchIndex: number; batchCount: number }
+type Workflow = { id: number; name: string; version: number; versionLabel: string; savedAt: string; definition: {creativePrompt: string} }
 
 const route = useRoute()
 const projectId = computed(() => String(route.params.projectId || 'prj_noir'))
-const selectedWorkflow = ref('晨光主视觉 · V3 · IMAGE')
+const selectedWorkflowId = ref<number | null>(null)
 const selectedProviderId = ref<number | null>(null)
 const selectedModelId = ref<number | null>(null)
 const batchCount = ref(1)
@@ -28,12 +29,9 @@ const toast = ref('')
 const loadingProviders = ref(true)
 const providerError = ref('')
 const refreshingProviderModels = ref(false)
-
-const workflows = [
-  { value: '晨光主视觉 · V3 · IMAGE', name: '晨光主视觉', version: 'V3', type: 'IMAGE' },
-  { value: '黑色丝缎细节 · V2 · IMAGE', name: '黑色丝缎细节', version: 'V2', type: 'IMAGE' },
-  { value: 'NOIR 春夏主视觉 · V1 · VIDEO', name: 'NOIR 春夏主视觉', version: 'V1', type: 'VIDEO' },
-]
+const loadingWorkflows = ref(true)
+const workflowError = ref('')
+const workflows = ref<Workflow[]>([])
 
 const providers = ref<Provider[]>([])
 const enabledProviders = computed(() => providers.value.filter((provider) => provider.enabled))
@@ -42,8 +40,8 @@ const selectedModel = computed(() => selectedProvider.value?.models.find((model)
 
 const queue = ref<QueueTask[]>([])
 
-const selectedWorkflowData = computed(() => workflows.find((workflow) => workflow.value === selectedWorkflow.value))
-const canSubmit = computed(() => batchCount.value >= 1 && batchCount.value <= 12 && Boolean(selectedProvider.value && selectedModel.value) && !isSubmitting.value)
+const selectedWorkflow = computed(() => workflows.value.find((workflow) => workflow.id === selectedWorkflowId.value))
+const canSubmit = computed(() => batchCount.value >= 1 && batchCount.value <= 12 && Boolean(selectedWorkflow.value && selectedProvider.value && selectedModel.value) && !isSubmitting.value)
 
 function showToast(message: string) {
   if (!import.meta.client) return
@@ -98,7 +96,7 @@ async function refreshProviderModels() {
 }
 
 async function submitGeneration() {
-  const workflow = selectedWorkflowData.value
+  const workflow = selectedWorkflow.value
   const provider = selectedProvider.value
   const model = selectedModel.value
   if (!canSubmit.value || !workflow || !provider || !model) return
@@ -106,7 +104,7 @@ async function submitGeneration() {
   try {
     const response = await $fetch<{tasks: TaskResponse[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/generation-tasks`, {
       method: 'POST',
-      body: {provider_id: provider.id, model_id: model.id, workflow_name: workflow.name, workflow_version: workflow.version, media: workflow.type, batch_count: batchCount.value},
+      body: {provider_id: provider.id, model_id: model.id, workflow_id: workflow.id, batch_count: batchCount.value},
     })
     const newTasks = response.tasks.map(taskFromResponse)
     queue.value = [...newTasks, ...queue.value]
@@ -135,6 +133,16 @@ function statusClass(status: TaskStatus) {
 }
 
 const requestFetch = import.meta.server ? useRequestFetch() : $fetch
+try {
+  const response = await requestFetch<{workflows: Workflow[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/workflows`)
+  workflows.value = response.workflows
+  selectedWorkflowId.value = workflows.value[0]?.id ?? null
+} catch (error: unknown) {
+  workflowError.value = requestError(error, '工作流加载失败，请先在工作流模块保存工作流。')
+} finally {
+  loadingWorkflows.value = false
+}
+
 try {
   const response = await requestFetch<{providers: Provider[]}>('/api/providers')
   providers.value = response.providers
@@ -173,7 +181,8 @@ try {
           <section class="launch-panel">
             <div class="panel-eyebrow">NEW BATCH</div>
             <h2>提交生成批次</h2>
-            <label>工作流<select v-model="selectedWorkflow"><option v-for="workflow in workflows" :key="workflow.value" :value="workflow.value">{{ workflow.value }}</option></select></label>
+            <label>工作流<select v-model="selectedWorkflowId" :disabled="loadingWorkflows || !workflows.length"><option v-if="loadingWorkflows" :value="null">正在加载已保存工作流…</option><option v-else-if="workflowError || !workflows.length" :value="null">暂无已保存工作流</option><option v-for="workflow in workflows" :key="workflow.id" :value="workflow.id">{{ workflow.name }} · {{ workflow.versionLabel }}</option></select></label>
+            <p v-if="workflowError" class="provider-error" role="alert">{{ workflowError }}</p>
             <label>模型提供商<select :value="selectedProviderId ?? ''" :disabled="loadingProviders || !enabledProviders.length" @change="selectProvider(Number(($event.target as HTMLSelectElement).value) || null)"><option v-if="loadingProviders" value="">正在加载已启用提供商…</option><option v-else-if="!enabledProviders.length" value="">暂无已启用提供商</option><option v-for="provider in enabledProviders" :key="provider.id" :value="provider.id">{{ provider.name }} · {{ provider.type }}</option></select></label>
             <label>使用模型<select v-model="selectedModelId" :disabled="!selectedProvider || !selectedProvider.models.length"><option v-if="!selectedProvider" :value="null">请先选择提供商</option><option v-else-if="!selectedProvider.models.length" :value="null">暂无已保存模型</option><option v-for="model in (selectedProvider?.models ?? [])" :key="model.id" :value="model.id">{{ model.name }} · ID {{ model.id }}</option></select></label>
             <button class="model-refresh" type="button" :disabled="!selectedProvider || refreshingProviderModels" @click="refreshProviderModels">{{ refreshingProviderModels ? '正在刷新模型…' : '刷新当前提供商模型' }}</button>
@@ -181,7 +190,7 @@ try {
             <label>批量数量<input v-model.number="batchCount" type="number" min="1" max="12" step="1"></label>
             <div class="provider-note" :class="{ unavailable: !selectedProvider || !selectedModel }"><i /><div><strong>{{ selectedProvider ? selectedProvider.name : '没有可用的模型提供商' }}</strong><span>{{ selectedProvider && selectedModel ? `${selectedProvider.type} · ${selectedModel.name} · 模型 ID ${selectedModel.id} · 已启用` : '请先选择已启用提供商和模型' }}</span></div></div>
             <button class="launch-button" type="button" :disabled="!canSubmit" @click="submitGeneration">{{ isSubmitting ? '正在提交…' : '提交真实生成' }}</button>
-            <small>{{ selectedProvider && selectedModel ? '视频任务可能需要数分钟，请勿关闭当前制作页面。' : '启用提供商并选择模型后才能提交生成任务。' }}</small>
+            <small>{{ selectedWorkflow && selectedProvider && selectedModel ? '任务将使用所选工作流的数据库版本和提示词。' : '请先选择已保存工作流、启用提供商并选择模型。' }}</small>
           </section>
 
           <section class="queue-panel">

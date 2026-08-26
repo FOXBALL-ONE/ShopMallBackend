@@ -72,7 +72,7 @@ function readMedia(value: unknown) {
   if (typeof value !== 'string' || !MEDIA_TYPES.includes(value as typeof MEDIA_TYPES[number])) {
     throw createError({statusCode: 400, statusMessage: '生成类型必须是 IMAGE 或 VIDEO。'})
   }
-  return value
+  return value as typeof MEDIA_TYPES[number]
 }
 
 function serializeTask(row: TaskRow) {
@@ -162,7 +162,7 @@ export function createGenerationTasks(projectId: string, body: GenerationTaskInp
   let workflowId: number | null = null
   let workflowName = readOptionalString(body.workflow_name, '工作流名称', 120)
   let workflowVersion = readOptionalString(body.workflow_version, '工作流版本', 80)
-  let media = readMedia(body.media)
+  let media: typeof MEDIA_TYPES[number] = 'IMAGE'
   let prompt = readOptionalString(body.prompt, '提示词', 5000)
   if (body.workflow_id !== undefined && body.workflow_id !== null && body.workflow_id !== '') {
     workflowId = readPositiveInteger(body.workflow_id, '工作流 ID')
@@ -177,6 +177,8 @@ export function createGenerationTasks(projectId: string, body: GenerationTaskInp
     } catch {
       throw createError({statusCode: 500, statusMessage: '工作流定义数据损坏。'})
     }
+  } else {
+    media = readMedia(body.media)
   }
   if (!workflowName) throw createError({statusCode: 400, statusMessage: '工作流名称不能为空。'})
   if (!workflowVersion) throw createError({statusCode: 400, statusMessage: '工作流版本不能为空。'})
