@@ -24,7 +24,7 @@ function showToast(message: string) {
   <div class="review-layout">
     <StudioSidebar />
     <section class="review-main">
-      <header class="review-topbar"><div><span>品牌工作空间</span><strong>NOIR STUDIO</strong></div><span class="service-state"><i /> 生成服务由平台安全代理</span></header>
+      <StudioTopbar><span class="service-state"><i /> 生成服务由平台安全代理</span></StudioTopbar>
       <main class="review-content">
         <section class="review-heading"><div><p class="eyebrow">TEAM REVIEW</p><h1>审核中心</h1><span>集中判断、评分与留下可追溯批注。</span></div><button class="dark-button" type="button" @click="showToast('当前没有可导出的审核结果')">下载导出包</button></section>
         <div class="result-toolbar"><div class="filter-tabs"><button v-for="item in filters" :key="item.value" type="button" :class="{ active: filter === item.value }" @click="filter = item.value">{{ item.label }}</button></div><span>已选 0/2 · 选择两项进行并排对比</span></div>

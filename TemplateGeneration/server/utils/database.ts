@@ -22,6 +22,7 @@ export function getDatabase() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       season TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))
     );
@@ -124,6 +125,7 @@ export function getDatabase() {
     CREATE TABLE IF NOT EXISTS asset_library (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL,
+      scope TEXT NOT NULL DEFAULT 'PROJECT',
       file_id INTEGER NOT NULL REFERENCES stored_files(id) ON DELETE CASCADE,
       type TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -158,6 +160,17 @@ export function getDatabase() {
     CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
     `)
+
+    const projectColumns = connection.prepare('PRAGMA table_info(projects)').all() as Array<{name: string}>
+    if (!projectColumns.some((column) => column.name === 'status')) {
+      connection.exec("ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'")
+    }
+
+    const assetColumns = connection.prepare('PRAGMA table_info(asset_library)').all() as Array<{name: string}>
+    if (!assetColumns.some((column) => column.name === 'scope')) {
+      connection.exec("ALTER TABLE asset_library ADD COLUMN scope TEXT NOT NULL DEFAULT 'PROJECT'")
+    }
+    connection.exec("UPDATE asset_library SET scope = CASE WHEN project_id = '__global__' THEN 'GLOBAL' ELSE 'PROJECT' END WHERE scope IS NULL OR scope = ''")
 
     // Upgrade databases created before model records had their own stable IDs.
     const modelColumns = connection.prepare('PRAGMA table_info(api_provider_models)').all() as Array<{name: string}>

@@ -14,7 +14,7 @@ const statusClass = (status: string) => status === '已完成' ? 'complete' : st
   <div class="studio-section-layout">
     <StudioSidebar :project-id="props.projectId" />
     <section class="studio-section-main">
-      <header class="studio-section-top"><div><span>品牌工作空间</span><strong>NOIR STUDIO</strong></div><span class="studio-service"><i /> 生成服务由平台安全代理</span></header>
+      <StudioTopbar :project-id="props.projectId"><span class="studio-service"><i /> 生成服务由平台安全代理</span></StudioTopbar>
       <main class="studio-section-content">
         <section class="studio-section-heading"><div><p>{{ eyebrow }}</p><h1>{{ title }}</h1><span>{{ description }}</span></div><NuxtLink class="studio-section-action" :to="`/projects/${projectId || 'prj_noir'}/workflows`">新建工作流 <span>＋</span></NuxtLink></section>
         <section class="studio-section-panel"><div class="studio-section-panel-head"><span>项目动态</span><small>实时同步</small></div><article v-for="item in items" :key="item.label" class="studio-section-row"><i :class="statusClass(item.status)" /><div><strong>{{ item.label }}</strong><small>{{ item.detail }}</small></div><em>{{ item.status }}</em></article></section>

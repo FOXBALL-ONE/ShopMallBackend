@@ -45,7 +45,7 @@ await refreshMembers()
   <div class="team-layout">
     <StudioSidebar />
     <section class="team-main">
-      <header class="team-topbar"><div><span>品牌工作空间</span><strong>NOIR STUDIO</strong></div><span class="service-state"><i /> 生成服务由平台安全代理</span></header>
+      <StudioTopbar><span class="service-state"><i /> 生成服务由平台安全代理</span></StudioTopbar>
       <main class="team-content">
         <section class="team-heading"><p class="eyebrow">TEAM &amp; ACCESS</p><h1>团队成员</h1><span>已接入系统用户数据，共 {{ members.length }} 个账号；角色与邀请能力将在后续版本开放。</span></section>
         <section class="member-panel" aria-live="polite">

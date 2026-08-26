@@ -30,9 +30,7 @@ type DashboardResponse = {
 }
 
 const activeNav = ref('概览')
-const projectMenuOpen = ref(false)
-const activeProject = ref('NOIR · 春夏系列')
-const activeProjectId = ref('prj_noir')
+const { selectedProjectId, selectProject: selectWorkspaceProject } = useProjects()
 const taskFilter = ref<'全部' | Task['status']>('全部')
 const toast = ref('')
 const {user, refresh} = useAuthUser()
@@ -66,10 +64,10 @@ function requestError(error: unknown, fallback: string) {
 function selectNav(label: string) {
   const routes: Record<string, string> = {
     概览: '/dashboard',
-    素材库: `/projects/${activeProjectId.value}/assets`,
-    工作流: `/projects/${activeProjectId.value}/workflows`,
-    生成任务: `/projects/${activeProjectId.value}/generate`,
-    结果中心: `/projects/${activeProjectId.value}/results`,
+    素材库: `/projects/${selectedProjectId.value || 'prj_noir'}/assets`,
+    工作流: `/projects/${selectedProjectId.value || 'prj_noir'}/workflows`,
+    生成任务: `/projects/${selectedProjectId.value || 'prj_noir'}/generate`,
+    结果中心: `/projects/${selectedProjectId.value || 'prj_noir'}/results`,
     审核中心: '/review',
     团队成员: '/team',
   }
@@ -77,9 +75,7 @@ function selectNav(label: string) {
 }
 
 function selectProject(project: Project) {
-  activeProjectId.value = project.id
-  activeProject.value = project.name
-  projectMenuOpen.value = false
+  selectWorkspaceProject(project.id)
 }
 
 const requestFetch = import.meta.server ? useRequestFetch() : $fetch
@@ -89,10 +85,7 @@ try {
   tasks.value = response.tasks
   stats.value = response.stats
   pendingReview.value = response.pendingReview
-  if (projects.value[0]) {
-    activeProjectId.value = projects.value[0].id
-    activeProject.value = projects.value[0].name
-  }
+  if (projects.value[0] && !selectedProjectId.value) selectWorkspaceProject(projects.value[0].id)
 } catch (error: unknown) {
   loadError.value = requestError(error, '概览数据加载失败，请重试。')
 } finally {
@@ -105,24 +98,10 @@ try {
     <StudioSidebar />
 
     <section class="main-area">
-      <header class="topbar">
-        <div class="project-switcher">
-          <span>品牌工作空间</span>
-          <button type="button" @click="projectMenuOpen = !projectMenuOpen">
-            {{ activeProject }} <span class="chevron">⌄</span>
-          </button>
-          <div v-if="projectMenuOpen" class="project-menu">
-            <button v-for="project in projects" :key="project.code" type="button" @click="selectProject(project)">
-              <span>{{ project.name }}</span><small>{{ project.season }}</small>
-            </button>
-          </div>
-        </div>
-        <div class="top-actions">
-          <span class="service-state"><i /> 生成服务由平台安全代理</span>
-          <button class="icon-button" type="button" aria-label="通知" @click="toast = '暂无新的通知'">⌁</button>
-          <button class="new-button" type="button" @click="selectNav('工作流')"><span>＋</span> 新建工作流</button>
-        </div>
-      </header>
+      <StudioTopbar action-label="新建工作流" :action-to="`/projects/${selectedProjectId || 'prj_noir'}/workflows`">
+        <span class="service-state"><i /> 生成服务由平台安全代理</span>
+        <button class="icon-button" type="button" aria-label="通知" @click="toast = '暂无新的通知'">⌁</button>
+      </StudioTopbar>
 
       <main class="content">
         <section class="welcome">

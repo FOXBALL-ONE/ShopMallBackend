@@ -40,7 +40,7 @@ async function changePassword() {
   <div class="account-layout">
     <StudioSidebar />
     <section class="account-main">
-      <header class="account-topbar"><div><span>品牌工作空间</span><strong>NOIR STUDIO</strong></div><NuxtLink to="/dashboard">返回概览 <span>↗</span></NuxtLink></header>
+      <StudioTopbar><NuxtLink class="account-back" to="/dashboard">返回概览 <span>↗</span></NuxtLink></StudioTopbar>
       <main class="account-content">
         <section class="account-heading"><p class="eyebrow">ACCOUNT &amp; SECURITY</p><h1>账户安全</h1><span>管理 {{ user?.username }} 的登录凭据。</span></section>
         <section class="account-panel">

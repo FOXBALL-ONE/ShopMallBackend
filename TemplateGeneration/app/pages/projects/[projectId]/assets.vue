@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import {computed, ref} from 'vue'
+import {computed, ref, watch} from 'vue'
 
 definePageMeta({layout: false})
 
 type AssetType = 'ALL' | 'GARMENT' | 'MODEL' | 'REFERENCE'
-type Asset = { id: number; type: Exclude<AssetType, 'ALL'>; name: string; code: string; description: string; tags: string[]; authorizationStatus: string | null; file: {id: number; originalName: string; contentType: string; sizeBytes: number; downloadUrl: string}; createdAt: string; updatedAt: string }
+type AssetScope = 'ALL' | 'GLOBAL' | 'PROJECT'
+type Asset = { id: number; type: Exclude<AssetType, 'ALL'>; scope: Exclude<AssetScope, 'ALL'>; projectId: string | null; name: string; code: string; description: string; tags: string[]; authorizationStatus: string | null; file: {id: number; originalName: string; contentType: string; sizeBytes: number; downloadUrl: string}; createdAt: string; updatedAt: string }
 
 const route = useRoute()
 const projectId = computed(() => String(route.params.projectId || 'prj_noir'))
+const { activeProjectId } = useProjectWorkspace(projectId)
 const typeFilter = ref<AssetType>('ALL')
+const scopeFilter = ref<AssetScope>('ALL')
 const query = ref('')
 const uploadOpen = ref(false)
 const toast = ref('')
@@ -22,6 +25,7 @@ const uploadCode = ref('')
 const uploadDescription = ref('')
 const uploadTags = ref('')
 const uploadAuthorized = ref(false)
+const uploadScope = ref<Exclude<AssetScope, 'ALL'>>('PROJECT')
 
 const filters: { value: AssetType; label: string }[] = [
   { value: 'ALL', label: '全部素材' },
@@ -29,15 +33,22 @@ const filters: { value: AssetType; label: string }[] = [
   { value: 'MODEL', label: '授权模特' },
   { value: 'REFERENCE', label: '视觉参考' },
 ]
+const scopeFilters: { value: AssetScope; label: string }[] = [
+  { value: 'ALL', label: '全部范围' },
+  { value: 'PROJECT', label: '工程共享' },
+  { value: 'GLOBAL', label: '全局共享' },
+]
 
 const assets = ref<Asset[]>([])
+let assetsLoadVersion = 0
 
 const visibleAssets = computed(() => {
   const normalized = query.value.trim().toLowerCase()
   return assets.value.filter((asset) => {
     const matchesType = typeFilter.value === 'ALL' || asset.type === typeFilter.value
+    const matchesScope = scopeFilter.value === 'ALL' || asset.scope === scopeFilter.value
     const matchesQuery = !normalized || `${asset.name} ${asset.code} ${asset.description}`.toLowerCase().includes(normalized)
-    return matchesType && matchesQuery
+    return matchesType && matchesScope && matchesQuery
   })
 })
 
@@ -57,15 +68,19 @@ function requestError(error: unknown, fallback: string) {
 }
 
 async function loadAssets() {
+  const requestVersion = ++assetsLoadVersion
+  const requestProjectId = activeProjectId.value
   loading.value = true
   loadError.value = ''
   try {
-    const response = await $fetch<{assets: Asset[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/assets`, {query: {type: typeFilter.value, q: query.value || undefined}})
+    const response = await $fetch<{assets: Asset[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/assets`, {query: {type: typeFilter.value, q: query.value || undefined}})
+    if (requestVersion !== assetsLoadVersion || activeProjectId.value !== requestProjectId) return
     assets.value = response.assets
   } catch (error: unknown) {
+    if (requestVersion !== assetsLoadVersion || activeProjectId.value !== requestProjectId) return
     loadError.value = requestError(error, '素材加载失败，请重试。')
   } finally {
-    loading.value = false
+    if (requestVersion === assetsLoadVersion && activeProjectId.value === requestProjectId) loading.value = false
   }
 }
 
@@ -82,6 +97,7 @@ function resetUpload() {
   uploadDescription.value = ''
   uploadTags.value = ''
   uploadAuthorized.value = false
+  uploadScope.value = 'PROJECT'
 }
 
 async function saveAsset() {
@@ -89,6 +105,7 @@ async function saveAsset() {
   if (!uploadName.value.trim()) return showToast('请输入素材名称。')
   if (!uploadCode.value.trim()) return showToast('请输入素材款号。')
   uploading.value = true
+  const requestProjectId = activeProjectId.value
   const body = new FormData()
   body.append('file', uploadFile.value)
   body.append('type', uploadType.value === '服装' ? 'GARMENT' : uploadType.value === '模特' ? 'MODEL' : 'REFERENCE')
@@ -97,13 +114,15 @@ async function saveAsset() {
   body.append('description', uploadDescription.value)
   body.append('tags', uploadTags.value)
   body.append('authorized', String(uploadAuthorized.value))
+  body.append('scope', uploadScope.value)
   try {
-    const response = await $fetch<{asset: Asset}>(`/api/projects/${encodeURIComponent(projectId.value)}/assets`, {method: 'POST', body})
+    const response = await $fetch<{asset: Asset}>(`/api/projects/${encodeURIComponent(requestProjectId)}/assets`, {method: 'POST', body})
+    if (activeProjectId.value !== requestProjectId) return
     assets.value.unshift(response.asset)
     resetUpload()
     showToast('素材已保存到 SQLite 素材库。')
   } catch (error: unknown) {
-    showToast(requestError(error, '素材上传失败，请重试。'))
+    if (activeProjectId.value === requestProjectId) showToast(requestError(error, '素材上传失败，请重试。'))
   } finally {
     uploading.value = false
   }
@@ -111,12 +130,28 @@ async function saveAsset() {
 
 async function removeAsset(id: number) {
   if (!window.confirm('删除素材后会同时删除存储文件，确定继续吗？')) return
+  const requestProjectId = activeProjectId.value
   try {
-    await $fetch(`/api/projects/${encodeURIComponent(projectId.value)}/assets/${id}`, {method: 'DELETE'})
+    await $fetch(`/api/projects/${encodeURIComponent(requestProjectId)}/assets/${id}`, {method: 'DELETE'})
+    if (activeProjectId.value !== requestProjectId) return
     assets.value = assets.value.filter((asset) => asset.id !== id)
     showToast('素材及其文件已删除。')
   } catch (error: unknown) {
-    showToast(requestError(error, '素材删除失败，请重试。'))
+    if (activeProjectId.value === requestProjectId) showToast(requestError(error, '素材删除失败，请重试。'))
+  }
+}
+
+async function changeScope(asset: Asset) {
+  const target = asset.scope === 'GLOBAL' ? 'PROJECT' : 'GLOBAL'
+  const requestProjectId = activeProjectId.value
+  try {
+    const response = await $fetch<{ asset: Asset }>(`/api/projects/${encodeURIComponent(requestProjectId)}/assets/${asset.id}`, { method: 'PATCH', body: { scope: target } })
+    if (activeProjectId.value !== requestProjectId) return
+    const index = assets.value.findIndex((item) => item.id === asset.id)
+    if (index >= 0) assets.value[index] = response.asset
+    showToast(target === 'GLOBAL' ? '素材已转为全局共享。' : '素材已转为工程共享。')
+  } catch (error: unknown) {
+    if (activeProjectId.value === requestProjectId) showToast(requestError(error, '共享范围切换失败，请重试。'))
   }
 }
 
@@ -130,25 +165,38 @@ function assetSize(bytes: number) {
 }
 
 await loadAssets()
+
+watch(activeProjectId, (nextProjectId, previousProjectId) => {
+  if (!previousProjectId || nextProjectId === previousProjectId) return
+  // Nuxt reuses this page component when only the dynamic project id changes.
+  // Reload the asset collection so the workspace never keeps the previous
+  // project's records after a global project switch.
+  uploadOpen.value = false
+  void loadAssets()
+})
 </script>
 
 <template>
   <div class="workspace-layout">
-    <StudioSidebar :project-id="projectId" />
+    <StudioSidebar :project-id="activeProjectId" />
 
     <section class="main-area">
-      <header class="topbar"><div class="project-switcher"><span>品牌工作空间</span><strong>NOIR STUDIO</strong></div><div class="top-actions"><span class="service-state"><i /> 生成服务由平台安全代理</span><button class="icon-button" type="button" aria-label="通知" @click="showToast('暂无新的通知')">⌁</button><button class="new-button" type="button" @click="uploadOpen = true"><span>＋</span> 上传素材</button></div></header>
+      <StudioTopbar :project-id="activeProjectId">
+        <span class="service-state"><i /> 生成服务由平台安全代理</span>
+        <button class="icon-button" type="button" aria-label="通知" @click="showToast('暂无新的通知')">⌁</button>
+        <button class="new-button" type="button" @click="uploadOpen = true"><span>＋</span> 上传素材</button>
+      </StudioTopbar>
       <main class="content">
-        <section class="heading"><div><p class="eyebrow">ASSET LIBRARY</p><h1>素材库</h1><span>服装、授权模特与视觉参考统一沉淀在项目内。</span></div><button class="dark-button" type="button" @click="uploadOpen = true">＋ 上传素材</button></section>
-        <section class="toolbar"><div class="filter-tabs"><button v-for="filter in filters" :key="filter.value" type="button" :class="{ active: typeFilter === filter.value }" @click="changeTypeFilter(filter.value)">{{ filter.label }}</button></div><label class="search-field"><span>⌕</span><input v-model="query" type="search" placeholder="搜索名称、款号或标签" @change="loadAssets"></label></section>
+        <section class="heading"><div><p class="eyebrow">ASSET LIBRARY</p><h1>素材库</h1><span>素材可按工程共享或全局共享管理，并支持范围互转。</span></div><button class="dark-button" type="button" @click="uploadOpen = true">＋ 上传素材</button></section>
+        <section class="toolbar"><div class="filter-tabs"><button v-for="filter in filters" :key="filter.value" type="button" :class="{ active: typeFilter === filter.value }" @click="changeTypeFilter(filter.value)">{{ filter.label }}</button></div><div class="scope-tabs"><button v-for="filter in scopeFilters" :key="filter.value" type="button" :class="{ active: scopeFilter === filter.value }" @click="scopeFilter = filter.value">{{ filter.label }}</button></div><label class="search-field"><span>⌕</span><input v-model="query" type="search" placeholder="搜索名称、款号或标签" @change="loadAssets"></label></section>
         <section v-if="loading" class="empty-state"><strong>正在加载素材</strong><span>正在从 SQLite 素材库读取当前项目内容。</span></section>
         <section v-else-if="loadError" class="empty-state"><strong>素材加载失败</strong><span>{{ loadError }}</span><button class="dark-button" type="button" @click="loadAssets">重试加载</button></section>
-        <section v-else-if="visibleAssets.length" class="asset-grid"><article v-for="asset in visibleAssets" :key="asset.id" class="asset-card"><a class="asset-preview asset-image" :href="asset.file.downloadUrl" target="_blank" rel="noopener"><img v-if="asset.file.contentType.startsWith('image/')" :src="asset.file.downloadUrl" :alt="asset.name"><div v-else class="asset-file-icon">{{ asset.file.contentType === 'application/pdf' ? 'PDF' : 'FILE' }}</div><span class="asset-type">{{ assetLabel(asset.type) }}</span><b>{{ asset.code }}</b></a><div class="asset-details"><small>{{ assetLabel(asset.type) }} · {{ assetSize(asset.file.sizeBytes) }}</small><h2>{{ asset.name }}</h2><p>{{ asset.description || asset.file.originalName }}</p><div><span v-if="asset.authorizationStatus" class="authorization" :class="{ pending: asset.authorizationStatus === '授权待确认' }">{{ asset.authorizationStatus === '已确认授权' ? '✓ ' : '! ' }}{{ asset.authorizationStatus }}</span><button type="button" @click="removeAsset(asset.id)">删除</button></div></div></article></section>
+        <section v-else-if="visibleAssets.length" class="asset-grid"><article v-for="asset in visibleAssets" :key="asset.id" class="asset-card"><a class="asset-preview asset-image" :href="asset.file.downloadUrl" target="_blank" rel="noopener"><img v-if="asset.file.contentType.startsWith('image/')" :src="asset.file.downloadUrl" :alt="asset.name"><div v-else class="asset-file-icon">{{ asset.file.contentType === 'application/pdf' ? 'PDF' : 'FILE' }}</div><span class="asset-type">{{ assetLabel(asset.type) }}</span><b>{{ asset.code }}</b></a><div class="asset-details"><small>{{ assetLabel(asset.type) }} · {{ assetSize(asset.file.sizeBytes) }}</small><h2>{{ asset.name }}</h2><p>{{ asset.description || asset.file.originalName }}</p><div class="asset-meta"><span class="scope-badge" :class="asset.scope.toLowerCase()">{{ asset.scope === 'GLOBAL' ? '全局共享' : '工程共享' }}</span><span v-if="asset.authorizationStatus" class="authorization" :class="{ pending: asset.authorizationStatus === '授权待确认' }">{{ asset.authorizationStatus === '已确认授权' ? '✓ ' : '! ' }}{{ asset.authorizationStatus }}</span></div><div class="asset-actions"><button type="button" @click="changeScope(asset)">{{ asset.scope === 'GLOBAL' ? '转为工程共享' : '转为全局共享' }}</button><button type="button" @click="removeAsset(asset.id)">删除</button></div></div></article></section>
         <section v-else class="empty-state"><strong>还没有符合条件的素材</strong><span>尝试调整筛选条件，或上传服装、模特和参考图。</span><button class="dark-button" type="button" @click="uploadOpen = true">上传第一份素材</button></section>
       </main>
     </section>
 
-    <div v-if="uploadOpen" class="modal-backdrop" @click.self="resetUpload"><form class="modal-card" @submit.prevent="saveAsset"><div class="modal-head"><div><p class="eyebrow">NEW ASSETS</p><h2>上传项目素材</h2></div><button type="button" class="close-button" aria-label="关闭" @click="resetUpload">×</button></div><label>素材类型<select v-model="uploadType"><option>服装</option><option>模特</option><option>姿势参考</option><option>场景参考</option></select></label><label class="drop-zone"><span class="upload-symbol">↑</span><strong>{{ uploadFile?.name || '选择素材文件' }}</strong><input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,application/pdf" @change="chooseFile"><small>图片、视频或 PDF · 单个文件不超过 25MB</small></label><div class="form-grid"><label>内部名称<input v-model="uploadName" placeholder="例如：月光三角杯"></label><label>款号<input v-model="uploadCode" placeholder="NW-2601"></label><label class="wide">描述<input v-model="uploadDescription" placeholder="象牙白 · 法式蕾丝"></label><label class="wide">标签<input v-model="uploadTags" placeholder="新品, 主推款"></label></div><label v-if="uploadType === '模特'" class="check-line"><input v-model="uploadAuthorized" type="checkbox"> 我确认模特素材已获得品牌生产使用授权</label><button class="dark-button modal-submit" type="submit" :disabled="uploading">{{ uploading ? '正在上传…' : '保存到素材库' }}</button></form></div>
+    <div v-if="uploadOpen" class="modal-backdrop" @click.self="resetUpload"><form class="modal-card" @submit.prevent="saveAsset"><div class="modal-head"><div><p class="eyebrow">NEW ASSETS</p><h2>上传共享素材</h2></div><button type="button" class="close-button" aria-label="关闭" @click="resetUpload">×</button></div><label>共享范围<select v-model="uploadScope"><option value="PROJECT">工程共享（仅当前工程）</option><option value="GLOBAL">全局共享（所有工程）</option></select><small>全局共享素材将出现在所有工程的素材库中。</small></label><label>素材类型<select v-model="uploadType"><option>服装</option><option>模特</option><option>姿势参考</option><option>场景参考</option></select></label><label class="drop-zone"><span class="upload-symbol">↑</span><strong>{{ uploadFile?.name || '选择素材文件' }}</strong><input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,application/pdf" @change="chooseFile"><small>图片、视频或 PDF · 单个文件不超过 25MB</small></label><div class="form-grid"><label>内部名称<input v-model="uploadName" placeholder="例如：月光三角杯"></label><label>款号<input v-model="uploadCode" placeholder="NW-2601"></label><label class="wide">描述<input v-model="uploadDescription" placeholder="象牙白 · 法式蕾丝"></label><label class="wide">标签<input v-model="uploadTags" placeholder="新品, 主推款"></label></div><label v-if="uploadType === '模特'" class="check-line"><input v-model="uploadAuthorized" type="checkbox"> 我确认模特素材已获得品牌生产使用授权</label><button class="dark-button modal-submit" type="submit" :disabled="uploading">{{ uploading ? '正在上传…' : '保存到素材库' }}</button></form></div>
     <Transition name="toast"><div v-if="toast" class="toast" role="status">{{ toast }}</div></Transition>
   </div>
 </template>
@@ -164,4 +212,12 @@ await loadAssets()
 @media (max-width: 1150px) { .asset-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 800px) { .workspace-layout { display: block; }.sidebar { position: static; flex-direction: row; align-items: center; height: auto; padding: 13px 16px; }.brand { padding: 0; }.space-card, .nav-list, .tip-card, .profile > span:nth-child(2), .profile button { display: none; }.profile { margin: 0 0 0 auto; padding: 0; border: 0; }.topbar { height: 58px; padding: 0 18px; }.service-state, .icon-button { display: none; }.new-button { padding: 9px; font-size: 0; }.new-button span { font-size: 16px; }.content { padding: 30px 16px 55px; }.heading { align-items: flex-start; flex-direction: column; }.heading > .dark-button { width: 100%; justify-content: center; }.toolbar { align-items: stretch; flex-direction: column; }.search-field { width: 100%; }.asset-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 520px) { .asset-grid { grid-template-columns: 1fr; }.asset-preview { height: 300px; }.form-grid { grid-template-columns: 1fr; }.modal-card { padding: 20px; } }
+.scope-tabs { display: flex; gap: 4px; padding: 4px; background: #e5eee7; border-radius: 9px; }
+.scope-tabs button { padding: 8px 11px; color: #6f796f; background: transparent; border: 0; border-radius: 7px; font-size: 10px; }
+.scope-tabs button.active { color: #263329; background: #fff; box-shadow: 0 2px 8px #322a2212; }
+.toolbar { flex-wrap: wrap; gap: 10px; }
+.scope-badge { padding: 4px 6px; color: #655d52; background: #eee9e1; border-radius: 12px; font-size: 8px; }
+.scope-badge.global { color: #536d59; background: #e5eee7; }
+.asset-meta { justify-content: flex-start !important; gap: 6px; }
+.asset-actions { border-top: 1px solid #efebe4; }
 </style>

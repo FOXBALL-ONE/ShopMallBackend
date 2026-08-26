@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 definePageMeta({ layout: false })
 
@@ -19,6 +19,7 @@ type LibraryAsset = { id: number; type: 'GARMENT' | 'MODEL' | 'REFERENCE'; name:
 
 const route = useRoute()
 const projectId = computed(() => String(route.params.projectId || 'prj_noir'))
+const { activeProjectId } = useProjectWorkspace(projectId)
 const activeStep = ref<StepId>(1)
 const furthestStep = ref<StepId>(1)
 const toast = ref('')
@@ -51,6 +52,7 @@ const garments = computed(() => libraryAssets.value.filter((asset) => asset.type
 const models = computed(() => libraryAssets.value.filter((asset) => asset.type === 'MODEL' && asset.authorizationStatus === '已确认授权').map((asset) => ({id: String(asset.id), name: asset.name, meta: `${asset.code} · ${asset.description}`, palette: 'taupe', imageUrl: asset.file.downloadUrl, contentType: asset.file.contentType})))
 
 const versions = ref<WorkflowVersion[]>([])
+let workspaceLoadVersion = 0
 
 const selectedGarmentData = computed(() => garments.value.find((item) => item.id === selectedGarment.value))
 const selectedModelData = computed(() => models.value.find((item) => item.id === selectedModel.value))
@@ -126,8 +128,9 @@ async function saveVersion() {
   if (!validateCurrentStep()) return
   if (!workflowName.value.trim()) return showToast('请输入工作流名称')
   savingWorkflow.value = true
+  const requestProjectId = activeProjectId.value
   try {
-    const response = await $fetch<{workflow: WorkflowResponse}>(`/api/projects/${encodeURIComponent(projectId.value)}/workflows`, {
+    const response = await $fetch<{workflow: WorkflowResponse}>(`/api/projects/${encodeURIComponent(requestProjectId)}/workflows`, {
       method: 'POST',
       body: {
         name: workflowName.value,
@@ -143,13 +146,14 @@ async function saveVersion() {
         face_consistency: faceConsistency.value,
       },
     })
+    if (activeProjectId.value !== requestProjectId) return
     versions.value.unshift(workflowToVersion(response.workflow))
     activeStep.value = 1
     furthestStep.value = 1
     showToast(`已保存“${response.workflow.name}”的 ${response.workflow.versionLabel} 版本`)
   } catch (error: unknown) {
     const requestError = error as {data?: {statusMessage?: string; message?: string}; statusMessage?: string; message?: string}
-    showToast(requestError.data?.statusMessage ?? requestError.data?.message ?? requestError.statusMessage ?? requestError.message ?? '工作流保存失败，请重试')
+    if (activeProjectId.value === requestProjectId) showToast(requestError.data?.statusMessage ?? requestError.data?.message ?? requestError.statusMessage ?? requestError.message ?? '工作流保存失败，请重试')
   } finally {
     savingWorkflow.value = false
   }
@@ -158,8 +162,10 @@ async function saveVersion() {
 async function loadVersion(version: WorkflowVersion) {
   if (readingWorkflowId.value) return
   readingWorkflowId.value = version.id
+  const requestProjectId = activeProjectId.value
   try {
-    const response = await $fetch<{workflow: WorkflowResponse}>(`/api/projects/${encodeURIComponent(projectId.value)}/workflows/${version.id}`)
+    const response = await $fetch<{workflow: WorkflowResponse}>(`/api/projects/${encodeURIComponent(requestProjectId)}/workflows/${version.id}`)
+    if (activeProjectId.value !== requestProjectId) return
     const loaded = response.workflow
     const garment = garments.value.find((item) => item.id === String(loaded.definition.garmentAssetId))
     const model = models.value.find((item) => item.id === String(loaded.definition.modelAssetId))
@@ -179,7 +185,7 @@ async function loadVersion(version: WorkflowVersion) {
     showToast(`已载入“${loaded.name}”，可以继续编辑`)
   } catch (error: unknown) {
     const requestError = error as {data?: {statusMessage?: string; message?: string}; statusMessage?: string; message?: string}
-    showToast(requestError.data?.statusMessage ?? requestError.data?.message ?? requestError.statusMessage ?? requestError.message ?? '工作流读取失败，请重试')
+    if (activeProjectId.value === requestProjectId) showToast(requestError.data?.statusMessage ?? requestError.data?.message ?? requestError.statusMessage ?? requestError.message ?? '工作流读取失败，请重试')
   } finally {
     readingWorkflowId.value = null
   }
@@ -189,33 +195,83 @@ function saveTemplate() {
   showToast('已将当前配置另存为工作流模板')
 }
 
+function resetWorkflowDraft() {
+  workflowName.value = '新建工作流'
+  selectedGarment.value = ''
+  selectedModel.value = ''
+  creativePrompt.value = ''
+  negativePrompt.value = ''
+  aspectRatio.value = '4:5'
+  camera.value = '85mm 人像镜头'
+  lighting.value = '柔和侧光'
+  outputCount.value = 4
+  highDefinition.value = true
+  faceConsistency.value = true
+  activeStep.value = 1
+  furthestStep.value = 1
+}
+
 const requestFetch = import.meta.server ? useRequestFetch() : $fetch
+const initialLoadVersion = ++workspaceLoadVersion
+const initialLoadProjectId = activeProjectId.value
 try {
   const [assetResponse, workflowResponse] = await Promise.all([
-    requestFetch<{assets: LibraryAsset[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/assets`),
-    requestFetch<{workflows: WorkflowResponse[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/workflows`),
+    requestFetch<{assets: LibraryAsset[]}>(`/api/projects/${encodeURIComponent(initialLoadProjectId)}/assets`),
+    requestFetch<{workflows: WorkflowResponse[]}>(`/api/projects/${encodeURIComponent(initialLoadProjectId)}/workflows`),
   ])
-  libraryAssets.value = assetResponse.assets
-  versions.value = workflowResponse.workflows.map(workflowToVersion)
-  selectedGarment.value = garments.value[0]?.id ?? ''
-  selectedModel.value = models.value[0]?.id ?? ''
+  if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) {
+    libraryAssets.value = assetResponse.assets
+    versions.value = workflowResponse.workflows.map(workflowToVersion)
+    selectedGarment.value = garments.value[0]?.id ?? ''
+    selectedModel.value = models.value[0]?.id ?? ''
+  }
 } catch (error: unknown) {
-  workflowError.value = '工作流或素材库暂时无法加载，请重试。'
-  showToast(workflowError.value)
+  if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) {
+    workflowError.value = '工作流或素材库暂时无法加载，请重试。'
+    showToast(workflowError.value)
+  }
 } finally {
-  loadingWorkflows.value = false
+  if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) loadingWorkflows.value = false
 }
+
+watch(activeProjectId, (nextProjectId, previousProjectId) => {
+  if (!previousProjectId || nextProjectId === previousProjectId) return
+  const requestVersion = ++workspaceLoadVersion
+  const requestProjectId = nextProjectId
+  resetWorkflowDraft()
+  workflowError.value = ''
+  loadingWorkflows.value = true
+  void (async () => {
+    try {
+      const [assetResponse, workflowResponse] = await Promise.all([
+        $fetch<{assets: LibraryAsset[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/assets`),
+        $fetch<{workflows: WorkflowResponse[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/workflows`),
+      ])
+      if (requestVersion !== workspaceLoadVersion || activeProjectId.value !== requestProjectId) return
+      libraryAssets.value = assetResponse.assets
+      versions.value = workflowResponse.workflows.map(workflowToVersion)
+      selectedGarment.value = garments.value[0]?.id ?? ''
+      selectedModel.value = models.value[0]?.id ?? ''
+    } catch (error: unknown) {
+      if (requestVersion !== workspaceLoadVersion || activeProjectId.value !== requestProjectId) return
+      const requestError = error as {data?: {statusMessage?: string; message?: string}; statusMessage?: string; message?: string}
+      workflowError.value = requestError.data?.statusMessage ?? requestError.data?.message ?? requestError.statusMessage ?? requestError.message ?? '工作流或素材库暂时无法加载，请重试。'
+    } finally {
+      if (requestVersion === workspaceLoadVersion && activeProjectId.value === requestProjectId) loadingWorkflows.value = false
+    }
+  })()
+})
 </script>
 
 <template>
   <div class="workspace-layout">
-    <StudioSidebar :project-id="projectId" />
+    <StudioSidebar :project-id="activeProjectId" />
 
     <section class="main-area">
-      <header class="topbar">
-        <div class="project-switcher"><span>品牌工作空间</span><strong>NOIR STUDIO</strong></div>
-        <div class="top-actions"><span class="service-state"><i /> 生成服务由平台安全代理</span><button class="icon-button" type="button" aria-label="通知" @click="showToast('暂无新的通知')">⌁</button></div>
-      </header>
+      <StudioTopbar :project-id="activeProjectId">
+        <span class="service-state"><i /> 生成服务由平台安全代理</span>
+        <button class="icon-button" type="button" aria-label="通知" @click="showToast('暂无新的通知')">⌁</button>
+      </StudioTopbar>
 
       <main class="content">
         <section class="heading">

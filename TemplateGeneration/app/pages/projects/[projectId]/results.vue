@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 definePageMeta({ layout: false })
 
@@ -19,6 +19,7 @@ type ResultItem = {
 
 const route = useRoute()
 const projectId = computed(() => String(route.params.projectId || 'prj_noir'))
+const { activeProjectId } = useProjectWorkspace(projectId)
 const filter = ref<'ALL' | ResultStatus>('ALL')
 const selectedIds = ref<number[]>([])
 const activeResult = ref<ResultItem | null>(null)
@@ -27,6 +28,7 @@ const results = ref<ResultItem[]>([])
 const loading = ref(true)
 const loadError = ref('')
 const reviewSaving = ref(false)
+let resultsLoadVersion = 0
 
 const shownResults = computed(() => filter.value === 'ALL' ? results.value : results.value.filter((result) => result.status === filter.value))
 const statusLabel = (status: ResultStatus) => ({ PENDING: '待审核', APPROVED: '已通过', REJECTED: '已驳回' })[status]
@@ -59,34 +61,60 @@ function exportPackage() {
 async function updateReview(result: ResultItem, status: ResultStatus) {
   if (reviewSaving.value) return
   reviewSaving.value = true
+  const requestProjectId = activeProjectId.value
   try {
-    const response = await $fetch<{result: ResultItem}>(`/api/projects/${encodeURIComponent(projectId.value)}/results/${result.id}`, {method: 'PATCH', body: {status}})
+    const response = await $fetch<{result: ResultItem}>(`/api/projects/${encodeURIComponent(requestProjectId)}/results/${result.id}`, {method: 'PATCH', body: {status}})
+    if (activeProjectId.value !== requestProjectId) return
     Object.assign(result, response.result)
     activeResult.value = null
     showToast(status === 'APPROVED' ? '审核记录已保存：已通过' : '审核记录已保存：已驳回')
   } catch (error: unknown) {
-    showToast(requestError(error, '审核记录保存失败，请重试'))
+    if (activeProjectId.value === requestProjectId) showToast(requestError(error, '审核记录保存失败，请重试'))
   } finally {
     reviewSaving.value = false
   }
 }
 
 const requestFetch = import.meta.server ? useRequestFetch() : $fetch
+const initialLoadVersion = ++resultsLoadVersion
+const initialLoadProjectId = activeProjectId.value
 try {
-  const response = await requestFetch<{results: ResultItem[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/results`)
-  results.value = response.results
+  const response = await requestFetch<{results: ResultItem[]}>(`/api/projects/${encodeURIComponent(initialLoadProjectId)}/results`)
+  if (initialLoadVersion === resultsLoadVersion && activeProjectId.value === initialLoadProjectId) results.value = response.results
 } catch (error: unknown) {
-  loadError.value = requestError(error, '结果加载失败，请重试')
+  if (initialLoadVersion === resultsLoadVersion && activeProjectId.value === initialLoadProjectId) loadError.value = requestError(error, '结果加载失败，请重试')
 } finally {
-  loading.value = false
+  if (initialLoadVersion === resultsLoadVersion && activeProjectId.value === initialLoadProjectId) loading.value = false
 }
+
+watch(activeProjectId, (nextProjectId, previousProjectId) => {
+  if (!previousProjectId || nextProjectId === previousProjectId) return
+  const requestVersion = ++resultsLoadVersion
+  const requestProjectId = nextProjectId
+  selectedIds.value = []
+  activeResult.value = null
+  loadError.value = ''
+  loading.value = true
+  void (async () => {
+    try {
+      const response = await $fetch<{results: ResultItem[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/results`)
+      if (requestVersion !== resultsLoadVersion || activeProjectId.value !== requestProjectId) return
+      results.value = response.results
+    } catch (error: unknown) {
+      if (requestVersion !== resultsLoadVersion || activeProjectId.value !== requestProjectId) return
+      loadError.value = requestError(error, '结果加载失败，请重试')
+    } finally {
+      if (requestVersion === resultsLoadVersion && activeProjectId.value === requestProjectId) loading.value = false
+    }
+  })()
+})
 </script>
 
 <template>
   <div class="results-layout">
-    <StudioSidebar :project-id="projectId" />
+    <StudioSidebar :project-id="activeProjectId" />
     <section class="results-main">
-      <header class="results-topbar"><div><span>品牌工作空间</span><strong>NOIR STUDIO</strong></div><span class="service-state"><i /> 生成服务由平台安全代理</span></header>
+      <StudioTopbar :project-id="activeProjectId"><span class="service-state"><i /> 生成服务由平台安全代理</span></StudioTopbar>
       <main class="results-content">
         <section class="results-heading"><div><p class="eyebrow">GENERATED RESULTS</p><h1>结果中心</h1><span>对比不同版本，挑选成片并导出生产资料。</span></div><button class="dark-button" type="button" @click="exportPackage">下载导出包</button></section>
         <div class="result-toolbar"><div class="filter-tabs"><button v-for="item in [{ value: 'ALL', label: '全部' }, { value: 'PENDING', label: '待审核' }, { value: 'APPROVED', label: '已通过' }, { value: 'REJECTED', label: '已驳回' }]" :key="item.value" type="button" :class="{ active: filter === item.value }" @click="filter = item.value as typeof filter">{{ item.label }}</button></div><span>已选 {{ selectedIds.length }}/2 · 选择两项进行并排对比</span></div>

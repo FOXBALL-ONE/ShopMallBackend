@@ -73,6 +73,22 @@ reference those file records, so deleting an asset also removes its stored
 file. Supported uploads are JPG, PNG, WebP, GIF, MP4, WebM and PDF, with a
 maximum size of 25 MB per file.
 
+## Project workspaces and sharing scopes
+
+The studio is organized around project workspaces. Project lifecycle operations
+are available from `/projects` and the authenticated API endpoints:
+
+- `GET/POST /api/projects` to list or create projects;
+- `GET/PATCH/DELETE /api/projects/:projectId` to inspect, update, archive or
+  restore a project. The DELETE-compatible endpoint archives the project so
+  its workflows, generation tasks and results remain recoverable.
+
+Assets are either `PROJECT` (visible only in that project) or `GLOBAL` (visible
+in every project). Uploads accept a `scope` field and
+`PATCH /api/projects/:projectId/assets/:assetId` converts an asset between the
+two scopes. Workflows, generation tasks and results remain project-scoped,
+while API provider management is global and lives at `/api-management`.
+
 API provider settings are persisted in the `api_providers` and
 `api_provider_models` SQLite tables. The API management page uses the
 authenticated provider endpoints to create, update, enable/disable, delete,

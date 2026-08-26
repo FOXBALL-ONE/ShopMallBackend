@@ -22,14 +22,15 @@ export function getDashboardData() {
   const database = getDatabase()
   const projectIds = database.prepare('SELECT id FROM projects').all() as Array<{id: string}>
   projectIds.forEach((project) => ensureCompletedTaskResults(project.id))
-  const firstProject = database.prepare('SELECT id FROM projects ORDER BY updated_at DESC, id ASC LIMIT 1').get() as {id: string} | undefined
+  const firstProject = database.prepare("SELECT id FROM projects WHERE status = 'ACTIVE' ORDER BY updated_at DESC, id ASC LIMIT 1").get() as {id: string} | undefined
   const projectRows = database.prepare(`
     SELECT projects.id, projects.name, projects.season,
-      COUNT(DISTINCT asset_library.id) AS assets,
+      COUNT(DISTINCT CASE WHEN asset_library.project_id = projects.id OR asset_library.project_id = '__global__' THEN asset_library.id END) AS assets,
       COUNT(DISTINCT generation_tasks.id) AS tasks
     FROM projects
-    LEFT JOIN asset_library ON asset_library.project_id = projects.id
+    LEFT JOIN asset_library ON asset_library.project_id = projects.id OR asset_library.project_id = '__global__'
     LEFT JOIN generation_tasks ON generation_tasks.project_id = projects.id
+    WHERE projects.status = 'ACTIVE'
     GROUP BY projects.id
     ORDER BY projects.updated_at DESC, projects.id ASC
   `).all() as ProjectRow[]
@@ -53,6 +54,7 @@ export function getDashboardData() {
     FROM generation_tasks
     INNER JOIN projects ON projects.id = generation_tasks.project_id
     LEFT JOIN generation_task_specs ON generation_task_specs.task_id = generation_tasks.id
+    WHERE projects.status = 'ACTIVE'
     ORDER BY generation_tasks.updated_at DESC, generation_tasks.id DESC
     LIMIT 20
   `).all() as TaskRow[]).map((task) => ({
@@ -66,10 +68,16 @@ export function getDashboardData() {
 
   const stats = database.prepare(`
     SELECT
-      (SELECT COUNT(*) FROM projects) AS active_projects,
-      (SELECT COUNT(*) FROM asset_library) AS asset_count,
-      (SELECT COUNT(*) FROM generation_tasks WHERE status = 'RUNNING') AS running_tasks,
-      (SELECT COUNT(*) FROM results WHERE status = 'PENDING') AS pending_reviews
+      (SELECT COUNT(*) FROM projects WHERE status = 'ACTIVE') AS active_projects,
+      (SELECT COUNT(*) FROM asset_library
+        WHERE asset_library.project_id = '__global__'
+          OR asset_library.project_id IN (SELECT id FROM projects WHERE status = 'ACTIVE')) AS asset_count,
+      (SELECT COUNT(*) FROM generation_tasks
+        WHERE status = 'RUNNING'
+          AND project_id IN (SELECT id FROM projects WHERE status = 'ACTIVE')) AS running_tasks,
+      (SELECT COUNT(*) FROM results
+        WHERE status = 'PENDING'
+          AND project_id IN (SELECT id FROM projects WHERE status = 'ACTIVE')) AS pending_reviews
   `).get() as {active_projects: number; asset_count: number; running_tasks: number; pending_reviews: number}
 
   const pendingReview = database.prepare(`

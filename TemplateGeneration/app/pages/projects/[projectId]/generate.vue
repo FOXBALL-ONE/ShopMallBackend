@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 definePageMeta({ layout: false })
 
@@ -19,6 +19,7 @@ type Workflow = { id: number; name: string; version: number; versionLabel: strin
 
 const route = useRoute()
 const projectId = computed(() => String(route.params.projectId || 'prj_noir'))
+const { activeProjectId } = useProjectWorkspace(projectId)
 const selectedWorkflowId = ref<number | null>(null)
 const selectedProviderId = ref<number | null>(null)
 const selectedModelId = ref<number | null>(null)
@@ -39,6 +40,7 @@ const selectedProvider = computed(() => enabledProviders.value.find((provider) =
 const selectedModel = computed(() => selectedProvider.value?.models.find((model) => model.id === selectedModelId.value))
 
 const queue = ref<QueueTask[]>([])
+let workspaceLoadVersion = 0
 
 const selectedWorkflow = computed(() => workflows.value.find((workflow) => workflow.id === selectedWorkflowId.value))
 const canSubmit = computed(() => batchCount.value >= 1 && batchCount.value <= 12 && Boolean(selectedWorkflow.value && selectedProvider.value && selectedModel.value) && !isSubmitting.value)
@@ -53,15 +55,17 @@ function showToast(message: string) {
 
 function refreshQueue() {
   lastUpdated.value = '刚刚'
+  const requestProjectId = activeProjectId.value
   void Promise.all(queue.value.filter((task) => task.status === '生成中').map(async (task) => {
     const progress = Math.min(100, task.progress + 4)
     try {
-      const response = await $fetch<{task: TaskResponse}>(`/api/projects/${encodeURIComponent(projectId.value)}/generation-tasks/${task.id}`, {method: 'PATCH', body: {status: progress === 100 ? 'COMPLETED' : 'RUNNING', progress}})
+      const response = await $fetch<{task: TaskResponse}>(`/api/projects/${encodeURIComponent(requestProjectId)}/generation-tasks/${task.id}`, {method: 'PATCH', body: {status: progress === 100 ? 'COMPLETED' : 'RUNNING', progress}})
+      if (activeProjectId.value !== requestProjectId) return
       Object.assign(task, taskFromResponse(response.task))
     } catch (error: unknown) {
-      showToast(requestError(error, '任务状态刷新失败，请重试'))
+      if (activeProjectId.value === requestProjectId) showToast(requestError(error, '任务状态刷新失败，请重试'))
     }
-  })).then(() => showToast('任务队列已刷新'))
+  })).then(() => { if (activeProjectId.value === requestProjectId) showToast('任务队列已刷新') })
 }
 
 function requestError(error: unknown, fallback: string) {
@@ -101,17 +105,19 @@ async function submitGeneration() {
   const model = selectedModel.value
   if (!canSubmit.value || !workflow || !provider || !model) return
   isSubmitting.value = true
+  const requestProjectId = activeProjectId.value
   try {
-    const response = await $fetch<{tasks: TaskResponse[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/generation-tasks`, {
+    const response = await $fetch<{tasks: TaskResponse[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/generation-tasks`, {
       method: 'POST',
       body: {provider_id: provider.id, model_id: model.id, workflow_id: workflow.id, batch_count: batchCount.value},
     })
+    if (activeProjectId.value !== requestProjectId) return
     const newTasks = response.tasks.map(taskFromResponse)
     queue.value = [...newTasks, ...queue.value]
     lastUpdated.value = '刚刚'
     showToast(`已保存 ${newTasks.length} 个${newTasks[0]?.type || '生成'}任务，使用 ${provider.name} · ${model.name}`)
   } catch (error: unknown) {
-    showToast(requestError(error, '生成任务保存失败，请重试'))
+    if (activeProjectId.value === requestProjectId) showToast(requestError(error, '生成任务保存失败，请重试'))
   } finally {
     isSubmitting.value = false
   }
@@ -119,12 +125,14 @@ async function submitGeneration() {
 
 async function cancelTask(task: QueueTask) {
   if (task.status === '已完成' || task.status === '已取消') return
+  const requestProjectId = activeProjectId.value
   try {
-    const response = await $fetch<{task: TaskResponse}>(`/api/projects/${encodeURIComponent(projectId.value)}/generation-tasks/${task.id}`, {method: 'PATCH', body: {status: 'CANCELLED', progress: task.progress}})
+    const response = await $fetch<{task: TaskResponse}>(`/api/projects/${encodeURIComponent(requestProjectId)}/generation-tasks/${task.id}`, {method: 'PATCH', body: {status: 'CANCELLED', progress: task.progress}})
+    if (activeProjectId.value !== requestProjectId) return
     Object.assign(task, taskFromResponse(response.task))
     showToast(`已取消任务 ${task.id}`)
   } catch (error: unknown) {
-    showToast(requestError(error, '任务取消失败，请重试'))
+    if (activeProjectId.value === requestProjectId) showToast(requestError(error, '任务取消失败，请重试'))
   }
 }
 
@@ -133,14 +141,18 @@ function statusClass(status: TaskStatus) {
 }
 
 const requestFetch = import.meta.server ? useRequestFetch() : $fetch
+const initialLoadVersion = ++workspaceLoadVersion
+const initialLoadProjectId = activeProjectId.value
 try {
-  const response = await requestFetch<{workflows: Workflow[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/workflows`)
-  workflows.value = response.workflows
-  selectedWorkflowId.value = workflows.value[0]?.id ?? null
+  const response = await requestFetch<{workflows: Workflow[]}>(`/api/projects/${encodeURIComponent(initialLoadProjectId)}/workflows`)
+  if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) {
+    workflows.value = response.workflows
+    selectedWorkflowId.value = workflows.value[0]?.id ?? null
+  }
 } catch (error: unknown) {
-  workflowError.value = requestError(error, '工作流加载失败，请先在工作流模块保存工作流。')
+  if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) workflowError.value = requestError(error, '工作流加载失败，请先在工作流模块保存工作流。')
 } finally {
-  loadingWorkflows.value = false
+  if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) loadingWorkflows.value = false
 }
 
 try {
@@ -155,22 +167,49 @@ try {
 }
 
 try {
-  const response = await requestFetch<{tasks: TaskResponse[]}>(`/api/projects/${encodeURIComponent(projectId.value)}/generation-tasks`)
-  queue.value = response.tasks.map(taskFromResponse)
+  const response = await requestFetch<{tasks: TaskResponse[]}>(`/api/projects/${encodeURIComponent(initialLoadProjectId)}/generation-tasks`)
+  if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) queue.value = response.tasks.map(taskFromResponse)
 } catch (error: unknown) {
-  showToast(requestError(error, '任务队列加载失败，请重试'))
+  if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) showToast(requestError(error, '任务队列加载失败，请重试'))
 }
+
+watch(activeProjectId, (nextProjectId, previousProjectId) => {
+  if (!previousProjectId || nextProjectId === previousProjectId) return
+  const requestVersion = ++workspaceLoadVersion
+  const requestProjectId = nextProjectId
+  selectedWorkflowId.value = null
+  queue.value = []
+  workflowError.value = ''
+  providerError.value = ''
+  loadingWorkflows.value = true
+  void (async () => {
+    try {
+      const [workflowResponse, taskResponse] = await Promise.all([
+        $fetch<{workflows: Workflow[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/workflows`),
+        $fetch<{tasks: TaskResponse[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/generation-tasks`),
+      ])
+      if (requestVersion !== workspaceLoadVersion || activeProjectId.value !== requestProjectId) return
+      workflows.value = workflowResponse.workflows
+      selectedWorkflowId.value = workflows.value[0]?.id ?? null
+      queue.value = taskResponse.tasks.map(taskFromResponse)
+    } catch (error: unknown) {
+      if (requestVersion !== workspaceLoadVersion || activeProjectId.value !== requestProjectId) return
+      workflowError.value = requestError(error, '工作流或任务队列加载失败，请重试')
+    } finally {
+      if (requestVersion === workspaceLoadVersion && activeProjectId.value === requestProjectId) loadingWorkflows.value = false
+    }
+  })()
+})
 </script>
 
 <template>
   <div class="generation-layout">
-    <StudioSidebar :project-id="projectId" />
+    <StudioSidebar :project-id="activeProjectId" />
 
     <section class="generation-main">
-      <header class="generation-topbar">
-        <div><span>品牌工作空间</span><strong>NOIR STUDIO</strong></div>
+      <StudioTopbar :project-id="activeProjectId">
         <span class="service-state"><i /> 生成服务由平台安全代理</span>
-      </header>
+      </StudioTopbar>
 
       <main class="generation-content">
         <section class="generation-heading">

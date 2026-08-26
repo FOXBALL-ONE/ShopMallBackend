@@ -21,7 +21,8 @@ export default defineEventHandler(async (event) => {
   const fileResult = getDatabase().prepare("INSERT INTO stored_files (storage_key, original_name, content_type, size_bytes, sha256, updated_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))").run(stored.storageKey, stored.originalName, stored.contentType, stored.sizeBytes, stored.sha256)
   const fileId = Number(fileResult.lastInsertRowid)
   try {
-    const asset = createAsset({projectId, fileId, type, name: field(parts, 'name') || stored.originalName.replace(/\.[^.]+$/, ''), code: field(parts, 'code') || `ASSET-${fileId}`, description: field(parts, 'description'), tags: field(parts, 'tags').split(',').map((tag) => tag.trim()).filter(Boolean), authorizationStatus: type === 'MODEL' ? (field(parts, 'authorized') === 'true' ? '已确认授权' : '授权待确认') : null})
+    const scope = field(parts, 'scope') === 'GLOBAL' ? 'GLOBAL' : 'PROJECT'
+    const asset = createAsset({projectId, scope, fileId, type, name: field(parts, 'name') || stored.originalName.replace(/\.[^.]+$/, ''), code: field(parts, 'code') || `ASSET-${fileId}`, description: field(parts, 'description'), tags: field(parts, 'tags').split(',').map((tag) => tag.trim()).filter(Boolean), authorizationStatus: type === 'MODEL' ? (field(parts, 'authorized') === 'true' ? '已确认授权' : '授权待确认') : null})
     return {asset: serializeAsset(asset)}
   } catch (error) {
     getDatabase().prepare('DELETE FROM stored_files WHERE id = ?').run(fileId)

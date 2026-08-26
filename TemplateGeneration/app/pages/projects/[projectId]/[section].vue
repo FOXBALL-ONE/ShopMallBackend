@@ -2,6 +2,7 @@
 const route = useRoute()
 const section = computed(() => String(route.params.section || 'generate'))
 const projectId = computed(() => String(route.params.projectId || 'prj_noir'))
+const { activeProjectId } = useProjectWorkspace(projectId)
 
 const content = computed(() => section.value === 'results'
   ? {
@@ -23,5 +24,5 @@ const content = computed(() => section.value === 'results'
 </script>
 
 <template>
-  <StudioSectionPage :project-id="projectId" v-bind="content" />
+  <StudioSectionPage :project-id="activeProjectId" v-bind="content" />
 </template>

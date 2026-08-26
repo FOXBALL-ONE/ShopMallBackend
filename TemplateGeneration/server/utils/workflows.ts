@@ -139,11 +139,11 @@ export function createWorkflow(projectId: string, body: WorkflowInput) {
   if (!project) throw createError({statusCode: 404, statusMessage: '项目不存在。'})
 
   const garment = database.prepare('SELECT id, project_id, type FROM asset_library WHERE id = ?').get(definition.garmentAssetId) as {id: number; project_id: string; type: string} | undefined
-  if (!garment || garment.project_id !== projectId) throw createError({statusCode: 400, statusMessage: '服装素材不存在或不属于当前项目。'})
+  if (!garment || (garment.project_id !== projectId && garment.project_id !== '__global__')) throw createError({statusCode: 400, statusMessage: '服装素材不存在或不属于当前项目。'})
   if (garment.type !== 'GARMENT') throw createError({statusCode: 400, statusMessage: '指定素材不是服装素材。'})
 
   const model = database.prepare('SELECT id, project_id, type, authorization_status FROM asset_library WHERE id = ?').get(definition.modelAssetId) as {id: number; project_id: string; type: string; authorization_status: string | null} | undefined
-  if (!model || model.project_id !== projectId) throw createError({statusCode: 400, statusMessage: '模特素材不存在或不属于当前项目。'})
+  if (!model || (model.project_id !== projectId && model.project_id !== '__global__')) throw createError({statusCode: 400, statusMessage: '模特素材不存在或不属于当前项目。'})
   if (model.type !== 'MODEL') throw createError({statusCode: 400, statusMessage: '指定素材不是模特素材。'})
   if (model.authorization_status !== '已确认授权') throw createError({statusCode: 400, statusMessage: '只能使用已确认授权的模特素材。'})
 
