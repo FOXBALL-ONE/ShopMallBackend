@@ -18,6 +18,7 @@ export default defineEventHandler(async (event) => {
       baseUrl: current.baseUrl,
       auth: current.auth,
       model: current.model,
+      modelId: current.modelId,
       models: current.models,
     }, row?.credential_value ?? '')
     return {provider: updateProvider(providerId, input, body.enabled)}
