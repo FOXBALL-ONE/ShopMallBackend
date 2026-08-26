@@ -154,6 +154,16 @@ function readBaseUrl(value: unknown) {
   return parsed.pathname === '/' || !parsed.pathname ? `${normalized}/v1` : normalized
 }
 
+function buildVersionedProviderUrl(baseUrl: string, resource: 'models' | 'chat/completions' | 'messages') {
+  const parsed = new URL(baseUrl)
+  const pathname = parsed.pathname.replace(/\/+$/, '')
+  const versionedPath = pathname.endsWith('/v1') ? pathname : `${pathname}/v1`
+  parsed.pathname = `${versionedPath}/${resource}`
+  parsed.search = ''
+  parsed.hash = ''
+  return parsed.toString().replace(/\/$/, '')
+}
+
 function readModels(value: unknown, currentModel: string, includeCurrent = true) {
   const values = Array.isArray(value) ? value : [currentModel]
   const models = [...new Set(values.map((item) => {
@@ -234,7 +244,7 @@ function buildProviderHeaders(connection: ProviderConnection) {
 
 export async function fetchProviderModels(providerId: number, overrides: ProviderConnectionOverrides = {}) {
   const connection = getProviderConnection(providerId, overrides)
-  const endpoint = `${connection.baseUrl}/models`
+  const endpoint = buildVersionedProviderUrl(connection.baseUrl, 'models')
   const headers = buildProviderHeaders(connection)
   let response: Response
   try {
@@ -335,7 +345,7 @@ export async function testProviderModel(providerId: number, modelId: number | nu
 
   const isAnthropic = connection.type === 'Anthropic'
   const baseUrl = connection.baseUrl
-  const endpoint = `${baseUrl}/${isAnthropic ? 'messages' : 'chat/completions'}`
+  const endpoint = buildVersionedProviderUrl(baseUrl, isAnthropic ? 'messages' : 'chat/completions')
   const body = isAnthropic
     ? {
         model,
