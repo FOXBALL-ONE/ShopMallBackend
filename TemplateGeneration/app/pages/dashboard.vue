@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 definePageMeta({ layout: false })
 
 type Project = {
+  id: string
   code: string
   name: string
   season: string
@@ -13,16 +14,25 @@ type Project = {
 }
 
 type Task = {
+  id: number
   title: string
   project: string
   type: '展示视频' | '展示图片'
   progress: number
-  status: '运行中' | '已完成' | '排队中'
+  status: '运行中' | '已完成' | '排队中' | '已取消'
+}
+type PendingReview = {id: number; workflow: string; version: string; media: 'IMAGE' | 'VIDEO'; prompt: string}
+type DashboardResponse = {
+  stats: {activeProjects: number; assets: number; runningTasks: number; pendingReviews: number}
+  projects: Project[]
+  tasks: Task[]
+  pendingReview: PendingReview | null
 }
 
 const activeNav = ref('概览')
 const projectMenuOpen = ref(false)
 const activeProject = ref('NOIR · 春夏系列')
+const activeProjectId = ref('prj_noir')
 const taskFilter = ref<'全部' | Task['status']>('全部')
 const toast = ref('')
 const {user, refresh} = useAuthUser()
@@ -39,26 +49,27 @@ const navItems = [
   { label: '团队成员', icon: '♧' },
 ]
 
-const projects: Project[] = [
-  { code: 'NOIR-SS26', name: 'NOIR · 春夏系列', season: 'SS 2026', assets: 4, tasks: 2, tone: 'light' },
-  { code: 'SILK-CORE', name: 'SILK · CORE', season: 'CORE 2026', assets: 0, tasks: 1, tone: 'dark' },
-]
+const projects = ref<Project[]>([])
+const tasks = ref<Task[]>([])
+const stats = ref<DashboardResponse['stats']>({activeProjects: 0, assets: 0, runningTasks: 0, pendingReviews: 0})
+const pendingReview = ref<PendingReview | null>(null)
+const loading = ref(true)
+const loadError = ref('')
 
-const tasks: Task[] = [
-  { title: '展示视频', project: 'NOIR · 春夏系列', type: '展示视频', progress: 68, status: '运行中' },
-  { title: '展示图片', project: 'NOIR · 春夏系列', type: '展示图片', progress: 100, status: '已完成' },
-  { title: '展示图片', project: 'SILK · CORE', type: '展示图片', progress: 22, status: '排队中' },
-]
+const filteredTasks = computed(() => taskFilter.value === '全部' ? tasks.value : tasks.value.filter((task) => task.status === taskFilter.value))
 
-const filteredTasks = computed(() => taskFilter.value === '全部' ? tasks : tasks.filter((task) => task.status === taskFilter.value))
+function requestError(error: unknown, fallback: string) {
+  const request = error as {data?: {statusMessage?: string; message?: string}; statusMessage?: string; message?: string}
+  return request.data?.statusMessage ?? request.data?.message ?? request.statusMessage ?? request.message ?? fallback
+}
 
 function selectNav(label: string) {
   const routes: Record<string, string> = {
     概览: '/dashboard',
-    素材库: '/projects/prj_noir/assets',
-    工作流: '/projects/prj_noir/workflows',
-    生成任务: '/projects/prj_noir/generate',
-    结果中心: '/projects/prj_noir/results',
+    素材库: `/projects/${activeProjectId.value}/assets`,
+    工作流: `/projects/${activeProjectId.value}/workflows`,
+    生成任务: `/projects/${activeProjectId.value}/generate`,
+    结果中心: `/projects/${activeProjectId.value}/results`,
     审核中心: '/review',
     团队成员: '/team',
   }
@@ -66,8 +77,26 @@ function selectNav(label: string) {
 }
 
 function selectProject(project: Project) {
+  activeProjectId.value = project.id
   activeProject.value = project.name
   projectMenuOpen.value = false
+}
+
+const requestFetch = import.meta.server ? useRequestFetch() : $fetch
+try {
+  const response = await requestFetch<DashboardResponse>('/api/dashboard')
+  projects.value = response.projects
+  tasks.value = response.tasks
+  stats.value = response.stats
+  pendingReview.value = response.pendingReview
+  if (projects.value[0]) {
+    activeProjectId.value = projects.value[0].id
+    activeProject.value = projects.value[0].name
+  }
+} catch (error: unknown) {
+  loadError.value = requestError(error, '概览数据加载失败，请重试。')
+} finally {
+  loading.value = false
 }
 </script>
 
@@ -109,10 +138,10 @@ function selectProject(project: Project) {
         </section>
 
         <section class="stats-grid" aria-label="工作台统计">
-          <article><span>活跃项目</span><strong>2</strong><small>品牌制作空间</small></article>
-          <article><span>素材资产</span><strong>4</strong><small>已纳入项目管理</small></article>
-          <article><span>运行任务</span><strong>2</strong><small><i class="pulse" />队列持续同步</small></article>
-          <article><span>等待审核</span><strong>1</strong><small>需要团队判断</small></article>
+          <article><span>活跃项目</span><strong>{{ stats.activeProjects }}</strong><small>品牌制作空间</small></article>
+          <article><span>素材资产</span><strong>{{ stats.assets }}</strong><small>已纳入项目管理</small></article>
+          <article><span>运行任务</span><strong>{{ stats.runningTasks }}</strong><small><i class="pulse" />队列持续同步</small></article>
+          <article><span>等待审核</span><strong>{{ stats.pendingReviews }}</strong><small>需要团队判断</small></article>
         </section>
 
         <section class="section-heading">
@@ -120,6 +149,8 @@ function selectProject(project: Project) {
           <button type="button" @click="selectNav('素材库')">查看全部 <span>→</span></button>
         </section>
 
+        <p v-if="loadError" class="load-error" role="alert">{{ loadError }}</p>
+        <p v-else-if="loading" class="loading-state">正在从数据库读取概览数据…</p>
         <section class="dashboard-grid">
           <div class="panel collections-panel">
             <div class="collection-list">
@@ -152,8 +183,8 @@ function selectProject(project: Project) {
 
           <div class="panel review-panel">
             <p class="eyebrow">REVIEW</p><h2>等待你的判断</h2>
-            <div class="review-art"><i /><span>NOIR / LOOK 04</span></div>
-            <p>成片会保留工作流版本、参数和审核轨迹。</p>
+            <div class="review-art"><i /><span>{{ pendingReview?.media === 'VIDEO' ? 'VIDEO' : 'IMAGE' }} · {{ pendingReview?.workflow || '暂无待审核结果' }}</span></div>
+            <p>{{ pendingReview?.prompt || '生成完成后，结果会自动进入审核队列。' }}</p>
             <button type="button" @click="selectNav('审核中心')">进入结果中心 <span>→</span></button>
           </div>
         </section>
@@ -180,6 +211,7 @@ button { font: inherit; cursor: pointer; }
 .sidebar-bottom { margin-top: auto; }.tip-card { display: flex; flex-direction: column; gap: 7px; padding: 16px; background: #eee9e1; border-radius: 11px; }.tip-icon { display: grid; place-items: center; width: 24px; height: 24px; color: #fff; background: #292722; border-radius: 50%; font-size: 11px; }.tip-card strong { font: 400 14px Georgia, serif; }.tip-card p { margin: 0; color: #777169; font-size: 10px; line-height: 1.5; }.tip-card button { display: flex; justify-content: space-between; margin-top: 3px; padding: 0; color: #575149; text-align: left; background: transparent; border: 0; font-size: 10px; }.profile { display: flex; align-items: center; gap: 9px; margin-top: 16px; padding: 16px 5px 0; border-top: 1px solid var(--line); }.avatar { display: grid; place-items: center; width: 31px; height: 31px; color: #fff; background: #282622; border-radius: 50%; font-size: 9px; }.profile > span:nth-child(2) { display: flex; flex-direction: column; gap: 2px; }.profile strong { font-size: 10px; }.profile small { color: #8b857d; font-size: 8px; }.profile button { margin-left: auto; color: #8b857d; background: transparent; border: 0; font-size: 14px; }
 .main-area { min-width: 0; }.topbar { position: sticky; top: 0; z-index: 15; display: flex; align-items: center; justify-content: space-between; height: 68px; padding: 0 4%; background: #fcfbf8e6; border-bottom: 1px solid var(--line); backdrop-filter: blur(12px); }.project-switcher { position: relative; display: flex; flex-direction: column; gap: 2px; }.project-switcher > span { color: #8c867d; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }.project-switcher > button { padding: 0; color: var(--ink); text-align: left; background: transparent; border: 0; font: 500 12px Georgia, serif; }.chevron { margin-left: 5px; color: #898178; }.project-menu { position: absolute; top: 44px; left: -10px; z-index: 30; width: 210px; padding: 6px; background: #fff; border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 12px 28px #25231f1c; }.project-menu button { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 9px; text-align: left; background: transparent; border: 0; border-radius: 6px; }.project-menu button:hover { background: #f2eee7; }.project-menu span { font-size: 11px; }.project-menu small { color: #9a9288; font-size: 8px; }.top-actions { display: flex; align-items: center; gap: 12px; }.service-state { display: flex; align-items: center; gap: 6px; color: #68635c; font-size: 9px; }.service-state i, .pulse { display: inline-block; width: 7px; height: 7px; background: #7f9b82; border-radius: 50%; box-shadow: 0 0 0 3px #e6ede6; }.icon-button { display: grid; place-items: center; width: 34px; height: 34px; color: #69635b; background: #fff; border: 1px solid var(--line); border-radius: 50%; font-size: 17px; }.new-button, .dark-button { display: flex; align-items: center; gap: 7px; padding: 10px 14px; color: #fff; background: #1d1c19; border: 0; border-radius: 8px; font-size: 10px; }.new-button span { font-size: 14px; }
 .content { max-width: 1500px; margin: 0 auto; padding: 42px 4% 65px; }.welcome { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; }.eyebrow { margin: 0; color: #8c867d; font-size: 10px; font-weight: 700; letter-spacing: .17em; text-transform: uppercase; }.welcome h1 { margin: 7px 0 8px; font: 400 clamp(32px, 4vw, 48px) Georgia, serif; letter-spacing: -.035em; }.welcome p:not(.eyebrow) { margin: 0; color: #817b73; font-size: 12px; }.welcome-actions { display: flex; gap: 9px; }.quiet-button { display: flex; align-items: center; gap: 7px; padding: 10px 13px; color: #5d5750; background: #fff; border: 1px solid var(--line); border-radius: 8px; font-size: 10px; }
+.loading-state, .load-error { margin: 0 0 18px; padding: 11px 14px; color: #817b73; background: #f0ece6; border-radius: 8px; font-size: 9px; }.load-error { color: #9b6254; background: #fff4f1; }
 .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); margin: 38px 0 42px; border-top: 1px solid #e2ddd4; border-bottom: 1px solid #e2ddd4; }.stats-grid article { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 20px 22px 20px 0; }.stats-grid article + article { padding-left: 22px; border-left: 1px solid #e2ddd4; }.stats-grid span { color: #756f67; font-size: 10px; }.stats-grid strong { grid-column: 2; grid-row: 1 / 3; font: 400 30px Georgia, serif; }.stats-grid small { color: #a09a91; font-size: 8px; }.stats-grid small .pulse { width: 6px; height: 6px; margin-right: 5px; box-shadow: none; }
 .section-heading { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 17px; }.section-heading h2, .panel-head h2, .review-panel h2 { margin: 4px 0 0; font: 400 22px Georgia, serif; }.section-heading button, .panel-head button { display: flex; gap: 4px; align-items: center; padding: 0; color: #686159; background: transparent; border: 0; font-size: 10px; }.dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(250px, .7fr); gap: 18px; }.panel { padding: 21px; background: #fff; border: 1px solid #e7e2d9; border-radius: 13px; }.collections-panel { grid-row: span 2; }.collection-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.collection-card { position: relative; overflow: hidden; padding: 0; color: #26231f; text-align: left; background: #fff; border: 1px solid #ece7df; border-radius: 10px; }.collection-art { position: relative; height: 145px; overflow: hidden; background: linear-gradient(135deg, #d4c8b9, #f1ebe2); }.tone-dark .collection-art { background: linear-gradient(135deg, #322f2b, #8b8177); }.collection-art > span { position: absolute; top: 10px; left: 11px; color: #6b6259; font-size: 7px; letter-spacing: .12em; }.tone-dark .collection-art > span { color: #d8d1c8; }.collection-art i { position: absolute; left: 50%; top: 18px; width: 82px; height: 140px; background: #fff9; border-radius: 40%; clip-path: polygon(24% 0, 76% 0, 89% 25%, 100% 100%, 0 100%, 11% 25%); transform: translateX(-50%); }.tone-dark .collection-art i { background: #1c1a18a8; }.collection-info { padding: 12px; }.collection-info small { color: #9b805b; font-size: 8px; }.collection-info h3 { margin: 4px 0; font: 400 14px Georgia, serif; }.collection-info p { margin: 0; color: #8a847c; font-size: 8px; }.collection-card > b { position: absolute; right: 11px; bottom: 12px; font-size: 13px; font-weight: 400; }.new-project-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 207px; color: #6f6961; background: #fcfbf8; border: 1px dashed #cfc8bd; border-radius: 10px; }.new-project-card > span { display: grid; place-items: center; width: 35px; height: 35px; color: #555049; background: #ebe6de; border-radius: 50%; font-size: 18px; }.new-project-card strong { color: #403c36; font: 400 14px Georgia, serif; }.new-project-card small { font-size: 9px; }
 .panel-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 10px; }.task-tabs { display: flex; gap: 4px; margin: 12px 0 3px; padding: 3px; background: #f1ede7; border-radius: 7px; }.task-tabs button { flex: 1; padding: 6px 4px; color: #8b837a; background: transparent; border: 0; border-radius: 5px; font-size: 9px; }.task-tabs button.active { color: #292622; background: #fff; box-shadow: 0 2px 6px #322a2210; }.task-list { display: flex; flex-direction: column; }.task-row { display: flex; align-items: center; gap: 9px; padding: 11px 0; border-top: 1px solid #efebe4; }.task-dot { width: 7px; height: 7px; flex: 0 0 auto; background: #a2988b; border-radius: 50%; }.task-dot.running { background: #718e76; }.task-dot.succeeded { background: #596d5c; }.task-row > span { display: flex; flex-direction: column; gap: 2px; }.task-row strong { font-size: 9px; }.task-row small { color: #8d877f; font-size: 8px; }.task-row em { margin-left: auto; color: #8a7352; font-size: 9px; font-style: normal; }.empty-task { padding: 18px 0; color: #999188; font-size: 9px; text-align: center; }.panel-link { display: flex; justify-content: space-between; width: 100%; margin-top: 5px; padding: 12px 0 0; color: #5f5a53; text-align: left; background: transparent; border: 0; border-top: 1px solid #efebe4; font-size: 9px; }.review-panel { color: #fff; background: #292722; }.review-panel .eyebrow { color: #b7a88f; }.review-panel h2 { margin-bottom: 14px; }.review-art { position: relative; height: 94px; overflow: hidden; background: linear-gradient(135deg, #a99885, #dfd4c7); border-radius: 8px; }.review-art i { position: absolute; left: 43%; top: 8px; width: 58px; height: 100px; background: #403b36; border-radius: 40%; clip-path: polygon(28% 0, 72% 0, 88% 25%, 100% 100%, 0 100%, 12% 25%); }.review-art span { position: absolute; right: 9px; bottom: 8px; color: #fff; font-size: 7px; letter-spacing: .1em; }.review-panel > p:not(.eyebrow) { color: #c3bdb3; font-size: 10px; line-height: 1.5; }.review-panel button { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 10px 12px; color: #24221f; background: #f5f1ea; border: 0; border-radius: 7px; font-size: 10px; }.toast { position: fixed; right: 24px; bottom: 24px; z-index: 50; padding: 11px 15px; color: #fff; background: #292722; border-radius: 8px; box-shadow: 0 10px 30px #0002; font-size: 10px; }.toast-enter-active, .toast-leave-active { transition: opacity .2s, transform .2s; }.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(8px); }

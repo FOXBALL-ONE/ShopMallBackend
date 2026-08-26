@@ -61,7 +61,7 @@ function resultQuery() {
   `
 }
 
-function ensureCompletedTaskResults(projectId: string) {
+export function ensureCompletedTaskResults(projectId: string) {
   const database = getDatabase()
   const tasks = database.prepare(`
     SELECT generation_tasks.id, generation_tasks.project_id,
