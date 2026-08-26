@@ -16,9 +16,7 @@ type QueueTask = {
 type ProviderModel = { id: number; name: string }
 type Provider = { id: number; name: string; type: string; enabled: boolean; modelId: number | null; model: string; models: ProviderModel[] }
 type TaskResponse = { id: number; workflowName: string; media: 'IMAGE' | 'VIDEO'; type: '图片' | '视频'; statusLabel: TaskStatus; status: string; stage: string; progress: number; provider: {name: string; modelId: number | null; model: string}; batchIndex: number; batchCount: number }
-type Workflow = { id: number; name: string; version: number; versionLabel: string; savedAt: string; definition: {creativePrompt: string; garmentAssetId?: number; modelAssetId?: number} }
-type LibraryAsset = { id: number; type: 'GARMENT' | 'MODEL' | 'REFERENCE'; name: string; code: string; description: string; file: {contentType: string} }
-type ReferenceInput = { assetId: number | null; role: string; instruction: string }
+type Workflow = { id: number; name: string; version: number; versionLabel: string; savedAt: string; definition: {creativePrompt: string; garmentAssetId?: number; modelAssetId?: number; referenceImages?: Array<{assetId: number; role: string; instruction: string}>} }
 
 const route = useRoute()
 const projectId = computed(() => String(route.params.projectId || 'prj_noir'))
@@ -36,8 +34,6 @@ const refreshingProviderModels = ref(false)
 const loadingWorkflows = ref(true)
 const workflowError = ref('')
 const workflows = ref<Workflow[]>([])
-const libraryAssets = ref<LibraryAsset[]>([])
-const referenceInputs = ref<ReferenceInput[]>([])
 
 const providers = ref<Provider[]>([])
 const enabledProviders = computed(() => providers.value.filter((provider) => provider.enabled))
@@ -50,14 +46,7 @@ let queuePollTimer: number | undefined
 let queueRequestInFlight = false
 
 const selectedWorkflow = computed(() => workflows.value.find((workflow) => workflow.id === selectedWorkflowId.value))
-const imageAssets = computed(() => libraryAssets.value.filter((asset) => ['image/png', 'image/jpeg', 'image/webp'].includes(asset.file.contentType)))
-const hasValidReferences = computed(() => {
-  const assetIds = referenceInputs.value.map((reference) => reference.assetId)
-  return referenceInputs.value.length <= 8
-    && new Set(assetIds).size === assetIds.length
-    && referenceInputs.value.every((reference) => Number.isSafeInteger(reference.assetId) && reference.assetId! > 0 && imageAssets.value.some((asset) => asset.id === reference.assetId) && reference.role.trim().length > 0 && reference.role.trim().length <= 40 && reference.instruction.trim().length <= 500)
-})
-const canSubmit = computed(() => batchCount.value >= 1 && batchCount.value <= 12 && Boolean(selectedWorkflow.value && selectedProvider.value && selectedModel.value) && hasValidReferences.value && !isSubmitting.value)
+const canSubmit = computed(() => Number.isInteger(batchCount.value) && batchCount.value >= 1 && batchCount.value <= 12 && Boolean(selectedWorkflow.value && selectedProvider.value && selectedModel.value) && !isSubmitting.value)
 
 function showToast(message: string) {
   if (!import.meta.client) return
@@ -100,24 +89,6 @@ function selectProvider(providerId: number | null) {
   selectedModelId.value = enabledProviders.value.find((provider) => provider.id === providerId)?.modelId ?? null
 }
 
-function seedReferences(workflow: Workflow | undefined) {
-  const defaults: ReferenceInput[] = []
-  if (workflow?.definition.garmentAssetId) defaults.push({assetId: workflow.definition.garmentAssetId, role: 'garment', instruction: '严格保留服装颜色、材质和剪裁。'})
-  if (workflow?.definition.modelAssetId) defaults.push({assetId: workflow.definition.modelAssetId, role: 'model', instruction: '参考人物脸部、体态和站姿。'})
-  referenceInputs.value = defaults
-}
-
-function addReference() {
-  if (referenceInputs.value.length >= 8) return
-  const selectedIds = new Set(referenceInputs.value.map((reference) => reference.assetId))
-  const asset = imageAssets.value.find((item) => !selectedIds.has(item.id))
-  referenceInputs.value.push({assetId: asset?.id ?? null, role: 'reference', instruction: ''})
-}
-
-function removeReference(index: number) {
-  referenceInputs.value.splice(index, 1)
-}
-
 async function refreshProviderModels() {
   const provider = selectedProvider.value
   if (!provider || refreshingProviderModels.value) return
@@ -151,7 +122,6 @@ async function submitGeneration() {
         model_id: model.id,
         workflow_id: workflow.id,
         batch_count: batchCount.value,
-        reference_images: referenceInputs.value.map((reference) => ({asset_id: reference.assetId, role: reference.role.trim(), instruction: reference.instruction.trim()})),
       },
     })
     if (activeProjectId.value !== requestProjectId) return
@@ -205,15 +175,10 @@ const requestFetch = import.meta.server ? useRequestFetch() : $fetch
 const initialLoadVersion = ++workspaceLoadVersion
 const initialLoadProjectId = activeProjectId.value
 try {
-  const [response, assetResponse] = await Promise.all([
-    requestFetch<{workflows: Workflow[]}>(`/api/projects/${encodeURIComponent(initialLoadProjectId)}/workflows`),
-    requestFetch<{assets: LibraryAsset[]}>(`/api/projects/${encodeURIComponent(initialLoadProjectId)}/assets`),
-  ])
+  const response = await requestFetch<{workflows: Workflow[]}>(`/api/projects/${encodeURIComponent(initialLoadProjectId)}/workflows`)
   if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) {
     workflows.value = response.workflows
-    libraryAssets.value = assetResponse.assets
     selectedWorkflowId.value = workflows.value[0]?.id ?? null
-    seedReferences(workflows.value[0])
   }
 } catch (error: unknown) {
   if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) workflowError.value = requestError(error, '工作流加载失败，请先在工作流模块保存工作流。')
@@ -250,16 +215,13 @@ watch(activeProjectId, (nextProjectId, previousProjectId) => {
   loadingWorkflows.value = true
   void (async () => {
     try {
-      const [workflowResponse, taskResponse, assetResponse] = await Promise.all([
+      const [workflowResponse, taskResponse] = await Promise.all([
         $fetch<{workflows: Workflow[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/workflows`),
         $fetch<{tasks: TaskResponse[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/generation-tasks`),
-        $fetch<{assets: LibraryAsset[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/assets`),
       ])
       if (requestVersion !== workspaceLoadVersion || activeProjectId.value !== requestProjectId) return
       workflows.value = workflowResponse.workflows
-      libraryAssets.value = assetResponse.assets
       selectedWorkflowId.value = workflows.value[0]?.id ?? null
-      seedReferences(workflows.value[0])
       queue.value = taskResponse.tasks.map(taskFromResponse)
     } catch (error: unknown) {
       if (requestVersion !== workspaceLoadVersion || activeProjectId.value !== requestProjectId) return
@@ -269,8 +231,6 @@ watch(activeProjectId, (nextProjectId, previousProjectId) => {
     }
   })()
 })
-
-watch(selectedWorkflowId, () => seedReferences(selectedWorkflow.value))
 
 onMounted(startQueuePolling)
 onBeforeUnmount(stopQueuePolling)
@@ -301,21 +261,9 @@ onBeforeUnmount(stopQueuePolling)
             <button class="model-refresh" type="button" :disabled="!selectedProvider || refreshingProviderModels" @click="refreshProviderModels">{{ refreshingProviderModels ? '正在刷新模型…' : '刷新当前提供商模型' }}</button>
             <p v-if="providerError" class="provider-error" role="alert">{{ providerError }}</p>
             <label>批量数量<input v-model.number="batchCount" type="number" min="1" max="12" step="1"><small class="form-hint">请输入 1-12 的整数；每个任务都会独立生成一张图片。</small></label>
-            <section class="reference-section" aria-label="图生图参考素材">
-              <div class="reference-heading"><div><strong>参考图与文字要求</strong><span>工作流的服装和模特参考图已预填，可按任务调整。</span></div><button type="button" :disabled="referenceInputs.length >= 8 || !imageAssets.length" @click="addReference">添加参考图</button></div>
-              <div v-for="(reference, index) in referenceInputs" :key="`${index}-${reference.assetId}`" class="reference-item">
-                <div class="reference-item-head"><strong>参考图 {{ index + 1 }}</strong><button type="button" :aria-label="`移除参考图 ${index + 1}`" @click="removeReference(index)">×</button></div>
-                <label>选择素材<select v-model="reference.assetId"><option :value="null">请选择图片素材</option><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }} · {{ asset.code }}</option></select><small class="form-hint">仅支持 PNG、JPEG 或 WebP 图片，且不能重复选择。</small></label>
-                <label>参考角色<input v-model="reference.role" type="text" maxlength="40" placeholder="例如 garment、model、scene"><small class="form-hint">请输入 1-40 个字符，用于说明该图片的参考角色。</small></label>
-                <label>对应文字要求<textarea v-model="reference.instruction" maxlength="500" rows="3" placeholder="例如：保留面料纹理和剪裁，使用自然站姿。"></textarea><small class="form-hint">最多 500 个字符；该要求会与对应参考图一并发送给模型。</small></label>
-              </div>
-              <p v-if="referenceInputs.length >= 8" class="form-hint">每个生成任务最多支持 8 张参考图。</p>
-              <p v-else-if="referenceInputs.length && !hasValidReferences" class="provider-error">每张参考图必须选择不同的图片素材，并填写 1-40 个字符的参考角色；文字要求最多 500 个字符。</p>
-              <p v-else-if="!imageAssets.length" class="provider-error">当前项目没有可用图片素材，请先到素材库上传图片。</p>
-            </section>
             <div class="provider-note" :class="{ unavailable: !selectedProvider || !selectedModel }"><i /><div><strong>{{ selectedProvider ? selectedProvider.name : '没有可用的模型提供商' }}</strong><span>{{ selectedProvider && selectedModel ? `${selectedProvider.type} · ${selectedModel.name} · 模型 ID ${selectedModel.id} · 已启用` : '请先选择已启用提供商和模型' }}</span></div></div>
             <button class="launch-button" type="button" :disabled="!canSubmit" @click="submitGeneration">{{ isSubmitting ? '正在提交…' : '提交真实生成' }}</button>
-            <small>{{ selectedWorkflow && selectedProvider && selectedModel ? '任务将使用所选工作流的数据库版本和提示词。' : '请先选择已保存工作流、启用提供商并选择模型。' }}</small>
+            <small>{{ selectedWorkflow && selectedProvider && selectedModel ? '任务将使用所选工作流的数据库版本、提示词和参考图要求。' : '请先选择已保存工作流、启用提供商并选择模型。' }}</small>
           </section>
 
           <section class="queue-panel">
@@ -341,7 +289,7 @@ onBeforeUnmount(stopQueuePolling)
 </template>
 
 <style>
-.launch-panel label textarea { width: 100%; padding: 12px 13px; color: #26231f; background: #fff; border: 1px solid #ddd7ce; border-radius: 8px; outline: 0; font-size: 10px; resize: vertical; line-height: 1.5; }.launch-panel label textarea:focus { border-color: #9d8766; box-shadow: 0 0 0 3px #9d87661a; }.form-hint { display: block; margin: -2px 0 0; color: #8d867e; font-size: 8px; font-weight: 400; line-height: 1.45; }.reference-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid #eeeae3; }.reference-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }.reference-heading > div { display: flex; flex-direction: column; gap: 4px; }.reference-heading strong { font-size: 10px; }.reference-heading span { color: #8d867e; font-size: 8px; line-height: 1.4; }.reference-heading button, .reference-item-head button { flex: 0 0 auto; padding: 0; color: #8b684f; background: transparent; border: 0; font-size: 8px; }.reference-item { padding: 12px 0; border-bottom: 1px solid #eeeae3; }.reference-item-head { display: flex; align-items: center; justify-content: space-between; }.reference-item-head strong { font-size: 9px; }.reference-item label { margin-top: 11px; }
+.form-hint { display: block; margin: -2px 0 0; color: #8d867e; font-size: 8px; font-weight: 400; line-height: 1.45; }
 .model-refresh { width: 100%; margin-top: 9px; padding: 8px 10px; color: #6e665d; background: #faf8f4; border: 1px solid #e2dbd2; border-radius: 7px; font-size: 8px; }.model-refresh:disabled { cursor: wait; opacity: .55; }
 :root { --ink: #24221f; --muted: #7d776f; --line: #e7e1d8; --paper: #f7f5f0; }
 * { box-sizing: border-box; }

@@ -13,7 +13,8 @@ type WorkflowVersion = {
   model: string
   definition: WorkflowDefinition
 }
-type WorkflowDefinition = { garmentAssetId: number; modelAssetId: number; creativePrompt: string; negativePrompt: string; aspectRatio: string; camera: string; lighting: string; outputCount: number; highDefinition: boolean; faceConsistency: boolean }
+type WorkflowReference = { assetId: number | null; role: string; instruction: string; core?: boolean }
+type WorkflowDefinition = { garmentAssetId: number; modelAssetId: number; creativePrompt: string; negativePrompt: string; aspectRatio: string; camera: string; lighting: string; outputCount: number; highDefinition: boolean; faceConsistency: boolean; referenceImages: WorkflowReference[] }
 type WorkflowResponse = { id: number; name: string; version: number; versionLabel: string; savedAt: string; createdAt: string; definition: WorkflowDefinition }
 type LibraryAsset = { id: number; type: 'GARMENT' | 'MODEL' | 'REFERENCE'; name: string; code: string; description: string; authorizationStatus: string | null; file: {downloadUrl: string; contentType: string} }
 
@@ -26,6 +27,7 @@ const toast = ref('')
 const workflowName = ref('NOIR 春夏主视觉')
 const selectedGarment = ref('')
 const selectedModel = ref('')
+const referenceInputs = ref<WorkflowReference[]>([])
 const creativePrompt = ref('')
 const negativePrompt = ref('')
 const aspectRatio = ref('4:5')
@@ -53,13 +55,18 @@ const steps: { id: StepId; title: string; hint: string }[] = [
 const libraryAssets = ref<LibraryAsset[]>([])
 const garments = computed(() => libraryAssets.value.filter((asset) => asset.type === 'GARMENT').map((asset) => ({id: String(asset.id), name: asset.name, meta: `${asset.code} · ${asset.description}`, palette: 'cream', imageUrl: asset.file.downloadUrl, contentType: asset.file.contentType})))
 const models = computed(() => libraryAssets.value.filter((asset) => asset.type === 'MODEL' && asset.authorizationStatus === '已确认授权').map((asset) => ({id: String(asset.id), name: asset.name, meta: `${asset.code} · ${asset.description}`, palette: 'taupe', imageUrl: asset.file.downloadUrl, contentType: asset.file.contentType})))
+const imageAssets = computed(() => libraryAssets.value.filter((asset) => ['image/png', 'image/jpeg', 'image/webp'].includes(asset.file.contentType)))
 
 const versions = ref<WorkflowVersion[]>([])
 let workspaceLoadVersion = 0
 
 const selectedGarmentData = computed(() => garments.value.find((item) => item.id === selectedGarment.value))
 const selectedModelData = computed(() => models.value.find((item) => item.id === selectedModel.value))
-const isStepOneValid = computed(() => Boolean(selectedGarmentData.value && selectedModelData.value))
+const hasValidReferences = computed(() => referenceInputs.value.length > 0
+  && referenceInputs.value.length <= 8
+  && new Set(referenceInputs.value.map((reference) => reference.assetId)).size === referenceInputs.value.length
+  && referenceInputs.value.every((reference) => Number.isSafeInteger(reference.assetId) && reference.assetId! > 0 && imageAssets.value.some((asset) => asset.id === reference.assetId) && reference.role.trim().length > 0 && reference.role.trim().length <= 40 && reference.instruction.trim().length <= 500))
+const isStepOneValid = computed(() => Boolean(selectedGarmentData.value && selectedModelData.value && hasValidReferences.value))
 const isStepTwoValid = computed(() => creativePrompt.value.trim().length >= 12)
 const isStepThreeValid = computed(() => Boolean(aspectRatio.value && camera.value && lighting.value && outputCount.value > 0))
 const canContinue = computed(() => activeStep.value === 1 ? isStepOneValid.value : activeStep.value === 2 ? isStepTwoValid.value : activeStep.value === 3 ? isStepThreeValid.value : true)
@@ -70,6 +77,7 @@ const reviewItems = computed(() => [
   { label: '画面描述', value: creativePrompt.value || '尚未填写' },
   { label: '生成设置', value: `${aspectRatio.value} · ${camera.value} · ${lighting.value} · ${outputCount.value} 张` },
   { label: '输出选项', value: `${highDefinition.value ? '高清' : '标准'} · ${faceConsistency.value ? '保持模特一致性' : '不保持模特一致性'}` },
+  { label: '参考图', value: `${referenceInputs.value.length} 张 · ${referenceInputs.value.map((reference) => imageAssets.value.find((asset) => asset.id === reference.assetId)?.name || '未选择').join('、') || '未配置'}` },
 ])
 
 function showToast(message: string) {
@@ -78,6 +86,44 @@ function showToast(message: string) {
   window.setTimeout(() => {
     if (toast.value === message) toast.value = ''
   }, 2400)
+}
+
+function syncCoreReferences() {
+  const current = referenceInputs.value
+  const coreAssetIds = new Set([Number(selectedGarment.value), Number(selectedModel.value)])
+  const custom = current.filter((reference) => !reference.core && !coreAssetIds.has(Number(reference.assetId)))
+  const garmentReference = selectedGarment.value ? current.find((reference) => reference.core && reference.role === 'garment') : undefined
+  const modelReference = selectedModel.value ? current.find((reference) => reference.core && reference.role === 'model') : undefined
+  const core: WorkflowReference[] = []
+  if (selectedGarment.value) core.push({assetId: Number(selectedGarment.value), role: 'garment', instruction: garmentReference?.instruction || '严格保留服装颜色、材质和剪裁。', core: true})
+  if (selectedModel.value) core.push({assetId: Number(selectedModel.value), role: 'model', instruction: modelReference?.instruction || '参考人物脸部、体态和站姿。', core: true})
+  referenceInputs.value = [...core, ...custom]
+}
+
+function selectGarment(assetId: string) {
+  selectedGarment.value = assetId
+  syncCoreReferences()
+}
+
+function selectModel(assetId: string) {
+  selectedModel.value = assetId
+  syncCoreReferences()
+}
+
+function addReference() {
+  if (referenceInputs.value.length >= 8) return
+  const selectedIds = new Set(referenceInputs.value.map((reference) => reference.assetId))
+  const asset = imageAssets.value.find((item) => !selectedIds.has(item.id))
+  referenceInputs.value.push({assetId: asset?.id ?? null, role: 'reference', instruction: '', core: false})
+}
+
+function removeReference(index: number) {
+  const reference = referenceInputs.value[index]
+  if (!reference || reference.core) {
+    showToast('服装和模特参考图由素材组合自动维护')
+    return
+  }
+  referenceInputs.value.splice(index, 1)
 }
 
 function markDraftTouched() {
@@ -109,7 +155,7 @@ function openSaveReview() {
   if (invalidStep) {
     activeStep.value = invalidStep
     if (invalidStep < 4) furthestStep.value = Math.max(furthestStep.value, invalidStep) as StepId
-    showToast(invalidStep === 1 ? '请先选择服装和已授权模特' : invalidStep === 2 ? '画面描述至少需要 12 个字符' : invalidStep === 3 ? '请完整设置画幅、镜头、光线和生成数量' : '请输入工作流名称')
+    showToast(invalidStep === 1 ? (!selectedGarmentData.value || !selectedModelData.value ? '请先选择服装和已授权模特' : '请配置有效的参考图、角色和对应文字要求') : invalidStep === 2 ? '画面描述至少需要 12 个字符' : invalidStep === 3 ? '请完整设置画幅、镜头、光线和生成数量' : '请输入工作流名称')
     return
   }
   activeStep.value = 4
@@ -118,7 +164,7 @@ function openSaveReview() {
 
 function validateCurrentStep() {
   if (activeStep.value === 1 && !isStepOneValid.value) {
-    showToast('请选择一件服装和一位已授权模特')
+    showToast(!selectedGarmentData.value || !selectedModelData.value ? '请选择一件服装和一位已授权模特' : '请配置有效的参考图、角色和对应文字要求')
     return false
   }
   if (activeStep.value === 2 && !isStepTwoValid.value) {
@@ -157,7 +203,7 @@ async function saveVersion() {
   const invalidStep = firstInvalidStep()
   if (invalidStep) {
     activeStep.value = invalidStep
-    showToast(invalidStep === 1 ? '请先选择服装和已授权模特' : invalidStep === 2 ? '画面描述至少需要 12 个字符' : invalidStep === 3 ? '请完整设置画幅、镜头、光线和生成数量' : '请输入工作流名称')
+    showToast(invalidStep === 1 ? (!selectedGarmentData.value || !selectedModelData.value ? '请先选择服装和已授权模特' : '请配置有效的参考图、角色和对应文字要求') : invalidStep === 2 ? '画面描述至少需要 12 个字符' : invalidStep === 3 ? '请完整设置画幅、镜头、光线和生成数量' : '请输入工作流名称')
     return
   }
   savingWorkflow.value = true
@@ -177,6 +223,7 @@ async function saveVersion() {
         output_count: outputCount.value,
         high_definition: highDefinition.value,
         face_consistency: faceConsistency.value,
+        reference_images: referenceInputs.value.map((reference) => ({asset_id: reference.assetId, role: reference.role.trim(), instruction: reference.instruction.trim()})),
       },
     })
     if (activeProjectId.value !== requestProjectId) return
@@ -216,6 +263,8 @@ async function loadVersion(version: WorkflowVersion) {
     outputCount.value = loaded.definition.outputCount
     highDefinition.value = loaded.definition.highDefinition
     faceConsistency.value = loaded.definition.faceConsistency
+    referenceInputs.value = (loaded.definition.referenceImages || []).map((reference) => ({assetId: reference.assetId, role: reference.role, instruction: reference.instruction, core: reference.role === 'garment' || reference.role === 'model'}))
+    syncCoreReferences()
     lastSavedVersion.value = loaded
     draftTouched.value = false
     activeStep.value = 1
@@ -254,6 +303,7 @@ function resetWorkflowDraft() {
   outputCount.value = 4
   highDefinition.value = true
   faceConsistency.value = true
+  referenceInputs.value = []
   activeStep.value = 1
   furthestStep.value = 1
   lastSavedVersion.value = null
@@ -273,6 +323,7 @@ try {
     versions.value = workflowResponse.workflows.map(workflowToVersion)
     selectedGarment.value = garments.value[0]?.id ?? ''
     selectedModel.value = models.value[0]?.id ?? ''
+    syncCoreReferences()
   }
 } catch (error: unknown) {
   if (initialLoadVersion === workspaceLoadVersion && activeProjectId.value === initialLoadProjectId) {
@@ -302,6 +353,7 @@ watch(activeProjectId, (nextProjectId, previousProjectId) => {
       versions.value = workflowResponse.workflows.map(workflowToVersion)
       selectedGarment.value = garments.value[0]?.id ?? ''
       selectedModel.value = models.value[0]?.id ?? ''
+      syncCoreReferences()
     } catch (error: unknown) {
       if (requestVersion !== workspaceLoadVersion || activeProjectId.value !== requestProjectId) return
       const requestError = error as {data?: {statusMessage?: string; message?: string}; statusMessage?: string; message?: string}
@@ -313,7 +365,7 @@ watch(activeProjectId, (nextProjectId, previousProjectId) => {
   })()
 })
 
-watch([workflowName, selectedGarment, selectedModel, creativePrompt, negativePrompt, aspectRatio, camera, lighting, outputCount, highDefinition, faceConsistency], markDraftTouched, {flush: 'sync'})
+watch([workflowName, selectedGarment, selectedModel, creativePrompt, negativePrompt, aspectRatio, camera, lighting, outputCount, highDefinition, faceConsistency, referenceInputs], markDraftTouched, {deep: true, flush: 'sync'})
 </script>
 
 <template>
@@ -346,18 +398,30 @@ watch([workflowName, selectedGarment, selectedModel, creativePrompt, negativePro
               <div class="editor-head"><p class="eyebrow">STEP 01</p><h2>组合创作素材</h2><span>至少选择一份服装和一位已授权模特。</span></div>
               <h3 class="field-title">服装 <small>单选</small></h3>
               <div v-if="garments.length" class="choice-grid">
-                <button v-for="garment in garments" :key="garment.id" type="button" class="choice-card" :class="[`palette-${garment.palette}`, { selected: selectedGarment === garment.id }]" @click="selectedGarment = garment.id">
+                <button v-for="garment in garments" :key="garment.id" type="button" class="choice-card" :class="[`palette-${garment.palette}`, { selected: selectedGarment === garment.id }]" @click="selectGarment(garment.id)">
                   <span class="asset-shape garment-shape"><img v-if="garment.contentType.startsWith('image/')" :src="garment.imageUrl" :alt="garment.name" loading="lazy"><i v-else /></span><span class="choice-copy"><strong>{{ garment.name }}</strong><small>{{ garment.meta }}</small></span><span class="select-mark">{{ selectedGarment === garment.id ? '✓' : '选择' }}</span>
                 </button>
               </div>
               <p v-else class="empty-version">当前项目还没有服装素材，请先前往素材库上传。</p>
               <h3 class="field-title">模特 <small>需已授权</small></h3>
               <div v-if="models.length" class="choice-grid">
-                <button v-for="model in models" :key="model.id" type="button" class="choice-card" :class="[`palette-${model.palette}`, { selected: selectedModel === model.id }]" @click="selectedModel = model.id">
+                <button v-for="model in models" :key="model.id" type="button" class="choice-card" :class="[`palette-${model.palette}`, { selected: selectedModel === model.id }]" @click="selectModel(model.id)">
                   <span class="asset-shape model-shape"><img v-if="model.contentType.startsWith('image/')" :src="model.imageUrl" :alt="model.name" loading="lazy"><i v-else /></span><span class="choice-copy"><strong>{{ model.name }}</strong><small>{{ model.meta }}</small></span><span class="authorization">已授权</span><span class="select-mark">{{ selectedModel === model.id ? '✓' : '选择' }}</span>
                 </button>
               </div>
               <p v-else class="empty-version">当前项目没有已确认授权的模特素材。</p>
+              <section class="reference-section" aria-label="工作流参考素材">
+                <div class="reference-heading"><div><strong>参考图与文字要求</strong><span>随工作流版本保存，提交生成时自动复用；服装和模特参考图由上方素材自动维护。</span></div><button type="button" :disabled="referenceInputs.length >= 8 || !imageAssets.length" @click="addReference">添加参考图</button></div>
+                <div v-for="(reference, index) in referenceInputs" :key="`${index}-${reference.assetId}`" class="reference-item">
+                  <div class="reference-item-head"><strong>参考图 {{ index + 1 }} <small v-if="reference.core">{{ reference.role === 'garment' ? '服装' : '模特' }}</small></strong><button type="button" :disabled="reference.core" :aria-label="`移除参考图 ${index + 1}`" @click="removeReference(index)">×</button></div>
+                  <label class="form-label">选择素材<select v-model="reference.assetId" :disabled="reference.core"><option :value="null">请选择图片素材</option><option v-for="asset in imageAssets" :key="asset.id" :value="asset.id">{{ asset.name }} · {{ asset.code }}</option></select><small>仅支持 PNG、JPEG 或 WebP 图片，且不能重复选择。</small></label>
+                  <label class="form-label">参考角色<input v-model="reference.role" type="text" maxlength="40" placeholder="例如 garment、model、scene" :disabled="reference.core"><small>请输入 1-40 个字符，用于说明该图片的参考角色。</small></label>
+                  <label class="form-label">对应文字要求<textarea v-model="reference.instruction" maxlength="500" rows="3" placeholder="例如：保留面料纹理和剪裁，使用自然站姿。" /><small>最多 500 个字符；该要求会与对应参考图一并发送给模型。</small></label>
+                </div>
+                <p v-if="referenceInputs.length >= 8" class="form-hint">每个工作流最多支持 8 张参考图。</p>
+                <p v-else-if="referenceInputs.length && !hasValidReferences" class="load-error reference-error">每张参考图必须选择不同的图片素材，并填写 1-40 个字符的参考角色；文字要求最多 500 个字符。</p>
+                <p v-else-if="!imageAssets.length" class="load-error reference-error">当前项目没有可用图片素材，请先到素材库上传图片。</p>
+              </section>
             </div>
 
             <div v-else-if="activeStep === 2" class="step-view">
@@ -382,7 +446,7 @@ watch([workflowName, selectedGarment, selectedModel, creativePrompt, negativePro
               <div class="editor-head"><p class="eyebrow">STEP 04</p><h2>确认并保存</h2><span>检查当前配置，保存后会生成一个新的不可覆盖版本。</span></div>
               <label class="form-label workflow-name">工作流名称 <small>必填，最多 120 个字符</small><input v-model="workflowName" maxlength="120" placeholder="例如：NOIR 春夏主视觉" /><small>保存后会创建新的不可覆盖版本，旧版本和已生成结果不会被修改。</small></label>
               <div class="review-list"><div v-for="item in reviewItems" :key="item.label" class="review-row"><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div></div>
-              <div class="version-note"><span>版本策略</span><strong>保存为 IMAGE · V{{ versions.length + 1 }}</strong><small>旧版本会保留，任何更新都不会覆盖已有生成记录。</small><div class="generation-handoff"><span>保存后可在生成任务页选择提供商、模型、批次数量和参考图要求。</span><button type="button" @click="goToGeneration">前往生成任务</button></div></div>
+              <div class="version-note"><span>版本策略</span><strong>保存为 IMAGE · V{{ versions.length + 1 }}</strong><small>旧版本会保留，任何更新都不会覆盖已有生成记录。</small><div class="generation-handoff"><span>保存后可在生成任务页选择提供商、模型和批次数量，参考图要求会随本版本自动带入。</span><button type="button" @click="goToGeneration">前往生成任务</button></div></div>
             </div>
 
             <footer class="editor-footer"><button class="quiet-button" type="button" :disabled="activeStep === 1" @click="previousStep">上一步</button><span class="step-progress">{{ activeStep }} / 4</span><button class="dark-button" type="button" :disabled="savingWorkflow || loadingWorkflows" @click="activeStep === 4 ? saveVersion() : nextStep()">{{ activeStep === 4 ? (savingWorkflow ? '正在保存…' : '确认并提交') : '继续' }} <span>{{ activeStep === 4 ? '✓' : '→' }}</span></button></footer>
@@ -417,6 +481,7 @@ watch([workflowName, selectedGarment, selectedModel, creativePrompt, negativePro
             </dl>
             <div class="history-prompt"><span>画面描述</span><p>{{ version.definition.creativePrompt || '未填写' }}</p></div>
             <div v-if="version.definition.negativePrompt" class="history-prompt"><span>排除项</span><p>{{ version.definition.negativePrompt }}</p></div>
+            <div v-if="version.definition.referenceImages?.length" class="history-prompt"><span>参考图要求</span><p v-for="reference in version.definition.referenceImages" :key="`${reference.assetId}-${reference.role}`">{{ reference.role }} · {{ reference.instruction || '未填写文字要求' }}</p></div>
           </article>
         </div>
       </section>
@@ -448,6 +513,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .workflow-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr) 230px; align-items: start; gap: 15px; }.workflow-steps { display: flex; flex-direction: column; gap: 5px; }.step-button { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 11px; color: #8a837a; text-align: left; background: transparent; border: 0; border-radius: 9px; }.step-button.clickable { color: #403c36; }.step-button.active { background: #eae5dd; }.step-number { display: grid; place-items: center; flex: 0 0 auto; width: 23px; height: 23px; border: 1px solid #cfc7bc; border-radius: 50%; color: #70695f; font-size: 10px; }.step-button.active .step-number { color: #fff; background: #292722; border-color: #292722; }.step-button.complete .step-number { color: #fff; background: #8a7659; border-color: #8a7659; }.step-button > span:last-child { display: flex; flex-direction: column; gap: 3px; padding-top: 1px; }.step-button strong { font-size: 11px; font-weight: 600; }.step-button small { color: #918a81; font-size: 8px; }
 .editor-panel, .version-panel { background: #fff; border: 1px solid #e5dfd6; border-radius: 12px; }.editor-panel { min-width: 0; padding: 26px 25px 22px; }.editor-head { border-bottom: 1px solid #eee9e2; padding-bottom: 20px; }.editor-head h2, .version-panel h2 { margin: 5px 0 6px; font: 400 25px Georgia, serif; }.editor-head > span { color: #8a847c; font-size: 10px; }.field-title { display: flex; align-items: center; gap: 8px; margin: 22px 0 10px; font-size: 10px; }.field-title small { color: #a49c91; font-size: 8px; font-weight: 400; }
 .choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }.choice-card { position: relative; display: flex; align-items: center; gap: 12px; min-height: 79px; overflow: hidden; padding: 10px 11px; color: var(--ink); text-align: left; background: #fcfbf8; border: 1px solid #e5dfd6; border-radius: 9px; }.choice-card:hover, .choice-card.selected { border-color: #a18455; box-shadow: 0 0 0 2px #a1845522; }.choice-card.selected { background: #faf7f1; }.choice-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }.choice-copy strong { overflow: hidden; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }.choice-copy small { color: #8f887f; font-size: 8px; }.select-mark { position: absolute; right: 10px; bottom: 9px; color: #9a9288; font-size: 8px; }.choice-card.selected .select-mark { color: #8a7659; font-weight: 700; }.authorization { position: absolute; top: 9px; right: 9px; padding: 3px 5px; color: #537059; background: #e6eee7; border-radius: 12px; font-size: 7px; }.asset-shape { position: relative; display: block; flex: 0 0 53px; height: 57px; overflow: hidden; border-radius: 7px; }.asset-shape img { display: block; width: 100%; height: 100%; object-fit: cover; }.palette-cream { background: linear-gradient(135deg, #d8cfc3, #f5f0e9); }.palette-charcoal { background: linear-gradient(135deg, #302e2b, #827b73); }.palette-taupe { background: linear-gradient(135deg, #b6a99d, #e0d5c8); }.palette-stone { background: linear-gradient(135deg, #b7b6b1, #e5e1d8); }.garment-shape i, .model-shape i { position: absolute; inset: 8px 13px; background: #fff9; border-radius: 45% 45% 22% 22%; clip-path: polygon(0 0, 48% 24%, 100% 0, 81% 100%, 50% 72%, 19% 100%); }.palette-charcoal .garment-shape i { background: #292521d9; }.model-shape i { inset: 5px 17px 2px; background: #8b7d72; border-radius: 48% 48% 15% 15%; clip-path: polygon(28% 0, 72% 0, 87% 25%, 100% 100%, 0 100%, 13% 25%); }
+.reference-section { margin-top: 23px; padding-top: 18px; border-top: 1px solid #eee9e2; }.reference-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }.reference-heading > div { display: flex; flex-direction: column; gap: 4px; }.reference-heading strong { font-size: 10px; }.reference-heading span { color: #8d867e; font-size: 8px; line-height: 1.45; }.reference-heading button, .reference-item-head button { flex: 0 0 auto; padding: 0; color: #8b684f; background: transparent; border: 0; font-size: 8px; }.reference-item { padding: 13px 0; border-bottom: 1px solid #eee9e2; }.reference-item-head { display: flex; align-items: center; justify-content: space-between; }.reference-item-head strong { font-size: 9px; }.reference-item-head small { margin-left: 5px; color: #9a9288; font-size: 8px; font-weight: 400; }.reference-item-head button:disabled { color: #b4aca1; cursor: not-allowed; opacity: 1; }.reference-item .form-label { margin-top: 12px; }.reference-item .form-label small { margin-top: -2px; }.reference-error { margin: 12px 0 0; }
 .form-label { display: flex; flex-direction: column; gap: 8px; margin: 20px 0 0; color: #59554f; font-size: 10px; }.form-label small { color: #989087; font-size: 8px; font-weight: 400; }.form-label textarea, .form-label input, .form-label select { width: 100%; padding: 12px 13px; color: var(--ink); background: #fcfbf8; border: 1px solid #ddd7ce; border-radius: 8px; outline: 0; resize: vertical; font-size: 11px; }.form-label textarea:focus, .form-label input:focus, .form-label select:focus { border-color: #9c835f; box-shadow: 0 0 0 3px #a1845518; }.form-label textarea::placeholder, .form-label input::placeholder { color: #aba39a; }.prompt-suggestions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 13px; color: #9a9288; font-size: 8px; }.prompt-suggestions button { padding: 6px 8px; color: #756e66; background: #f3efe9; border: 0; border-radius: 14px; font-size: 8px; }.prompt-suggestions button:hover { background: #e9e2d8; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 15px; }.stepper { display: flex; align-items: center; justify-content: space-between; height: 41px; padding: 4px; background: #fcfbf8; border: 1px solid #ddd7ce; border-radius: 8px; }.stepper button { display: grid; place-items: center; width: 30px; height: 30px; color: #5b554d; background: #f1ece5; border: 0; border-radius: 6px; }.stepper output { color: #282521; font: 16px Georgia, serif; }.toggle-list { margin-top: 22px; border-top: 1px solid #eee9e2; }.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 15px 0; border-bottom: 1px solid #eee9e2; }.toggle-row > span { display: flex; flex-direction: column; gap: 4px; }.toggle-row strong { font-size: 10px; font-weight: 600; }.toggle-row small { color: #938c83; font-size: 8px; }.toggle-row input { position: absolute; opacity: 0; pointer-events: none; }.toggle-row i { position: relative; display: block; flex: 0 0 auto; width: 35px; height: 20px; background: #d8d1c8; border-radius: 20px; transition: background .2s; }.toggle-row i::after { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; background: #fff; border-radius: 50%; box-shadow: 0 1px 3px #0002; content: ''; transition: transform .2s; }.toggle-row input:checked + i { background: #807256; }.toggle-row input:checked + i::after { transform: translateX(15px); }
 .review-view { min-height: 355px; }.workflow-name { max-width: 500px; }.review-list { margin-top: 25px; border-top: 1px solid #eee9e2; }.review-row { display: grid; grid-template-columns: 100px 1fr; gap: 15px; padding: 13px 0; border-bottom: 1px solid #eee9e2; }.review-row span { color: #958e85; font-size: 9px; }.review-row strong { overflow: hidden; color: #38342e; font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }.version-note { display: flex; flex-direction: column; gap: 5px; margin-top: 22px; padding: 14px; background: #f4efe8; border-radius: 8px; }.version-note > span { color: #9a9187; font-size: 8px; }.version-note strong { font: 400 14px Georgia, serif; }.version-note small { color: #817970; font-size: 8px; }.generation-handoff { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding-top: 9px; border-top: 1px solid #e4dcd1; }.generation-handoff span { color: #817970; font-size: 8px; line-height: 1.4; }.generation-handoff button { flex: 0 0 auto; padding: 7px 9px; color: #fff; background: #292722; border: 0; border-radius: 6px; font-size: 8px; }

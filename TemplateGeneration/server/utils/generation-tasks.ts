@@ -160,6 +160,15 @@ function getReferenceRows(database: ReturnType<typeof getDatabase>, projectId: s
   }
   // Request-level descriptions take precedence over the workflow defaults for the same asset.
   if (workflowDefinition) {
+    if (Array.isArray(workflowDefinition.referenceImages)) {
+      workflowDefinition.referenceImages.forEach((item) => {
+        if (!item || typeof item !== 'object') return
+        const record = item as Record<string, unknown>
+        const role = typeof record.role === 'string' && record.role.trim() ? record.role.trim().slice(0, 40) : 'reference'
+        const instruction = typeof record.instruction === 'string' ? record.instruction.trim().slice(0, 500) : ''
+        add(record.assetId, role, instruction)
+      })
+    }
     add(workflowDefinition.garmentAssetId, 'garment', '严格保留服装颜色、材质和剪裁。')
     add(workflowDefinition.modelAssetId, 'model', '参考人物脸部、体态和站姿。')
   }
