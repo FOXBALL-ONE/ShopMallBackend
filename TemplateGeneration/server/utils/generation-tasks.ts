@@ -1,5 +1,6 @@
 import {createError, getRouterParam, type H3Event} from 'h3'
 import {getDatabase} from './database'
+import {createResultForCompletedTask} from './results'
 
 export type GenerationTaskInput = {
   workflow_id?: unknown
@@ -214,5 +215,6 @@ export function updateGenerationTask(taskId: number, projectId: string, body: {s
     throw createError({statusCode: 409, statusMessage: '已取消任务不能再次修改状态。'})
   }
   getDatabase().prepare("UPDATE generation_tasks SET status = ?, progress = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime') WHERE id = ? AND project_id = ?").run(body.status, progress, taskId, projectId)
+  if (body.status === 'COMPLETED') createResultForCompletedTask(taskId, projectId, current.media, current.prompt)
   return serializeTask(getTaskRow(taskId, projectId))
 }
