@@ -214,15 +214,15 @@ export async function fetchProviderModels(providerId: number) {
   }
   const source = payload && typeof payload === 'object' && 'data' in payload && Array.isArray(payload.data)
     ? payload.data
-    : payload && typeof payload === 'object' && 'models' in payload && Array.isArray(payload.models)
-      ? payload.models
-      : Array.isArray(payload) ? payload : []
-  const models = [...new Map<string, string>(source.map((item): [string, string] => {
-    const value = typeof item === 'string' ? item : item && typeof item === 'object' && 'id' in item ? item.id : item && typeof item === 'object' && 'name' in item ? item.name : null
-    const name = typeof value === 'string' ? value.trim() : ''
-    return [name, name]
-  }).filter(([name]) => Boolean(name)))].map(([name]) => ({id: name, name}))
-  if (!models.length) throw createError({statusCode: 502, statusMessage: '模型列表响应中没有可用模型。'})
+    : null
+  if (!source) {
+    throw createError({statusCode: 502, statusMessage: '模型列表响应不符合 OpenAI 协议，必须包含 data 数组。'})
+  }
+  const models = [...new Set(source.map((item) => {
+    if (!item || typeof item !== 'object' || !('id' in item) || typeof item.id !== 'string') return ''
+    return item.id.trim()
+  }).filter(Boolean))].map((name) => ({id: name, name}))
+  if (!models.length) throw createError({statusCode: 502, statusMessage: 'OpenAI 模型列表响应的 data 中没有可用模型 ID。'})
   if (models.length > 100) throw createError({statusCode: 502, statusMessage: '模型列表超过 100 个，请在提供商侧筛选后重试。'})
   return models
 }
