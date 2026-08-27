@@ -38,6 +38,8 @@ function endpoint(baseUrl: string, resource: 'generations' | 'edits') {
   const parsed = new URL(baseUrl)
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw createError({statusCode: 400, statusMessage: '模型提供商基础地址必须使用 HTTP 或 HTTPS。'})
   const pathname = parsed.pathname.replace(/\/+$/, '')
+  // Keep POST requests on the canonical no-slash path. Some compatible
+  // gateways redirect a trailing-slash multipart request and drop its body.
   parsed.pathname = `${pathname.endsWith('/v1') ? pathname : `${pathname}/v1`}/images/${resource}`
   parsed.search = ''
   parsed.hash = ''
@@ -54,23 +56,51 @@ function headers(route: ImageGenerationRoute) {
 }
 
 function composePrompt(input: ImageGenerationInput) {
-  const sections = [input.prompt.trim()]
-  input.references.forEach((reference, index) => {
-    sections.push(`参考图 ${index + 1}（${reference.role}）：${reference.instruction || '请参考该图片的主体特征、构图和风格。'}`)
-  })
-  if (input.negativePrompt.trim()) sections.push(`排除项：${input.negativePrompt.trim()}`)
-  return sections.filter(Boolean).join('\n\n').slice(0, 8000)
+  const prompt = input.prompt.trim()
+  const negativePrompt = input.negativePrompt.trim()
+  if (!input.references.length) return [prompt, negativePrompt ? `排除项：${negativePrompt}` : ''].filter(Boolean).join('\n\n').slice(0, 8000)
+
+  // Keep every reference instruction represented while leaving the primary
+  // prompt first. This fits the edits endpoint's 1000-character limit even
+  // when a workflow contains the maximum number of references.
+  const referenceBudget = Math.max(50, Math.floor(520 / input.references.length))
+  const references = input.references.map((reference, index) => {
+    const role = reference.role.trim().slice(0, 20) || 'reference'
+    const instruction = reference.instruction.trim() || '请参考该图片的主体特征、构图和风格。'
+    return `参考图 ${index + 1}（${role}）：${instruction}`.slice(0, referenceBudget)
+  }).join('\n')
+  const negative = negativePrompt ? `排除项：${negativePrompt.slice(0, 120)}` : ''
+  const suffix = [references, negative].filter(Boolean).join('\n\n')
+  const promptBudget = Math.max(0, 1000 - suffix.length - (suffix ? 2 : 0))
+  return [prompt.slice(0, promptBudget), suffix].filter(Boolean).join('\n\n').slice(0, 1000)
 }
 
 function decodeBase64(value: string) {
   try {
-    const data = Buffer.from(value, 'base64')
+    const encoded = value.includes(',') ? value.slice(value.indexOf(',') + 1) : value
+    const data = Buffer.from(encoded.trim(), 'base64')
     if (!data.length) throw new Error('empty')
     if (data.length > 50 * 1024 * 1024) throw new Error('too-large')
     return data
   } catch {
     throw createError({statusCode: 502, statusMessage: '图像生成服务返回的 Base64 图片无效或超过 50 MB 限制。'})
   }
+}
+
+function normalizeEditSize(value: string) {
+  const normalized = value.trim() || '1024x1024'
+  if (normalized === 'auto') return '1024x1024'
+  if (normalized !== '256x256' && normalized !== '512x512' && normalized !== '1024x1024') {
+    throw createError({statusCode: 400, statusMessage: '图生图输出尺寸必须是 256x256、512x512 或 1024x1024。'})
+  }
+  return normalized
+}
+
+function detectImageContentType(data: Buffer, fallback: string) {
+  if (data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
+  if (data.length >= 3 && data.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'image/jpeg'
+  if (data.length >= 12 && data.subarray(0, 4).toString('ascii') === 'RIFF' && data.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp'
+  return fallback
 }
 
 async function readJson(response: Response) {
@@ -95,14 +125,17 @@ export async function generateImage(route: ImageGenerationRoute, input: ImageGen
   let response: Response
   if (input.references.length) {
     const form = new FormData()
+    const size = normalizeEditSize(input.size)
     form.append('model', route.model)
     form.append('prompt', prompt)
     form.append('n', '1')
-    form.append('size', input.size)
-    form.append('quality', input.quality)
-    form.append('background', input.background)
-    form.append('output_format', input.outputFormat)
-    input.references.forEach((reference) => form.append('image[]', new Blob([new Uint8Array(reference.data)], {type: reference.contentType}), reference.originalName || 'reference-image'))
+    form.append('size', size)
+    form.append('response_format', 'b64_json')
+    // Apifox documents the singular `image` field. NewAPI normalizes repeated
+    // `image[]` fields for multi-reference requests, so use the documented
+    // shape for one image and the compatibility shape for multiple images.
+    const imageField = input.references.length === 1 ? 'image' : 'image[]'
+    input.references.forEach((reference) => form.append(imageField, new Blob([new Uint8Array(reference.data)], {type: reference.contentType}), reference.originalName || 'reference-image'))
     try { response = await fetch(endpoint(route.baseUrl, 'edits'), {method: 'POST', headers: requestHeaders, body: form, signal: AbortSignal.timeout(timeoutMs)}) }
     catch { throw createError({statusCode: 504, statusMessage: '图像生成请求超时或网络连接失败。'}) }
   } else {
@@ -116,7 +149,11 @@ export async function generateImage(route: ImageGenerationRoute, input: ImageGen
   if (!source || typeof source !== 'object') throw createError({statusCode: 502, statusMessage: '图像生成服务响应缺少 data 图片数据。'})
   const item = source as Record<string, unknown>
   const upstreamRequestId = response.headers.get('x-request-id') || response.headers.get('request-id') || (typeof payload === 'object' && payload && 'id' in payload && typeof payload.id === 'string' ? payload.id : null)
-  if (typeof item.b64_json === 'string') return {data: decodeBase64(item.b64_json), contentType: input.outputFormat === 'webp' ? 'image/webp' : input.outputFormat === 'jpeg' ? 'image/jpeg' : 'image/png', upstreamRequestId}
+  if (typeof item.b64_json === 'string') {
+    const data = decodeBase64(item.b64_json)
+    const fallback = input.references.length ? 'image/png' : input.outputFormat === 'webp' ? 'image/webp' : input.outputFormat === 'jpeg' ? 'image/jpeg' : 'image/png'
+    return {data, contentType: detectImageContentType(data, fallback), upstreamRequestId}
+  }
   if (typeof item.url === 'string') {
     let imageResponse: Response
     try { imageResponse = await fetch(item.url, {signal: AbortSignal.timeout(timeoutMs)}) } catch { throw createError({statusCode: 502, statusMessage: '无法下载图像生成服务返回的图片。'}) }
@@ -125,7 +162,7 @@ export async function generateImage(route: ImageGenerationRoute, input: ImageGen
     const contentType = rawContentType === 'image/jpg' ? 'image/jpeg' : rawContentType
     const data = Buffer.from(await imageResponse.arrayBuffer())
     if (data.length > 50 * 1024 * 1024) throw createError({statusCode: 502, statusMessage: '图像生成服务返回的图片超过 50 MB 限制。'})
-    return {data, contentType, upstreamRequestId}
+    return {data, contentType: detectImageContentType(data, contentType), upstreamRequestId}
   }
   throw createError({statusCode: 502, statusMessage: '图像生成服务响应中没有 b64_json 或 url。'})
 }

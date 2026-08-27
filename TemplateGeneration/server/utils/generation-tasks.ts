@@ -35,6 +35,7 @@ const MEDIA_TYPES = ['IMAGE', 'VIDEO'] as const
 const QUALITY_VALUES = ['low', 'medium', 'high', 'auto'] as const
 const BACKGROUND_VALUES = ['transparent', 'opaque', 'auto'] as const
 const OUTPUT_FORMATS = ['png', 'webp', 'jpeg'] as const
+const IMAGE_EDIT_SIZES = ['256x256', '512x512', '1024x1024'] as const
 const REFERENCE_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 
 export function getGenerationTaskProjectId(event: H3Event) {
@@ -210,13 +211,21 @@ export function createGenerationTasks(projectId: string, body: GenerationTaskInp
     if (!workflow) throw createError({statusCode: 404, statusMessage: '工作流不存在或不属于当前项目。'})
     workflowName = workflow.name; workflowVersion = `IMAGE · V${workflow.version}`; media = 'IMAGE'
     try { workflowDefinition = JSON.parse(workflow.definition_json) as Record<string, unknown> } catch { throw createError({statusCode: 500, statusMessage: '工作流定义数据损坏。'}) }
+    const workflowMaterials = database.prepare('SELECT asset_id, role, instruction FROM workflow_materials WHERE workflow_id = ? ORDER BY position ASC').all(workflowId) as Array<{asset_id: number; role: string; instruction: string}>
+    if (workflowMaterials.length > 0) {
+      workflowDefinition.referenceImages = workflowMaterials.map((material) => ({assetId: material.asset_id, role: material.role, instruction: material.instruction}))
+    }
     prompt = typeof workflowDefinition.creativePrompt === 'string' ? workflowDefinition.creativePrompt.slice(0, 5000) : prompt
     negativePrompt = typeof workflowDefinition.negativePrompt === 'string' ? workflowDefinition.negativePrompt.slice(0, 3000) : negativePrompt
   } else media = readMedia(body.media)
   if (media !== 'IMAGE') throw createError({statusCode: 400, statusMessage: '当前 OpenAI 图像模块只支持 IMAGE 任务。'})
   if (!workflowName) throw createError({statusCode: 400, statusMessage: '工作流名称不能为空。'})
   if (!workflowVersion) throw createError({statusCode: 400, statusMessage: '工作流版本不能为空。'})
-  const size = readOptionalString(body.size, '输出尺寸', 30) || 'auto'
+  const requestedSize = readOptionalString(body.size, '输出尺寸', 30)
+  const usesImageEdits = workflowId !== null || (Array.isArray(body.reference_images) && body.reference_images.length > 0)
+  const size = usesImageEdits
+    ? readChoice(requestedSize === 'auto' ? undefined : requestedSize, IMAGE_EDIT_SIZES, '图生图输出尺寸', '1024x1024')
+    : requestedSize || '1024x1024'
   const quality = readChoice(body.quality, QUALITY_VALUES, '输出质量', 'auto')
   const background = readChoice(body.background, BACKGROUND_VALUES, '背景模式', 'auto')
   const outputFormat = readChoice(body.output_format, OUTPUT_FORMATS, '输出格式', 'png')

@@ -247,6 +247,21 @@ export function getDatabase() {
     CREATE INDEX IF NOT EXISTS idx_asset_library_project_id ON asset_library(project_id);
     CREATE INDEX IF NOT EXISTS idx_asset_library_file_id ON asset_library(file_id);
 
+    CREATE TABLE IF NOT EXISTS workflow_materials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workflow_id INTEGER NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL,
+      asset_id INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      instruction TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
+      UNIQUE(workflow_id, position),
+      UNIQUE(workflow_id, asset_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_materials_workflow_id ON workflow_materials(workflow_id, position);
+    CREATE INDEX IF NOT EXISTS idx_workflow_materials_asset_id ON workflow_materials(asset_id);
+
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -304,7 +319,49 @@ export function getDatabase() {
     connection.exec('CREATE INDEX IF NOT EXISTS idx_results_project_generation_status ON results(project_id, generation_status, created_at)')
     connection.exec('CREATE INDEX IF NOT EXISTS idx_generation_task_inputs_task_id ON generation_task_inputs(task_id, position)')
     connection.exec('CREATE INDEX IF NOT EXISTS idx_generation_task_events_task_id ON generation_task_events(task_id, created_at, id)')
+    connection.exec('CREATE INDEX IF NOT EXISTS idx_workflow_materials_workflow_id ON workflow_materials(workflow_id, position)')
+    connection.exec('CREATE INDEX IF NOT EXISTS idx_workflow_materials_asset_id ON workflow_materials(asset_id)')
     connection.exec("UPDATE asset_library SET scope = CASE WHEN project_id = '__global__' THEN 'GLOBAL' ELSE 'PROJECT' END WHERE scope IS NULL OR scope = ''")
+
+    // Backfill material rows for workflows created before the normalized list was introduced.
+    const workflowsWithoutMaterials = connection.prepare(`
+      SELECT workflows.id, workflows.definition_json
+      FROM workflows
+      WHERE NOT EXISTS (
+        SELECT 1 FROM workflow_materials WHERE workflow_materials.workflow_id = workflows.id
+      )
+    `).all() as Array<{id: number; definition_json: string}>
+    if (workflowsWithoutMaterials.length > 0) {
+      const insertMaterial = connection.prepare('INSERT OR IGNORE INTO workflow_materials (workflow_id, position, asset_id, role, instruction) VALUES (?, ?, ?, ?, ?)')
+      connection.transaction(() => {
+        workflowsWithoutMaterials.forEach((workflow) => {
+          let parsed: Record<string, unknown>
+          try {
+            parsed = JSON.parse(workflow.definition_json) as Record<string, unknown>
+          } catch {
+            return
+          }
+          const materials: Array<{assetId: number; role: string; instruction: string}> = []
+          const addMaterial = (assetIdValue: unknown, role: string, instruction: string) => {
+            const assetId = Number(assetIdValue)
+            if (!Number.isSafeInteger(assetId) || assetId <= 0 || materials.some((material) => material.assetId === assetId) || materials.length >= 8) return
+            materials.push({assetId, role, instruction})
+          }
+          if (Array.isArray(parsed.referenceImages)) {
+            parsed.referenceImages.forEach((item) => {
+              if (!item || typeof item !== 'object') return
+              const record = item as Record<string, unknown>
+              const role = typeof record.role === 'string' && record.role.trim() ? record.role.trim().slice(0, 40) : 'reference'
+              const instruction = typeof record.instruction === 'string' ? record.instruction.trim().slice(0, 500) : ''
+              addMaterial(record.assetId, role, instruction)
+            })
+          }
+          addMaterial(parsed.garmentAssetId, 'garment', '严格保留服装颜色、材质和剪裁。')
+          addMaterial(parsed.modelAssetId, 'model', '参考人物脸部、体态和站姿。')
+          materials.forEach((material, index) => insertMaterial.run(workflow.id, index + 1, material.assetId, material.role, material.instruction))
+        })
+      })()
+    }
 
     // Upgrade databases created before model records had their own stable IDs.
     const modelColumns = connection.prepare('PRAGMA table_info(api_provider_models)').all() as Array<{name: string}>

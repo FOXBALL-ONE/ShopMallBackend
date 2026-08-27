@@ -18,6 +18,11 @@ export type WorkflowInput = {
 
 type WorkflowReference = {assetId: number; role: string; instruction: string}
 
+const DEFAULT_MATERIAL_INSTRUCTIONS = {
+  garment: '严格保留服装颜色、材质和剪裁。',
+  model: '参考人物脸部、体态和站姿。',
+} as const
+
 type WorkflowDefinition = {
   garmentAssetId: number
   modelAssetId: number
@@ -90,12 +95,25 @@ function normalizeReferenceImages(value: unknown) {
   return references
 }
 
+function normalizeWorkflowMaterials(references: WorkflowReference[], garmentAssetId: number, modelAssetId: number) {
+  const materials = [...references]
+  const appendIfMissing = (assetId: number, role: string, instruction: string) => {
+    if (!materials.some((material) => material.assetId === assetId)) materials.push({assetId, role, instruction})
+  }
+  appendIfMissing(garmentAssetId, 'garment', DEFAULT_MATERIAL_INSTRUCTIONS.garment)
+  appendIfMissing(modelAssetId, 'model', DEFAULT_MATERIAL_INSTRUCTIONS.model)
+  if (materials.length > 8) throw createError({statusCode: 400, statusMessage: '单个工作流最多支持 8 项素材组合。'})
+  return materials
+}
+
 function validateDefinition(body: WorkflowInput): WorkflowDefinition {
   const outputCount = Number(body.output_count)
   if (!Number.isInteger(outputCount) || outputCount < 1 || outputCount > 12) throw createError({statusCode: 400, statusMessage: '生成数量必须是 1-12 的整数。'})
+  const garmentAssetId = requiredAssetId(body.garment_asset_id, '服装素材')
+  const modelAssetId = requiredAssetId(body.model_asset_id, '模特素材')
   const definition = {
-    garmentAssetId: requiredAssetId(body.garment_asset_id, '服装素材'),
-    modelAssetId: requiredAssetId(body.model_asset_id, '模特素材'),
+    garmentAssetId,
+    modelAssetId,
     creativePrompt: requiredString(body.creative_prompt, '画面描述', 5000),
     negativePrompt: typeof body.negative_prompt === 'string' ? body.negative_prompt.trim().slice(0, 3000) : '',
     aspectRatio: requiredString(body.aspect_ratio, '画幅比例', 30),
@@ -104,14 +122,25 @@ function validateDefinition(body: WorkflowInput): WorkflowDefinition {
     outputCount,
     highDefinition: body.high_definition !== false,
     faceConsistency: body.face_consistency !== false,
-    referenceImages: normalizeReferenceImages(body.reference_images),
+    referenceImages: normalizeWorkflowMaterials(normalizeReferenceImages(body.reference_images), garmentAssetId, modelAssetId),
   }
   return definition
 }
 
-function parseDefinition(value: string) {
+function parseDefinition(value: string, materialReferences?: WorkflowReference[]) {
   try {
     const parsed = JSON.parse(value) as Partial<WorkflowDefinition>
+    const references = Array.isArray(parsed.referenceImages)
+      ? parsed.referenceImages.flatMap((item) => {
+          if (!item || typeof item !== 'object') return []
+          const record = item as Record<string, unknown>
+          const assetId = Number(record.assetId)
+          if (!Number.isSafeInteger(assetId) || assetId <= 0) return []
+          const role = typeof record.role === 'string' && record.role.trim() ? record.role.trim().slice(0, 40) : 'reference'
+          const instruction = typeof record.instruction === 'string' ? record.instruction.trim().slice(0, 500) : ''
+          return [{assetId, role, instruction}]
+        }).slice(0, 8)
+      : []
     return {
       garmentAssetId: Number(parsed.garmentAssetId) || 0,
       modelAssetId: Number(parsed.modelAssetId) || 0,
@@ -123,24 +152,20 @@ function parseDefinition(value: string) {
       outputCount: Number(parsed.outputCount) || 1,
       highDefinition: parsed.highDefinition !== false,
       faceConsistency: parsed.faceConsistency !== false,
-      referenceImages: Array.isArray(parsed.referenceImages)
-        ? parsed.referenceImages.flatMap((item) => {
-            if (!item || typeof item !== 'object') return []
-            const record = item as Record<string, unknown>
-            const assetId = Number(record.assetId)
-            if (!Number.isSafeInteger(assetId) || assetId <= 0) return []
-            const role = typeof record.role === 'string' && record.role.trim() ? record.role.trim().slice(0, 40) : 'reference'
-            const instruction = typeof record.instruction === 'string' ? record.instruction.trim().slice(0, 500) : ''
-            return [{assetId, role, instruction}]
-          }).slice(0, 8)
-        : [],
+      referenceImages: materialReferences ?? references,
     }
   } catch {
     throw createError({statusCode: 500, statusMessage: '工作流定义数据损坏。'})
   }
 }
 
+function readWorkflowMaterials(workflowId: number) {
+  const rows = getDatabase().prepare('SELECT asset_id, role, instruction FROM workflow_materials WHERE workflow_id = ? ORDER BY position ASC').all(workflowId) as Array<{asset_id: number; role: string; instruction: string}>
+  return rows.map((row) => ({assetId: row.asset_id, role: row.role, instruction: row.instruction}))
+}
+
 function serializeWorkflow(row: WorkflowRow) {
+  const materials = readWorkflowMaterials(row.id)
   return {
     id: row.id,
     projectId: row.project_id,
@@ -149,7 +174,7 @@ function serializeWorkflow(row: WorkflowRow) {
     versionLabel: `IMAGE · V${row.version}`,
     savedAt: row.updated_at.replace(' ', 'T'),
     createdAt: row.created_at.replace(' ', 'T'),
-    definition: parseDefinition(row.definition_json),
+    definition: parseDefinition(row.definition_json, materials.length > 0 ? materials : undefined),
   }
 }
 
@@ -194,7 +219,10 @@ export function createWorkflow(projectId: string, body: WorkflowInput) {
 
   const save = database.transaction(() => {
     const nextVersion = database.prepare('SELECT COALESCE(MAX(version), 0) + 1 AS version FROM workflows WHERE project_id = ?').get(projectId) as {version: number}
-    return database.prepare("INSERT INTO workflows (project_id, name, version, definition_json, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))").run(projectId, name, nextVersion.version, JSON.stringify(definition))
+    const result = database.prepare("INSERT INTO workflows (project_id, name, version, definition_json, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))").run(projectId, name, nextVersion.version, JSON.stringify(definition))
+    const insertMaterial = database.prepare('INSERT INTO workflow_materials (workflow_id, position, asset_id, role, instruction) VALUES (?, ?, ?, ?, ?)')
+    definition.referenceImages.forEach((material, index) => insertMaterial.run(result.lastInsertRowid, index + 1, material.assetId, material.role, material.instruction))
+    return result
   })
   const result = save.immediate()
   return getWorkflow(Number(result.lastInsertRowid), projectId)
