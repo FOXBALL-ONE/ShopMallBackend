@@ -127,9 +127,10 @@ versions from SQLite. Authenticated clients can use:
 - `POST /api/projects/:projectId/workflows` to save a new immutable version;
 - `GET /api/projects/:projectId/workflows/:workflowId` to read one version.
 
-The save endpoint verifies that the garment and model assets belong to the
-project, have the expected asset types, and that the model has confirmed
-authorization. Versions are assigned per project and are never overwritten.
+The save endpoint verifies that the garment, model and reference image assets belong to the
+project, have valid image files, and that the model has confirmed authorization. Each version
+stores up to eight reference images with a role and an optional per-image instruction. Versions
+are assigned per project and are never overwritten.
 
 ## Generation task persistence
 
@@ -137,10 +138,31 @@ Authenticated clients can use:
 
 - `GET /api/projects/:projectId/generation-tasks` to query the latest 200 persisted tasks;
 - `POST /api/projects/:projectId/generation-tasks` to create a batch of tasks with an enabled provider;
-- `PATCH /api/projects/:projectId/generation-tasks/:taskId` to update task status and progress.
+- `POST /api/projects/:projectId/generation-tasks/:taskId/cancel` to request cancellation of a queued or running task.
 
 Each task stores a snapshot of the selected provider, model, workflow name/version, media type,
-batch position and prompt in SQLite, so later provider or workflow changes do not alter audit history.
+batch position, prompt and source files in SQLite, so later provider or workflow changes do not alter audit history.
+The Worker alone advances task status and progress; the legacy PATCH route accepts only a `CANCELLED`
+cancellation request for compatibility.
+
+## Real image generation
+
+Submitting an `IMAGE` task creates a durable batch, task, result placeholder and an input snapshot.
+The Nitro generation worker claims queued tasks with a SQLite lease and sends requests only through the
+provider and model selected in that batch. Workflow garment/model assets and the reference images
+stored in the selected workflow version are sent as repeated OpenAI-compatible `image[]` multipart
+fields; each reference item contains an asset, role and optional instruction. Legacy clients may
+still provide `reference_images` request items, which are merged with the workflow references.
+
+Successful images are stored under `TEMPLATE_STORAGE_BASE_PATH`, registered in `stored_files`, linked
+to the existing result record, and added to the project asset library as a `REFERENCE` asset for later
+workflows. Task lifecycle events are persisted in `generation_task_events`; `GET /api/projects/:projectId/generation-tasks/:taskId`
+returns the task together with its events. The generation page and result center poll only while work is
+non-terminal. Browser clients can request cancellation, but cannot advance task status or progress.
+
+Configure `TEMPLATE_GENERATION_WORKER_CONCURRENCY`, `TEMPLATE_GENERATION_LEASE_MS`, and
+`TEMPLATE_GENERATION_TIMEOUT_MS` as needed. The provider credential stays server-side; it is never
+sent to browser requests or stored in task snapshots.
 
 ## Production
 

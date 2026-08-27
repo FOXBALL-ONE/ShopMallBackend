@@ -69,15 +69,50 @@ export function getDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       workflow_id INTEGER REFERENCES workflows(id) ON DELETE SET NULL,
+      batch_id TEXT,
       status TEXT NOT NULL,
       progress INTEGER NOT NULL DEFAULT 0,
+      stage TEXT NOT NULL DEFAULT '排队中',
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 2,
+      next_attempt_at INTEGER,
+      lease_token TEXT,
+      lease_expires_at INTEGER,
+      started_at TEXT,
+      completed_at TEXT,
+      failed_at TEXT,
+      cancelled_at TEXT,
+      last_heartbeat_at TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      upstream_request_id TEXT,
+      duration_ms INTEGER,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))
     );
 
+    CREATE TABLE IF NOT EXISTS generation_batches (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      provider_id INTEGER,
+      model_id INTEGER,
+      batch_count INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'QUEUED',
+      submitted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
+      completed_at TEXT,
+      failed_at TEXT,
+      idempotency_key_hash TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
+      UNIQUE(project_id, idempotency_key_hash)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_generation_batches_project_id ON generation_batches(project_id, submitted_at);
+
     CREATE TABLE IF NOT EXISTS generation_task_specs (
       task_id INTEGER PRIMARY KEY REFERENCES generation_tasks(id) ON DELETE CASCADE,
       provider_id INTEGER REFERENCES api_providers(id) ON DELETE SET NULL,
+      provider_base_url TEXT NOT NULL DEFAULT '',
       provider_name TEXT NOT NULL,
       provider_type TEXT NOT NULL,
       model TEXT NOT NULL,
@@ -87,6 +122,12 @@ export function getDatabase() {
       batch_index INTEGER NOT NULL DEFAULT 1,
       batch_count INTEGER NOT NULL DEFAULT 1,
       prompt TEXT NOT NULL DEFAULT '',
+      negative_prompt TEXT NOT NULL DEFAULT '',
+      size TEXT NOT NULL DEFAULT 'auto',
+      quality TEXT NOT NULL DEFAULT 'auto',
+      background TEXT NOT NULL DEFAULT 'auto',
+      output_format TEXT NOT NULL DEFAULT 'png',
+      request_snapshot_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))
     );
 
@@ -99,10 +140,55 @@ export function getDatabase() {
       task_id INTEGER REFERENCES generation_tasks(id) ON DELETE SET NULL,
       media TEXT NOT NULL,
       status TEXT NOT NULL,
+      generation_status TEXT NOT NULL DEFAULT 'GENERATING',
       prompt TEXT NOT NULL DEFAULT '',
       uri TEXT,
+      file_id INTEGER REFERENCES stored_files(id) ON DELETE SET NULL,
+      content_type TEXT,
+      size_bytes INTEGER,
+      sha256 TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      generated_at TEXT,
+      upstream_request_id TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))
     );
+
+    CREATE TABLE IF NOT EXISTS generation_task_inputs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id INTEGER NOT NULL REFERENCES generation_tasks(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      instruction TEXT NOT NULL DEFAULT '',
+      asset_id INTEGER,
+      file_id INTEGER REFERENCES stored_files(id) ON DELETE SET NULL,
+      storage_key TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      sha256 TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
+      UNIQUE(task_id, position)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_generation_task_inputs_task_id ON generation_task_inputs(task_id, position);
+
+    CREATE TABLE IF NOT EXISTS generation_task_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id INTEGER NOT NULL REFERENCES generation_tasks(id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      from_status TEXT,
+      to_status TEXT,
+      stage TEXT,
+      progress INTEGER,
+      message TEXT NOT NULL DEFAULT '',
+      error_code TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      worker_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_generation_task_events_task_id ON generation_task_events(task_id, created_at, id);
 
     CREATE TABLE IF NOT EXISTS api_providers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,6 +237,8 @@ export function getDatabase() {
       description TEXT NOT NULL DEFAULT '',
       tags_json TEXT NOT NULL DEFAULT '[]',
       authorization_status TEXT,
+      source_task_id INTEGER,
+      source_result_id INTEGER,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
       UNIQUE(project_id, code)
@@ -158,6 +246,21 @@ export function getDatabase() {
 
     CREATE INDEX IF NOT EXISTS idx_asset_library_project_id ON asset_library(project_id);
     CREATE INDEX IF NOT EXISTS idx_asset_library_file_id ON asset_library(file_id);
+
+    CREATE TABLE IF NOT EXISTS workflow_materials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workflow_id INTEGER NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL,
+      asset_id INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      instruction TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
+      UNIQUE(workflow_id, position),
+      UNIQUE(workflow_id, asset_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_materials_workflow_id ON workflow_materials(workflow_id, position);
+    CREATE INDEX IF NOT EXISTS idx_workflow_materials_asset_id ON workflow_materials(asset_id);
 
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,7 +291,77 @@ export function getDatabase() {
     if (!assetColumns.some((column) => column.name === 'scope')) {
       connection.exec("ALTER TABLE asset_library ADD COLUMN scope TEXT NOT NULL DEFAULT 'PROJECT'")
     }
+    const ensureColumns = (table: string, columns: Record<string, string>) => {
+      const existing = new Set((connection.prepare(`PRAGMA table_info(${table})`).all() as Array<{name: string}>).map((column) => column.name))
+      Object.entries(columns).forEach(([name, definition]) => {
+        if (!existing.has(name)) connection.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`)
+      })
+    }
+    ensureColumns('generation_tasks', {
+      batch_id: 'TEXT', stage: "TEXT NOT NULL DEFAULT '排队中'", attempt_count: 'INTEGER NOT NULL DEFAULT 0',
+      max_attempts: 'INTEGER NOT NULL DEFAULT 2', next_attempt_at: 'INTEGER', lease_token: 'TEXT',
+      lease_expires_at: 'INTEGER', started_at: 'TEXT', completed_at: 'TEXT', failed_at: 'TEXT', cancelled_at: 'TEXT',
+      last_heartbeat_at: 'TEXT', error_code: 'TEXT', error_message: 'TEXT', upstream_request_id: 'TEXT', duration_ms: 'INTEGER',
+    })
+    ensureColumns('generation_task_specs', {
+      provider_base_url: "TEXT NOT NULL DEFAULT ''", negative_prompt: "TEXT NOT NULL DEFAULT ''",
+      size: "TEXT NOT NULL DEFAULT 'auto'", quality: "TEXT NOT NULL DEFAULT 'auto'", background: "TEXT NOT NULL DEFAULT 'auto'",
+      output_format: "TEXT NOT NULL DEFAULT 'png'", request_snapshot_json: "TEXT NOT NULL DEFAULT '{}'",
+    })
+    ensureColumns('results', {
+      generation_status: "TEXT NOT NULL DEFAULT 'GENERATING'", file_id: 'INTEGER', content_type: 'TEXT', size_bytes: 'INTEGER',
+      sha256: 'TEXT', error_code: 'TEXT', error_message: 'TEXT', generated_at: 'TEXT', upstream_request_id: 'TEXT',
+    })
+    ensureColumns('asset_library', {source_task_id: 'INTEGER', source_result_id: 'INTEGER'})
+    connection.exec('CREATE INDEX IF NOT EXISTS idx_generation_tasks_project_status ON generation_tasks(project_id, status, updated_at)')
+    connection.exec('CREATE INDEX IF NOT EXISTS idx_generation_tasks_batch_id ON generation_tasks(batch_id)')
+    connection.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_results_task_id_unique ON results(task_id) WHERE task_id IS NOT NULL')
+    connection.exec('CREATE INDEX IF NOT EXISTS idx_results_project_generation_status ON results(project_id, generation_status, created_at)')
+    connection.exec('CREATE INDEX IF NOT EXISTS idx_generation_task_inputs_task_id ON generation_task_inputs(task_id, position)')
+    connection.exec('CREATE INDEX IF NOT EXISTS idx_generation_task_events_task_id ON generation_task_events(task_id, created_at, id)')
+    connection.exec('CREATE INDEX IF NOT EXISTS idx_workflow_materials_workflow_id ON workflow_materials(workflow_id, position)')
+    connection.exec('CREATE INDEX IF NOT EXISTS idx_workflow_materials_asset_id ON workflow_materials(asset_id)')
     connection.exec("UPDATE asset_library SET scope = CASE WHEN project_id = '__global__' THEN 'GLOBAL' ELSE 'PROJECT' END WHERE scope IS NULL OR scope = ''")
+
+    // Backfill material rows for workflows created before the normalized list was introduced.
+    const workflowsWithoutMaterials = connection.prepare(`
+      SELECT workflows.id, workflows.definition_json
+      FROM workflows
+      WHERE NOT EXISTS (
+        SELECT 1 FROM workflow_materials WHERE workflow_materials.workflow_id = workflows.id
+      )
+    `).all() as Array<{id: number; definition_json: string}>
+    if (workflowsWithoutMaterials.length > 0) {
+      const insertMaterial = connection.prepare('INSERT OR IGNORE INTO workflow_materials (workflow_id, position, asset_id, role, instruction) VALUES (?, ?, ?, ?, ?)')
+      connection.transaction(() => {
+        workflowsWithoutMaterials.forEach((workflow) => {
+          let parsed: Record<string, unknown>
+          try {
+            parsed = JSON.parse(workflow.definition_json) as Record<string, unknown>
+          } catch {
+            return
+          }
+          const materials: Array<{assetId: number; role: string; instruction: string}> = []
+          const addMaterial = (assetIdValue: unknown, role: string, instruction: string) => {
+            const assetId = Number(assetIdValue)
+            if (!Number.isSafeInteger(assetId) || assetId <= 0 || materials.some((material) => material.assetId === assetId) || materials.length >= 8) return
+            materials.push({assetId, role, instruction})
+          }
+          if (Array.isArray(parsed.referenceImages)) {
+            parsed.referenceImages.forEach((item) => {
+              if (!item || typeof item !== 'object') return
+              const record = item as Record<string, unknown>
+              const role = typeof record.role === 'string' && record.role.trim() ? record.role.trim().slice(0, 40) : 'reference'
+              const instruction = typeof record.instruction === 'string' ? record.instruction.trim().slice(0, 500) : ''
+              addMaterial(record.assetId, role, instruction)
+            })
+          }
+          addMaterial(parsed.garmentAssetId, 'garment', '严格保留服装颜色、材质和剪裁。')
+          addMaterial(parsed.modelAssetId, 'model', '参考人物脸部、体态和站姿。')
+          materials.forEach((material, index) => insertMaterial.run(workflow.id, index + 1, material.assetId, material.role, material.instruction))
+        })
+      })()
+    }
 
     // Upgrade databases created before model records had their own stable IDs.
     const modelColumns = connection.prepare('PRAGMA table_info(api_provider_models)').all() as Array<{name: string}>
