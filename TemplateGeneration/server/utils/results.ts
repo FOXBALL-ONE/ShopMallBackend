@@ -1,6 +1,6 @@
 import {createError, getRouterParam, type H3Event} from 'h3'
 import {getDatabase} from './database'
-import {getFileRow, serializeFile} from './file-records'
+import {getFileRow, serializeFile, type FileRow} from './file-records'
 
 export const RESULT_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'] as const
 export type ResultStatus = typeof RESULT_STATUSES[number]
@@ -86,6 +86,25 @@ export function listResults(projectId: string) {
   ensureCompletedTaskResults(projectId)
   const rows = getDatabase().prepare(`${resultQuery()} WHERE results.project_id = ? ORDER BY results.created_at DESC, results.id DESC LIMIT 200`).all(projectId) as ResultRow[]
   return rows.map(serializeResult)
+}
+
+export function getDownloadableResultFiles(projectId: string, resultIds: number[]) {
+  if (!resultIds.length || resultIds.length > 200) throw createError({statusCode: 400, statusMessage: '请选择 1-200 个生成结果。'})
+  if (resultIds.some((id) => !Number.isSafeInteger(id) || id <= 0)) throw createError({statusCode: 400, statusMessage: '结果 ID 必须是正整数。'})
+  const uniqueIds = [...new Set(resultIds)]
+  const placeholders = uniqueIds.map(() => '?').join(', ')
+  const rows = getDatabase().prepare(`
+    SELECT results.id AS result_id, results.task_id, stored_files.id, stored_files.storage_key,
+      stored_files.original_name, stored_files.content_type, stored_files.size_bytes, stored_files.sha256,
+      stored_files.created_at, stored_files.updated_at
+    FROM results
+    INNER JOIN stored_files ON stored_files.id = results.file_id
+    WHERE results.project_id = ? AND results.generation_status = 'READY' AND results.id IN (${placeholders})
+  `).all(projectId, ...uniqueIds) as Array<FileRow & {result_id: number; task_id: number | null}>
+  const rowsByResultId = new Map(rows.map((row) => [row.result_id, row]))
+  const orderedRows = uniqueIds.map((id) => rowsByResultId.get(id)).filter((row): row is FileRow & {result_id: number; task_id: number | null} => Boolean(row))
+  if (orderedRows.length !== uniqueIds.length) throw createError({statusCode: 400, statusMessage: '所选结果包含未生成完成、文件缺失或不属于当前项目的记录。'})
+  return orderedRows
 }
 
 export function updateResultReview(resultId: number, projectId: string, value: unknown) {

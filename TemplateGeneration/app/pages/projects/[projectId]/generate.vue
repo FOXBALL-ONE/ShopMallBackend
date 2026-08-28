@@ -12,10 +12,12 @@ type QueueTask = {
   progress: number
   status: TaskStatus
   stage: string
+  errorCode: string | null
+  errorMessage: string | null
 }
 type ProviderModel = { id: number; name: string }
 type Provider = { id: number; name: string; type: string; enabled: boolean; modelId: number | null; model: string; models: ProviderModel[] }
-type TaskResponse = { id: number; workflowName: string; media: 'IMAGE' | 'VIDEO'; type: '图片' | '视频'; statusLabel: TaskStatus; status: string; stage: string; progress: number; provider: {name: string; modelId: number | null; model: string}; batchIndex: number; batchCount: number }
+type TaskResponse = { id: number; workflowName: string; media: 'IMAGE' | 'VIDEO'; type: '图片' | '视频'; statusLabel: TaskStatus; status: string; stage: string; progress: number; errorCode?: string | null; errorMessage?: string | null; provider: {name: string; modelId: number | null; model: string}; batchIndex: number; batchCount: number }
 type Workflow = { id: number; name: string; version: number; versionLabel: string; savedAt: string; definition: {creativePrompt: string; garmentAssetId?: number; modelAssetId?: number; referenceImages?: Array<{assetId: number; role: string; instruction: string}>} }
 
 const route = useRoute()
@@ -81,7 +83,14 @@ function requestError(error: unknown, fallback: string) {
 }
 
 function taskFromResponse(task: TaskResponse): QueueTask {
-  return {id: task.id, name: task.workflowName, type: task.type, provider: `${task.provider.name} · ${task.provider.model}`, progress: task.progress, status: task.statusLabel, stage: task.stage}
+  return {id: task.id, name: task.workflowName, type: task.type, provider: `${task.provider.name} · ${task.provider.model}`, progress: task.progress, status: task.statusLabel, stage: task.stage, errorCode: task.errorCode ?? null, errorMessage: task.errorMessage ?? null}
+}
+
+function openTaskResult(task: QueueTask) {
+  void navigateTo({
+    path: `/projects/${encodeURIComponent(activeProjectId.value)}/results`,
+    query: {task_id: String(task.id)},
+  })
 }
 
 function selectProvider(providerId: number | null) {
@@ -113,10 +122,13 @@ async function submitGeneration() {
   if (!canSubmit.value || !workflow || !provider || !model) return
   isSubmitting.value = true
   const requestProjectId = activeProjectId.value
+  const randomPart = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
   try {
     const response = await $fetch<{tasks: TaskResponse[]}>(`/api/projects/${encodeURIComponent(requestProjectId)}/generation-tasks`, {
       method: 'POST',
-      headers: {'Idempotency-Key': crypto.randomUUID()},
+      headers: {'Idempotency-Key': `generation-${randomPart}`},
       body: {
         provider_id: provider.id,
         model_id: model.id,
@@ -271,7 +283,7 @@ onBeforeUnmount(stopQueuePolling)
             <div class="queue-table" role="table" aria-label="任务队列">
               <div class="queue-header" role="row"><span>任务</span><span>类型</span><span>进度</span><span>状态</span><span>操作</span></div>
               <div v-for="task in queue" :key="task.id" class="queue-record" role="row">
-                <span><strong>{{ task.name }}</strong><small>{{ task.id }} · {{ task.provider }} · {{ task.stage }}</small></span>
+                <button class="queue-task-link" type="button" @click="openTaskResult(task)"><strong>{{ task.name }}</strong><small>{{ task.id }} · {{ task.provider }} · {{ task.stage }}</small><small v-if="task.errorMessage" class="queue-error"><b>{{ task.errorCode || 'ERROR' }}</b> {{ task.errorMessage }}</small></button>
                 <span>{{ task.type }}</span>
                 <span class="progress-cell"><span class="progress-track"><i :style="{ width: `${task.progress}%` }" /></span><small>{{ task.progress }}%</small></span>
                 <span><em :class="statusClass(task.status)">{{ task.status }}</em></span>
@@ -303,7 +315,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .generation-topbar { position: sticky; top: 0; z-index: 15; display: flex; align-items: center; justify-content: space-between; height: 68px; padding: 0 4%; background: #fcfbf8e6; border-bottom: 1px solid var(--line); backdrop-filter: blur(12px); }.generation-topbar > div { display: flex; flex-direction: column; gap: 2px; }.generation-topbar > div > span { color: #8c867d; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }.generation-topbar strong { font: 500 12px Georgia, serif; }.service-state { display: flex; align-items: center; gap: 6px; color: #68635c; font-size: 9px; }.service-state i { width: 7px; height: 7px; background: #7f9b82; border-radius: 50%; box-shadow: 0 0 0 3px #e6ede6; }
 .generation-content { max-width: 1500px; margin: 0 auto; padding: 42px 4% 65px; }.generation-heading { margin-bottom: 32px; }.eyebrow, .panel-eyebrow { margin: 0; color: #8c867d; font-size: 10px; font-weight: 700; letter-spacing: .17em; text-transform: uppercase; }.generation-heading h1 { margin: 7px 0 8px; font: 400 clamp(32px, 4vw, 48px) Georgia, serif; letter-spacing: -.035em; }.generation-heading > div > span { color: #817b73; font-size: 12px; }
 .generation-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); align-items: start; gap: 17px; }.launch-panel, .queue-panel { padding: 24px; background: #fff; border: 1px solid #e5dfd6; border-radius: 12px; }.launch-panel h2, .queue-panel h2 { margin: 5px 0; font: 400 24px Georgia, serif; }.launch-panel label { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; color: #59554f; font-size: 10px; }.launch-panel label input, .launch-panel label select { width: 100%; padding: 12px 13px; color: #26231f; background: #fff; border: 1px solid #ddd7ce; border-radius: 8px; outline: 0; font-size: 10px; }.launch-panel label input:focus, .launch-panel label select:focus { border-color: #9d8766; box-shadow: 0 0 0 3px #9d87661a; }.launch-panel label select:disabled { color: #958e85; background: #f4f1ec; }.provider-error { margin: 8px 0 -7px; color: #9b6254; font-size: 8px; line-height: 1.5; }.provider-note { display: flex; align-items: center; gap: 9px; margin-top: 18px; padding: 12px; background: #edf2ed; border-radius: 9px; }.provider-note.unavailable { background: #f8ece7; }.provider-note > i { flex: 0 0 auto; width: 9px; height: 9px; background: #78907a; border-radius: 50%; }.provider-note.unavailable > i { background: #b37867; }.provider-note div { display: flex; flex-direction: column; gap: 3px; }.provider-note strong { font-size: 9px; }.provider-note span { color: #718073; font-size: 8px; }.provider-note.unavailable span { color: #9b6254; }.launch-button { display: flex; align-items: center; justify-content: center; width: 100%; margin-top: 15px; padding: 12px; color: #fff; background: #1d1c19; border: 0; border-radius: 8px; font-size: 10px; }.launch-button:hover { background: #37342f; }.launch-panel > small { display: block; margin-top: 9px; color: #8d867e; font-size: 8px; line-height: 1.5; }
-.queue-header-row { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }.queue-header-row h2 { margin-bottom: 0; }.refresh-button { padding: 0; color: #6e665d; background: transparent; border: 0; font-size: 9px; }.refresh-button span { margin-left: 6px; color: #aaa198; font-size: 8px; }.queue-table { font-size: 9px; }.queue-header, .queue-record { display: grid; grid-template-columns: minmax(130px, 1.2fr) 55px minmax(100px, .9fr) 68px 48px; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid #eeeae3; }.queue-header { color: #918a81; font-size: 8px; }.queue-record > span:first-child { display: flex; flex-direction: column; gap: 3px; }.queue-record strong { font-size: 9px; }.queue-record small { color: #958e85; font-size: 7px; }.progress-cell { display: flex; align-items: center; gap: 5px; }.progress-track { flex: 1; height: 3px; background: #ede8e0; }.progress-track i { display: block; height: 100%; background: #8e7758; }.progress-cell > small { flex: 0 0 20px; color: #928a80; }.queue-record em { display: inline-block; padding: 5px 8px; color: #746e66; background: #ece9e4; border-radius: 12px; font-size: 7px; font-style: normal; line-height: 1; text-align: center; }.queue-record em.status-running { color: #537059; background: #e6eee7; }.queue-record em.status-complete { color: #537059; background: #e6eee7; }.queue-record em.status-cancelled { color: #746e66; background: #ece9e4; }.queue-record button { padding: 0; color: #8b684f; background: transparent; border: 0; font-size: 8px; }.empty-queue { padding: 30px 0 10px; color: #958e85; text-align: center; }
+.queue-header-row { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }.queue-header-row h2 { margin-bottom: 0; }.refresh-button { padding: 0; color: #6e665d; background: transparent; border: 0; font-size: 9px; }.refresh-button span { margin-left: 6px; color: #aaa198; font-size: 8px; }.queue-table { font-size: 9px; }.queue-header, .queue-record { display: grid; grid-template-columns: minmax(130px, 1.2fr) 55px minmax(100px, .9fr) 68px 48px; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid #eeeae3; }.queue-header { color: #918a81; font-size: 8px; }.queue-record strong { font-size: 9px; }.queue-record small { color: #958e85; font-size: 7px; }.queue-task-link { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 0; color: inherit; background: transparent; border: 0; text-align: left; }.queue-task-link:hover strong, .queue-task-link:focus-visible strong { color: #8b684f; text-decoration: underline; text-underline-offset: 3px; }.queue-error { max-width: 100%; color: #a25749 !important; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }.queue-error b { margin-right: 4px; font-weight: 700; }.progress-cell { display: flex; align-items: center; gap: 5px; }.progress-track { flex: 1; height: 3px; background: #ede8e0; }.progress-track i { display: block; height: 100%; background: #8e7758; }.progress-cell > small { flex: 0 0 20px; color: #928a80; }.queue-record em { display: inline-block; padding: 5px 8px; color: #746e66; background: #ece9e4; border-radius: 12px; font-size: 7px; font-style: normal; line-height: 1; text-align: center; }.queue-record em.status-running { color: #537059; background: #e6eee7; }.queue-record em.status-complete { color: #537059; background: #e6eee7; }.queue-record em.status-cancelled { color: #746e66; background: #ece9e4; }.queue-record em.status-failed { color: #9b6254; background: #f8ece7; }.queue-record > button:not(.queue-task-link) { padding: 0; color: #8b684f; background: transparent; border: 0; font-size: 8px; }.empty-queue { padding: 30px 0 10px; color: #958e85; text-align: center; }
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 50; padding: 11px 15px; color: #fff; background: #292722; border-radius: 8px; box-shadow: 0 10px 30px #0002; font-size: 10px; }.toast-enter-active, .toast-leave-active { transition: opacity .2s, transform .2s; }.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(8px); }
 @media (max-width: 900px) { .generation-grid { grid-template-columns: 1fr; }.launch-panel { max-width: none; }.queue-panel { min-width: 0; } }
 @media (max-width: 800px) { .generation-layout { display: block; }.generation-topbar { height: 58px; padding: 0 18px; }.service-state { display: none; }.generation-content { padding: 30px 16px 55px; }.queue-panel { overflow-x: auto; }.queue-table { min-width: 590px; } }
