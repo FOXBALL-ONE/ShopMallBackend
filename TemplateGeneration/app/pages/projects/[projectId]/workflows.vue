@@ -40,6 +40,7 @@ const faceConsistency = ref(true)
 const loadingWorkflows = ref(true)
 const savingWorkflow = ref(false)
 const readingWorkflowId = ref<number | null>(null)
+const deletingWorkflowId = ref<number | null>(null)
 const workflowError = ref('')
 const historyOpen = ref(false)
 const lastSavedVersion = ref<WorkflowResponse | null>(null)
@@ -284,6 +285,25 @@ async function loadVersion(version: WorkflowVersion) {
   }
 }
 
+async function deleteVersion(version: WorkflowVersion) {
+  if (deletingWorkflowId.value !== null) return
+  if (!window.confirm(`确定删除工作流“${version.name}”的 ${version.version} 吗？历史生成任务及其请求快照会保留。`)) return
+  const requestProjectId = activeProjectId.value
+  deletingWorkflowId.value = version.id
+  try {
+    await $fetch(`/api/projects/${encodeURIComponent(requestProjectId)}/workflows/${version.id}`, {method: 'DELETE'})
+    if (activeProjectId.value !== requestProjectId) return
+    versions.value = versions.value.filter((item) => item.id !== version.id)
+    if (lastSavedVersion.value?.id === version.id) lastSavedVersion.value = null
+    showToast(`工作流“${version.name}”的 ${version.version} 已删除`)
+  } catch (error: unknown) {
+    const request = error as {data?: {statusMessage?: string; message?: string}; statusMessage?: string; message?: string}
+    if (activeProjectId.value === requestProjectId) showToast(request.data?.statusMessage ?? request.data?.message ?? request.statusMessage ?? request.message ?? '工作流删除失败，请重试')
+  } finally {
+    deletingWorkflowId.value = null
+  }
+}
+
 function startNewDraft() {
   if (draftTouched.value && !window.confirm('当前草稿有未保存修改，确定放弃并新建吗？')) return
   resetWorkflowDraft()
@@ -451,7 +471,7 @@ watch([workflowName, selectedGarment, selectedModel, creativePrompt, negativePro
             <footer class="editor-footer"><button class="quiet-button" type="button" :disabled="activeStep === 1" @click="previousStep">上一步</button><span class="step-progress">{{ activeStep }} / 4</span><button class="dark-button" type="button" :disabled="savingWorkflow || loadingWorkflows" @click="activeStep === 4 ? saveVersion() : nextStep()">{{ activeStep === 4 ? (savingWorkflow ? '正在保存…' : '确认并提交') : '继续' }} <span>{{ activeStep === 4 ? '✓' : '→' }}</span></button></footer>
           </section>
 
-          <aside class="version-panel"><p class="eyebrow">SAVED WORKFLOWS</p><h2>历史与复用</h2><p v-if="loadingWorkflows" class="empty-version">正在读取已保存工作流…</p><div v-else-if="versions.length" class="version-list"><article v-for="version in versions" :key="version.id" class="version-card"><div><strong>{{ version.name }}</strong><small>{{ version.version }} · {{ version.savedAt }}</small></div><button type="button" :disabled="readingWorkflowId !== null" @click="loadVersion(version)">{{ readingWorkflowId === version.id ? '读取中…' : '读取' }} <span>→</span></button></article></div><p v-else class="empty-version">还没有保存的工作流</p><button class="panel-link" type="button" :disabled="loadingWorkflows" @click="historyOpen = true">查看全部版本 <span>→</span></button></aside>
+          <aside class="version-panel"><p class="eyebrow">SAVED WORKFLOWS</p><h2>历史与复用</h2><p v-if="loadingWorkflows" class="empty-version">正在读取已保存工作流…</p><div v-else-if="versions.length" class="version-list"><article v-for="version in versions" :key="version.id" class="version-card"><div><strong>{{ version.name }}</strong><small>{{ version.version }} · {{ version.savedAt }}</small></div><span><button type="button" :disabled="readingWorkflowId !== null || deletingWorkflowId !== null" @click="loadVersion(version)">{{ readingWorkflowId === version.id ? '读取中…' : '读取' }}</button> <button type="button" :disabled="readingWorkflowId !== null || deletingWorkflowId !== null" @click="deleteVersion(version)">{{ deletingWorkflowId === version.id ? '删除中…' : '删除' }}</button></span></article></div><p v-else class="empty-version">还没有保存的工作流</p><button class="panel-link" type="button" :disabled="loadingWorkflows" @click="historyOpen = true">查看全部版本 <span>→</span></button></aside>
         </div>
       </main>
     </section>
@@ -468,7 +488,7 @@ watch([workflowName, selectedGarment, selectedModel, creativePrompt, negativePro
           <article v-for="version in versions" :key="version.id" class="history-record">
             <div class="history-record-head">
               <div><strong>{{ version.name }}</strong><small>{{ version.version }} · 保存于 {{ version.savedAt }}</small></div>
-              <button class="history-load-button" type="button" :disabled="readingWorkflowId !== null" @click="historyOpen = false; loadVersion(version)">{{ readingWorkflowId === version.id ? '读取中…' : '读取并编辑' }} <span>→</span></button>
+              <span><button class="history-load-button" type="button" :disabled="readingWorkflowId !== null || deletingWorkflowId !== null" @click="historyOpen = false; loadVersion(version)">{{ readingWorkflowId === version.id ? '读取中…' : '读取并编辑' }}</button> <button type="button" :disabled="readingWorkflowId !== null || deletingWorkflowId !== null" @click="deleteVersion(version)">{{ deletingWorkflowId === version.id ? '删除中…' : '删除' }}</button></span>
             </div>
             <dl class="history-meta">
               <div><dt>服装</dt><dd>{{ version.garment }}</dd></div>

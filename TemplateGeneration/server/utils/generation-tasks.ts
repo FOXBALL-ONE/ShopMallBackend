@@ -1,6 +1,7 @@
 import {createHash, randomUUID} from 'node:crypto'
 import {createError, getRouterParam, type H3Event} from 'h3'
 import {getDatabase} from './database'
+import {removeStoredFile} from './storage'
 
 export type GenerationTaskInput = {
   workflow_id?: unknown
@@ -335,6 +336,30 @@ export function requestCancelGenerationTask(taskId: number, projectId: string) {
     addEvent(database, taskId, next === 'CANCELLED' ? 'CANCELLED' : 'CANCEL_REQUESTED', current.status, next, next === 'CANCELLED' ? '已取消' : '等待取消', current.progress, '收到取消请求')
   })()
   return serializeTask(getTaskRow(taskId, projectId))
+}
+
+export async function deleteGenerationTask(taskId: number, projectId: string) {
+  const database = getDatabase()
+  const current = getTaskRow(taskId, projectId)
+  if (['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCEL_REQUESTED'].includes(current.status)) {
+    throw createError({statusCode: 409, statusMessage: '任务正在排队或生成中，请先取消任务并等待进入终态后再删除。'})
+  }
+  const fileRows = database.prepare(`SELECT DISTINCT stored_files.id, stored_files.storage_key
+    FROM results INNER JOIN stored_files ON stored_files.id = results.file_id
+    WHERE results.task_id = ? AND results.project_id = ?`).all(taskId, projectId) as Array<{id: number; storage_key: string}>
+  const removableFiles: Array<{storage_key: string}> = []
+  database.transaction(() => {
+    database.prepare('DELETE FROM asset_library WHERE source_task_id = ?').run(taskId)
+    database.prepare('DELETE FROM results WHERE task_id = ?').run(taskId)
+    database.prepare('DELETE FROM generation_tasks WHERE id = ? AND project_id = ?').run(taskId, projectId)
+    fileRows.forEach((file) => {
+      const deleted = database.prepare('DELETE FROM stored_files WHERE id = ? AND NOT EXISTS (SELECT 1 FROM asset_library WHERE asset_library.file_id = stored_files.id)').run(file.id)
+      if (deleted.changes > 0) removableFiles.push(file)
+    })
+    database.prepare('DELETE FROM generation_batches WHERE id = ? AND NOT EXISTS (SELECT 1 FROM generation_tasks WHERE generation_tasks.batch_id = generation_batches.id)').run(current.batch_id)
+  })()
+  await Promise.allSettled(removableFiles.map((file) => removeStoredFile(file.storage_key)))
+  return {id: taskId}
 }
 
 export function getTaskInputs(taskId: number) { return getDatabase().prepare('SELECT position, role, instruction, storage_key, original_name, content_type FROM generation_task_inputs WHERE task_id = ? ORDER BY position ASC').all(taskId) as Array<{position: number; role: string; instruction: string; storage_key: string; original_name: string; content_type: string}> }

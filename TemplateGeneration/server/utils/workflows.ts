@@ -193,6 +193,12 @@ export function getWorkflow(workflowId: number, projectId: string) {
   return serializeWorkflow(getWorkflowRow(workflowId, projectId))
 }
 
+export function deleteWorkflow(workflowId: number, projectId: string) {
+  const workflow = getWorkflowRow(workflowId, projectId)
+  getDatabase().prepare('DELETE FROM workflows WHERE id = ? AND project_id = ?').run(workflowId, projectId)
+  return serializeWorkflow(workflow)
+}
+
 export function createWorkflow(projectId: string, body: WorkflowInput) {
   const name = requiredString(body.name, '工作流名称', 120)
   const definition = validateDefinition(body)
