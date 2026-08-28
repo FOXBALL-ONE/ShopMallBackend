@@ -90,8 +90,8 @@ function decodeBase64(value: string) {
 function normalizeEditSize(value: string) {
   const normalized = value.trim() || '1024x1024'
   if (normalized === 'auto') return '1024x1024'
-  if (normalized !== '256x256' && normalized !== '512x512' && normalized !== '1024x1024') {
-    throw createError({statusCode: 400, statusMessage: '图生图输出尺寸必须是 256x256、512x512 或 1024x1024。'})
+  if (!['256x256', '512x512', '1024x1024', '1024x1536', '1536x1024', '2048x2048', '2048x1152', '1152x2048', '3840x2160', '2160x3840'].includes(normalized)) {
+    throw createError({statusCode: 400, statusMessage: '图生图输出尺寸必须是 256x256、512x512、1024x1024、1024x1536、1536x1024、2048x2048、2048x1152、1152x2048、3840x2160 或 2160x3840。'})
   }
   return normalized
 }

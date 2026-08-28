@@ -35,7 +35,8 @@ const MEDIA_TYPES = ['IMAGE', 'VIDEO'] as const
 const QUALITY_VALUES = ['low', 'medium', 'high', 'auto'] as const
 const BACKGROUND_VALUES = ['transparent', 'opaque', 'auto'] as const
 const OUTPUT_FORMATS = ['png', 'webp', 'jpeg'] as const
-const IMAGE_EDIT_SIZES = ['256x256', '512x512', '1024x1024'] as const
+const IMAGE_EDIT_SIZES = ['256x256', '512x512', '1024x1024', '1024x1536', '1536x1024', '2048x2048', '2048x1152', '1152x2048', '3840x2160', '2160x3840'] as const
+const IMAGE_OUTPUT_SIZES = ['auto', ...IMAGE_EDIT_SIZES] as const
 const REFERENCE_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 
 export function getGenerationTaskProjectId(event: H3Event) {
@@ -225,7 +226,7 @@ export function createGenerationTasks(projectId: string, body: GenerationTaskInp
   const usesImageEdits = workflowId !== null || (Array.isArray(body.reference_images) && body.reference_images.length > 0)
   const size = usesImageEdits
     ? readChoice(requestedSize === 'auto' ? undefined : requestedSize, IMAGE_EDIT_SIZES, '图生图输出尺寸', '1024x1024')
-    : requestedSize || '1024x1024'
+    : readChoice(requestedSize || undefined, IMAGE_OUTPUT_SIZES, '输出尺寸', '1024x1024')
   const quality = readChoice(body.quality, QUALITY_VALUES, '输出质量', 'auto')
   const background = readChoice(body.background, BACKGROUND_VALUES, '背景模式', 'auto')
   const outputFormat = readChoice(body.output_format, OUTPUT_FORMATS, '输出格式', 'png')

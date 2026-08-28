@@ -21,6 +21,7 @@ type ProviderModel = { id: number; name: string }
 type Provider = { id: number; name: string; type: string; enabled: boolean; modelId: number | null; model: string; models: ProviderModel[] }
 type TaskResponse = { id: number; workflowName: string; media: 'IMAGE' | 'VIDEO'; type: '图片' | '视频'; statusLabel: TaskStatus; status: string; stage: string; progress: number; errorCode?: string | null; errorMessage?: string | null; provider: {name: string; modelId: number | null; model: string}; batchIndex: number; batchCount: number; createdAt: string; completedAt?: string | null }
 type Workflow = { id: number; name: string; version: number; versionLabel: string; savedAt: string; definition: {creativePrompt: string; garmentAssetId?: number; modelAssetId?: number; referenceImages?: Array<{assetId: number; role: string; instruction: string}>} }
+type Resolution = '1k' | '2k' | '4k'
 
 const route = useRoute()
 const projectId = computed(() => String(route.params.projectId || 'prj_noir'))
@@ -29,6 +30,7 @@ const selectedWorkflowId = ref<number | null>(null)
 const selectedProviderId = ref<number | null>(null)
 const selectedModelId = ref<number | null>(null)
 const batchCount = ref(1)
+const resolution = ref<Resolution>('1k')
 const isSubmitting = ref(false)
 const lastUpdated = ref('刚刚')
 const toast = ref('')
@@ -43,6 +45,12 @@ const providers = ref<Provider[]>([])
 const enabledProviders = computed(() => providers.value.filter((provider) => provider.enabled))
 const selectedProvider = computed(() => enabledProviders.value.find((provider) => provider.id === selectedProviderId.value))
 const selectedModel = computed(() => selectedProvider.value?.models.find((model) => model.id === selectedModelId.value))
+const resolutionOptions: Array<{value: Resolution; label: string; size: string; hint: string}> = [
+  {value: '1k', label: '1K', size: '1024x1024', hint: '1024 × 1024'},
+  {value: '2k', label: '2K', size: '2048x2048', hint: '2048 × 2048'},
+  {value: '4k', label: '4K', size: '3840x2160', hint: '3840 × 2160（文档支持的 4K 横向尺寸）'},
+]
+const selectedResolution = computed(() => resolutionOptions.find((option) => option.value === resolution.value) ?? resolutionOptions[0]!)
 
 const queue = ref<QueueTask[]>([])
 let workspaceLoadVersion = 0
@@ -141,6 +149,7 @@ async function submitGeneration() {
         model_id: model.id,
         workflow_id: workflow.id,
         batch_count: batchCount.value,
+        size: selectedResolution.value.size,
       },
     })
     if (activeProjectId.value !== requestProjectId) return
@@ -280,6 +289,7 @@ onBeforeUnmount(stopQueuePolling)
             <button class="model-refresh" type="button" :disabled="!selectedProvider || refreshingProviderModels" @click="refreshProviderModels">{{ refreshingProviderModels ? '正在刷新模型…' : '刷新当前提供商模型' }}</button>
             <p v-if="providerError" class="provider-error" role="alert">{{ providerError }}</p>
             <label>批量数量<input v-model.number="batchCount" type="number" min="1" max="12" step="1"><small class="form-hint">请输入 1-12 的整数；每个任务都会独立生成一张图片。</small></label>
+            <label>输出分辨率<select v-model="resolution"><option v-for="option in resolutionOptions" :key="option.value" :value="option.value">{{ option.label }} · {{ option.hint }}</option></select><small class="form-hint">请求会按 OpenAI Images API 的 size 字段发送：1K=1024×1024，2K=2048×2048，4K=3840×2160。</small></label>
             <div class="provider-note" :class="{ unavailable: !selectedProvider || !selectedModel }"><i /><div><strong>{{ selectedProvider ? selectedProvider.name : '没有可用的模型提供商' }}</strong><span>{{ selectedProvider && selectedModel ? `${selectedProvider.type} · ${selectedModel.name} · 模型 ID ${selectedModel.id} · 已启用` : '请先选择已启用提供商和模型' }}</span></div></div>
             <button class="launch-button" type="button" :disabled="!canSubmit" @click="submitGeneration">{{ isSubmitting ? '正在提交…' : '提交真实生成' }}</button>
             <small>{{ selectedWorkflow && selectedProvider && selectedModel ? '任务将使用所选工作流的数据库版本、提示词和参考图要求。' : '请先选择已保存工作流、启用提供商并选择模型。' }}</small>
