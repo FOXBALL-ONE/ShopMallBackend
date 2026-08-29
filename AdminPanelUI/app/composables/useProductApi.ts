@@ -53,6 +53,7 @@ function normalizeProduct(value: RawRecord): Product {
     images: Array.isArray(value.images)
       ? value.images.map((item: RawRecord) => ({ url: String(item.url ?? ''), altText: item.alt_text ?? null, primary: item.is_primary === true, sortOrder: Number(item.sort_order ?? 0) }))
       : [],
+    videoUrl: value.video_url ?? null,
     attributes: Array.isArray(value.attributes) ? value.attributes : [],
     fitSense: value.fit_sense ?? null,
     description: value.description ?? null,
@@ -128,6 +129,7 @@ function productFormData(input: ProductMutation, includeType: boolean, includeVa
   data.append('materials', JSON.stringify(input.materials))
   data.append('attributes', JSON.stringify(input.attributes))
   data.append('images', JSON.stringify(input.images))
+  if (input.videoUrl?.trim()) data.append('video_url', input.videoUrl.trim())
   if (input.fitSense?.trim()) data.append('fit_sense', input.fitSense.trim())
   if (input.description?.trim()) data.append('description', input.description.trim())
   data.append('design_and_extras', JSON.stringify(input.designAndExtras))
@@ -261,6 +263,12 @@ export const useProductApi = () => {
     return post<RawRecord, FormData>('/product-images', data, { payloadMode: 'json' }).then(result =>
       (result.list ?? []).map((item: RawRecord) => ({ stableUrl: String(item.stable_url), fileName: String(item.file_name ?? '') })))
   }
+  const uploadVideos = (files: File[]) => {
+    const data = new FormData()
+    files.forEach(file => data.append('files', file))
+    return post<RawRecord, FormData>('/product-videos', data, { payloadMode: 'json' }).then(result =>
+      (result.list ?? []).map((item: RawRecord) => ({ stableUrl: String(item.stable_url), fileName: String(item.file_name ?? '') })))
+  }
 
   return {
     listProducts,
@@ -296,5 +304,6 @@ export const useProductApi = () => {
     updateTag,
     deleteTag,
     uploadImages,
+    uploadVideos,
   }
 }

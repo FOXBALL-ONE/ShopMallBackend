@@ -82,6 +82,80 @@ class ProductImageServiceImplTest {
     }
 
     @Test
+    fun `stable video URL uses the video path and signature scope`() {
+        val fileId = UUID.randomUUID()
+        val upload = MockMultipartFile("files", "product.mp4", "video/mp4", "video".toByteArray())
+        val stored = StoredFile(
+            id = fileId,
+            ownerId = 99L,
+            originalFilename = "product.mp4",
+            contentType = "video/mp4",
+            sizeBytes = 5,
+            sha256 = "abc",
+        )
+        val uploadedDetails = FileDetails(
+            file = stored,
+            signedDownloadUrl = "https://files.example.test/temporary-upload-link",
+            downloadExpiresAt = LocalDateTime.parse("2026-08-05T12:05:00"),
+            scope = "user:99",
+        )
+        val publicDetails = uploadedDetails.copy(
+            signedDownloadUrl = "https://files.example.test/api/files/$fileId/download?scope=public",
+            scope = "public",
+        )
+        `when`(fileService.upload(99L, listOf(upload))).thenReturn(listOf(uploadedDetails))
+        `when`(repository.findById(fileId)).thenReturn(Optional.of(stored))
+        `when`(fileService.createDownloadLinks(99L, listOf(fileId), "public")).thenReturn(listOf(publicDetails))
+
+        val stableUrl = service.uploadVideos(99L, listOf(upload)).single().stableUrl
+        val uri = UriComponentsBuilder.fromUriString(stableUrl).build()
+        val signature = requireNotNull(uri.queryParams.getFirst("signature"))
+
+        assertTrue(stableUrl.startsWith("https://files.example.test/api/product-videos/$fileId"))
+        assertEquals(publicDetails.signedDownloadUrl, service.resolveVideo(fileId, signature))
+    }
+
+    @Test
+    fun `video upload accepts only one supported video file`() {
+        val first = MockMultipartFile("files", "first.mp4", "video/mp4", "video".toByteArray())
+        val second = MockMultipartFile("files", "second.webm", "video/webm", "video".toByteArray())
+
+        assertFailsWith<ParamErrorException> { service.uploadVideos(99L, listOf(first, second)) }
+        verify(fileService, never()).upload(99L, listOf(first, second))
+    }
+
+    @Test
+    fun `video resolver rejects an image file even with a valid video signature`() {
+        val fileId = UUID.randomUUID()
+        val image = StoredFile(
+            id = fileId,
+            ownerId = 99L,
+            originalFilename = "product.webp",
+            contentType = "image/webp",
+            sizeBytes = 5,
+            sha256 = "abc",
+        )
+        `when`(repository.findById(fileId)).thenReturn(Optional.of(image))
+
+        val videoUpload = MockMultipartFile("files", "product.mp4", "video/mp4", "video".toByteArray())
+        `when`(fileService.upload(99L, listOf(videoUpload))).thenReturn(
+            listOf(
+                FileDetails(
+                    file = image,
+                    signedDownloadUrl = "https://files.example.test/temporary-upload-link",
+                    downloadExpiresAt = LocalDateTime.parse("2026-08-05T12:05:00"),
+                    scope = "user:99",
+                ),
+            ),
+        )
+        val signature = service.uploadVideos(99L, listOf(videoUpload)).single().stableUrl
+            .let { requireNotNull(UriComponentsBuilder.fromUriString(it).build().queryParams.getFirst("signature")) }
+
+        assertFailsWith<ResourceNotFoundException> { service.resolveVideo(fileId, signature) }
+        verify(fileService, never()).createDownloadLinks(99L, listOf(fileId), "public")
+    }
+
+    @Test
     fun `rejects unsupported uploads and forged stable signatures`() {
         val textFile = MockMultipartFile("files", "notes.txt", "text/plain", "text".toByteArray())
         assertFailsWith<ParamErrorException> { service.upload(99L, listOf(textFile)) }

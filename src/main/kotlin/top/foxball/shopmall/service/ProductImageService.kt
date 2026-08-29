@@ -12,5 +12,9 @@ data class ProductImageDetails(
 interface ProductImageService {
     fun upload(adminId: Long, files: List<MultipartFile>): List<ProductImageDetails>
 
+    fun uploadVideos(adminId: Long, files: List<MultipartFile>): List<ProductImageDetails>
+
     fun resolve(fileId: UUID, signatureValue: String): String
+
+    fun resolveVideo(fileId: UUID, signatureValue: String): String
 }

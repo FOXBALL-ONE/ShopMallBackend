@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, ImagePlus, Trash2 } from '@lucide/vue'
+import { ArrowDown, ArrowUp, Film, ImagePlus, Trash2 } from '@lucide/vue'
 import { computed, reactive, ref, watch } from 'vue'
 import type { FormInst, FormRules, UploadCustomRequestOptions } from 'naive-ui'
 import { useMessage } from 'naive-ui'
@@ -34,6 +34,8 @@ const definitionsLoading = ref(false)
 const pendingUploads = ref(0)
 const definitions = ref<AttributeDefinition[]>([])
 const attributeValues = reactive<Record<string, string>>({})
+const MAX_VIDEO_SIZE_BYTES = 100 * 1024 * 1024
+const SUPPORTED_VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/ogg'])
 let definitionSequence = 0
 
 function emptyModel(): ProductMutation {
@@ -45,6 +47,7 @@ function emptyModel(): ProductMutation {
     highlights: [],
     materials: [],
     images: [],
+    videoUrl: null,
     attributes: [],
     fitSense: null,
     description: null,
@@ -119,6 +122,7 @@ watch(
         highlights: [...product.highlights],
         materials: product.materials.map(item => ({ ...item })),
         images: product.images.map(item => ({ ...item })),
+        videoUrl: product.videoUrl ?? null,
         attributes: product.attributes.map(item => ({ ...item })),
         fitSense: product.fitSense ?? null,
         description: product.description ?? null,
@@ -219,6 +223,36 @@ async function uploadImage(options: UploadCustomRequestOptions) {
   }
 }
 
+async function uploadVideo(options: UploadCustomRequestOptions) {
+  const file = options.file.file
+  if (!file) {
+    options.onError()
+    return
+  }
+  if (!SUPPORTED_VIDEO_TYPES.has(file.type.toLowerCase())) {
+    message.error('商品展示视频仅支持 MP4、WebM 和 Ogg 格式（MIME：video/mp4、video/webm、video/ogg）')
+    options.onError()
+    return
+  }
+  if (file.size > MAX_VIDEO_SIZE_BYTES) {
+    message.error('商品展示视频文件不能超过 100 MB（104857600 字节）')
+    options.onError()
+    return
+  }
+  pendingUploads.value += 1
+  try {
+    const [uploaded] = await api.uploadVideos([file])
+    if (!uploaded) throw new Error('上传响应缺少视频地址')
+    model.videoUrl = uploaded.stableUrl
+    options.onFinish()
+  } catch (error) {
+    message.error(`视频上传失败：${errorMessage(error)}`)
+    options.onError()
+  } finally {
+    pendingUploads.value -= 1
+  }
+}
+
 function errorMessage(error: unknown): string {
   if (error && typeof error === 'object') {
     const value = error as { statusMessage?: string; message?: string }
@@ -251,6 +285,9 @@ function validateDynamicFields(): string | null {
   if (model.status === 'ACTIVE' && model.variants.every(variant => variant.status !== 'ACTIVE')) return '上架商品至少需要一个启用 SKU'
   if (model.images.length > 0 && model.images.filter(image => image.primary).length !== 1) return '有图片时必须指定一张主图'
   if (model.images.some(image => !image.url.trim())) return '图片地址不能为空'
+  const videoUrl = model.videoUrl?.trim() || ''
+  if (videoUrl.length > 512) return '商品展示视频地址不能超过 512 个字符'
+  if (videoUrl && !/^https?:\/\/\S+$/i.test(videoUrl)) return '商品展示视频地址必须是 http 或 https URL'
   if (model.materials.length > 0) {
     const total = model.materials.reduce((sum, item) => sum + Number(item.percentage), 0)
     if (model.materials.some(item => !item.name.trim() || !Number.isFinite(Number(item.percentage)) || Number(item.percentage) <= 0)) return '每项面料名称都不能为空，且占比必须为大于 0 的数值'
@@ -277,6 +314,7 @@ async function submit() {
     highlights: model.highlights.map(value => value.trim()).filter(Boolean),
     materials: model.materials.map(item => ({ name: item.name.trim(), percentage: Number(item.percentage).toFixed(2) })),
     images: model.images.map(image => ({ url: image.url.trim(), altText: image.altText?.trim() || null, primary: image.primary })),
+    videoUrl: model.videoUrl?.trim() || null,
     attributes: productDefinitions.value
       .map(definition => ({ code: definition.code, value: attributeValue(definition.code).trim() }))
       .filter(attribute => attribute.value),
@@ -380,6 +418,28 @@ async function submit() {
                 />
               </NFormItemGi>
             </NGrid>
+          </section>
+
+          <section class="form-section">
+            <div class="section-toolbar">
+              <h3>商品展示视频</h3>
+              <NSpace>
+                <NUpload :show-file-list="false" accept="video/mp4,video/webm,video/ogg" :custom-request="uploadVideo">
+                  <NButton size="small" secondary :loading="pendingUploads > 0">
+                    <template #icon><Film :size="15" /></template>
+                    上传视频
+                  </NButton>
+                </NUpload>
+                <NButton v-if="model.videoUrl" size="small" quaternary type="error" aria-label="清除展示视频" @click="model.videoUrl = null">
+                  <template #icon><Trash2 :size="15" /></template>
+                  清除视频
+                </NButton>
+              </NSpace>
+            </div>
+            <div class="field-with-hint">
+              <NInput v-model:value="model.videoUrl" maxlength="512" placeholder="https://" clearable />
+              <small class="field-hint">支持 MP4、WebM、Ogg 视频；上传文件不超过 100 MB（服务端可配置）。地址必须是 http 或 https，最多 512 个字符。首页商品卡片悬停时静音播放，详情页不会播放。</small>
+            </div>
           </section>
 
           <section class="form-section">

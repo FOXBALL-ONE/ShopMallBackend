@@ -317,6 +317,7 @@ class HomeRecommendationServiceImpl(
                             sortOrder = imageIndex,
                         )
                     },
+                    videoUrl = product.videoUrl,
                     attributes = product.attributes.map {
                         HomeRecommendationService.ProductAttributeData(it.code, it.value)
                     },

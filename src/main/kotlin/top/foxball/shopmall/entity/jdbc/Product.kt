@@ -151,6 +151,12 @@ class Product(
     @OrderColumn(name = "sort_order")
     var images: MutableList<@Valid ProductImage> = mutableListOf(),
 
+    /** 首页商品卡片悬停播放的展示视频地址；详情页不使用该媒体。 */
+    @field:ValidationSize(max = 512)
+    @field:URL(protocol = "http,https")
+    @Column(name = "video_url", length = 512)
+    var videoUrl: String? = null,
+
     @field:ValidationSize(max = 255)
     @Column(name = "fit_sense", length = 255)
     var fitSense: String? = null,

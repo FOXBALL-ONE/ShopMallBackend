@@ -229,7 +229,7 @@ class FileController(
         val contentType = downloadable.contentType
             ?.let { runCatching { MediaType.parseMediaType(it) }.getOrNull() }
             ?: MediaType.APPLICATION_OCTET_STREAM
-        val disposition = ContentDisposition.attachment()
+        val disposition = (if (contentType.type == "video") ContentDisposition.inline() else ContentDisposition.attachment())
             .filename(downloadable.originalFilename, StandardCharsets.UTF_8)
             .build()
         return ResponseEntity.ok()

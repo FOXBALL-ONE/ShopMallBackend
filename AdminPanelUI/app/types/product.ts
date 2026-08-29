@@ -81,6 +81,7 @@ export interface Product {
   highlights: string[]
   materials: ProductMaterial[]
   images: ProductImage[]
+  videoUrl?: string | null
   attributes: ProductAttribute[]
   fitSense?: string | null
   description?: string | null
@@ -112,6 +113,7 @@ export interface ProductMutation {
   highlights: string[]
   materials: ProductMaterial[]
   images: ProductImage[]
+  videoUrl?: string | null
   attributes: ProductAttribute[]
   fitSense?: string | null
   description?: string | null

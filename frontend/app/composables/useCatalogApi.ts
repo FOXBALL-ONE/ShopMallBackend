@@ -31,6 +31,7 @@ export type RawProduct = {
   highlights?: string[] | null
   materials?: CatalogMaterial[] | null
   images?: CatalogImage[] | null
+  video_url?: string | null
   attributes?: CatalogAttribute[] | null
   fit_sense?: string | null
   description?: string | null
@@ -106,6 +107,7 @@ export function normalizeCatalogProduct(value: RawProduct): CatalogProduct {
     status: value.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
     highlight: Array.isArray(value.highlights) ? value.highlights : [],
     images: images.map(image => image.url),
+    video_url: value.video_url?.trim() || null,
     image_details: images,
     fit_sense: value.fit_sense ?? null,
     description: value.description ?? '',

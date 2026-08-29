@@ -22,6 +22,7 @@ export type CatalogProduct = {
   status: 'ACTIVE' | 'INACTIVE'
   highlight: string[]
   images: string[]
+  video_url?: string | null
   image_positions?: string[]
   fit_sense: string | null
   description: string

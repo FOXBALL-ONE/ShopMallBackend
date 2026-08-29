@@ -150,11 +150,11 @@ class FileServiceImpl(
         val files = fileRepository.findAllByOwnerIdInOrderByCreatedAtAsc(distinctOwnerIds)
         if (files.isEmpty()) return
 
-        val referencedProductImageIds = productRepository.findAllImageUrls()
-            .mapNotNull { PRODUCT_IMAGE_FILE_ID_PATTERN.find(it)?.groupValues?.get(1) }
+        val referencedProductMediaFileIds = (productRepository.findAllImageUrls() + productRepository.findAllVideoUrls())
+            .mapNotNull { PRODUCT_FILE_ID_PATTERN.find(it)?.groupValues?.get(1) }
             .mapNotNull { runCatching { UUID.fromString(it) }.getOrNull() }
             .toSet()
-        val deletableFiles = files.filterNot { it.id in referencedProductImageIds }
+        val deletableFiles = files.filterNot { it.id in referencedProductMediaFileIds }
         if (deletableFiles.isNotEmpty()) deleteStoredFiles(deletableFiles)
     }
 
@@ -395,8 +395,8 @@ class FileServiceImpl(
         const val DELETION_STAGING_DIRECTORY = ".deleting"
         const val LOCAL_STORAGE = "local"
         val EXTENSION_PATTERN = Regex("[A-Za-z0-9]{1,10}")
-        val PRODUCT_IMAGE_FILE_ID_PATTERN = Regex(
-            "(?:^|/)api/product-images/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:[?#]|$)",
+        val PRODUCT_FILE_ID_PATTERN = Regex(
+            "(?:^|/)api/product-(?:images|videos)/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:[?#]|$)",
         )
     }
 }

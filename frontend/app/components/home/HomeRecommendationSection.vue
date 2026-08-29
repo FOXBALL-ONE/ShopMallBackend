@@ -143,6 +143,7 @@ onBeforeUnmount(() => {
           :key="`${activeGroup?.code}-${product.id}`"
           :product="product"
           :eager="eager && index < 4"
+          :enable-hover-video="true"
         />
       </div>
       <p v-if="section.display_style === 'CAROUSEL' && canScrollNext" class="recommendation-swipe-hint">

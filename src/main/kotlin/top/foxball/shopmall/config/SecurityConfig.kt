@@ -81,6 +81,7 @@ class SecurityConfig(
                     "/api/product-types/**",
                     "/api/product-categories/**",
                     "/api/product-images/**",
+                    "/api/product-videos/**",
                     "/api/tags/**",
                     "/api/customer-reviews/**",
                     "/api/announcements/**",

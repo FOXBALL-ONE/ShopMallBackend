@@ -5,14 +5,20 @@ import type { CatalogProduct } from '~/data/catalog'
 const props = withDefaults(defineProps<{
   product: CatalogProduct
   eager?: boolean
+  enableHoverVideo?: boolean
 }>(), {
-  eager: false
+  eager: false,
+  enableHoverVideo: false,
 })
 
 const { formatMoney, t } = useStorefrontI18n()
 const isFavorite = ref(false)
+const videoRef = ref<HTMLVideoElement | null>(null)
+const videoPlaybackFailed = ref(false)
 const primaryImage = computed(() => props.product.images[0] || '/lingerie/hero-corset.jpg')
 const alternateImage = computed(() => props.product.images[1] || primaryImage.value)
+const hoverVideoUrl = computed(() => props.enableHoverVideo ? props.product.video_url?.trim() || '' : '')
+const hasHoverVideo = computed(() => Boolean(hoverVideoUrl.value) && !videoPlaybackFailed.value)
 const primaryImageAlt = computed(() =>
   props.product.image_details?.find(image => image.is_primary)?.alt_text || props.product.name
 )
@@ -22,11 +28,32 @@ const displayColor = computed(() => props.product.color
   .filter(Boolean)
   .join(' / ')
 )
+
+function playHoverVideo() {
+  if (!hasHoverVideo.value || !videoRef.value) return
+  void videoRef.value.play().catch(() => {
+    videoPlaybackFailed.value = true
+  })
+}
+
+function pauseHoverVideo() {
+  videoRef.value?.pause()
+}
+
+function handleVideoError() {
+  videoPlaybackFailed.value = true
+  videoRef.value?.pause()
+}
 </script>
 
 <template>
   <article class="catalog-product-card">
-    <div class="catalog-product-media">
+    <div
+      class="catalog-product-media"
+      :class="{ 'has-hover-video': hasHoverVideo, 'hover-video-enabled': enableHoverVideo }"
+      @mouseenter="playHoverVideo"
+      @mouseleave="pauseHoverVideo"
+    >
       <NuxtLink :to="`/product/${product.id}`" :aria-label="t('productCard.viewProduct', { name: product.name })">
         <img
           class="catalog-product-image catalog-primary-image"
@@ -42,6 +69,19 @@ const displayColor = computed(() => props.product.color
           loading="lazy"
           :style="{ objectPosition: product.image_positions?.[1] || 'center' }"
         >
+        <video
+          v-if="hoverVideoUrl"
+          ref="videoRef"
+          class="catalog-product-video"
+          :src="hoverVideoUrl"
+          :poster="primaryImage"
+          muted
+          loop
+          playsinline
+          preload="none"
+          aria-hidden="true"
+          @error="handleVideoError"
+        />
         <span v-if="product.badge" class="catalog-product-badge" :class="{ sale: product.is_sale }">{{ product.badge }}</span>
         <span class="catalog-quick-add">{{ t('productCard.viewDetails') }} <UIcon name="i-lucide-arrow-up-right" /></span>
       </NuxtLink>
@@ -102,22 +142,43 @@ const displayColor = computed(() => props.product.color
   transition: opacity .45s ease, transform .55s ease;
 }
 
+.catalog-product-video {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .45s ease;
+}
+
 .catalog-alternate-image {
   opacity: 0;
   transform: scale(1.025);
 }
 
-.catalog-product-media:hover .catalog-primary-image {
+.catalog-product-media:hover .catalog-primary-image,
+.catalog-product-card:hover .catalog-product-media.hover-video-enabled .catalog-primary-image {
   opacity: 0;
 }
 
-.catalog-product-media:hover .catalog-alternate-image {
+.catalog-product-media:hover:not(.has-hover-video) .catalog-alternate-image,
+.catalog-product-card:hover .catalog-product-media.hover-video-enabled:not(.has-hover-video) .catalog-alternate-image,
+.catalog-product-card:hover .catalog-product-media.has-hover-video .catalog-product-video {
   opacity: 1;
   transform: scale(1);
 }
 
+.catalog-product-media:hover.has-hover-video .catalog-alternate-image {
+  opacity: 0;
+}
+
 .catalog-product-badge {
   position: absolute;
+  z-index: 2;
   top: 12px;
   left: 12px;
   padding: 6px 8px;
@@ -167,6 +228,7 @@ const displayColor = computed(() => props.product.color
 
 .catalog-quick-add {
   position: absolute;
+  z-index: 2;
   right: 10px;
   bottom: 10px;
   left: 10px;

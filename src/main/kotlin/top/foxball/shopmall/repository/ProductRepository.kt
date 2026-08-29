@@ -147,6 +147,9 @@ interface ProductRepository : JpaRepository<Product, Long>, JpaSpecificationExec
     @Query(value = "select image_url from products_images where image_url like '%/api/product-images/%'", nativeQuery = true)
     fun findAllImageUrls(): List<String>
 
+    @Query("select video_url from products where video_url is not null", nativeQuery = true)
+    fun findAllVideoUrls(): List<String>
+
     @Modifying(flushAutomatically = true)
     @Query("delete from CartItem i where i.variant.product.id in :productIds")
     fun deleteCartItemsForProducts(@Param("productIds") productIds: Collection<Long>): Int

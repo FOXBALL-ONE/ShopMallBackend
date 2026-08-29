@@ -109,6 +109,7 @@ class ProductServiceImpl(
             command.highlights,
             command.materials.map { it.name to it.percentage },
             command.images.map { it.url to it.primary },
+            command.videoUrl,
             command.fitSense,
             command.description,
             command.designAndExtras,
@@ -138,6 +139,7 @@ class ProductServiceImpl(
             materials = command.materials.map { MaterialComponent(it.name.trim(), it.percentage) }.toMutableList(),
             attributes = attributes.toMutableList(),
             images = command.images.map { ProductImage(it.url.trim(), it.altText?.trim()?.takeIf(String::isNotEmpty), it.primary) }.toMutableList(),
+            videoUrl = command.videoUrl?.trim()?.takeIf(String::isNotEmpty),
             fitSense = command.fitSense?.trim()?.takeIf(String::isNotEmpty),
             description = command.description?.trim()?.takeIf(String::isNotEmpty),
             designAndExtras = command.designAndExtras.map(String::trim).toMutableList(),
@@ -174,6 +176,7 @@ class ProductServiceImpl(
             command.highlights,
             command.materials.map { it.name to it.percentage },
             command.images.map { it.url to it.primary },
+            command.videoUrl,
             command.fitSense,
             command.description,
             command.designAndExtras,
@@ -198,6 +201,7 @@ class ProductServiceImpl(
         product.attributes.addAll(attributes)
         product.images.clear()
         product.images.addAll(command.images.map { ProductImage(it.url.trim(), it.altText?.trim()?.takeIf(String::isNotEmpty), it.primary) })
+        product.videoUrl = command.videoUrl?.trim()?.takeIf(String::isNotEmpty)
         product.fitSense = command.fitSense?.trim()?.takeIf(String::isNotEmpty)
         product.description = command.description?.trim()?.takeIf(String::isNotEmpty)
         product.designAndExtras.clear()
@@ -244,6 +248,7 @@ class ProductServiceImpl(
         highlights: List<String>,
         materials: List<Pair<String, BigDecimal>>,
         images: List<Pair<String, Boolean>>,
+        videoUrl: String?,
         fitSense: String?,
         description: String?,
         designAndExtras: List<String>,
@@ -264,6 +269,10 @@ class ProductServiceImpl(
         }
         if (images.size > 12 || images.any { it.first.isBlank() || it.first.length > 512 }) throw ParamErrorException("商品图片信息无效")
         if (images.isNotEmpty() && images.count { it.second } != 1) throw ParamErrorException("有商品图片时必须且只能指定一张主图")
+        if ((videoUrl?.trim()?.length ?: 0) > 512) throw ParamErrorException("商品展示视频地址不能超过 512 个字符")
+        if (videoUrl != null && videoUrl.trim().isNotEmpty() && !VIDEO_URL.matches(videoUrl.trim())) {
+            throw ParamErrorException("商品展示视频地址必须是 http 或 https URL")
+        }
         if (tagIds.size > 20 || tagIds.any { it <= 0 }) throw ParamErrorException("商品标签无效")
     }
 
@@ -292,5 +301,6 @@ class ProductServiceImpl(
 
     private companion object {
         val SKU = Regex("^[A-Z0-9][A-Z0-9._-]{0,63}$")
+        val VIDEO_URL = Regex("^https?://\\S+$", RegexOption.IGNORE_CASE)
     }
 }

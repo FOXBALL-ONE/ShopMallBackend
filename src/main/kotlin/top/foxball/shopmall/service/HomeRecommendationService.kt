@@ -66,6 +66,7 @@ interface HomeRecommendationService {
         val highlights: List<String>,
         val materials: List<ProductMaterialData>,
         val images: List<ProductImageData>,
+        val videoUrl: String? = null,
         val attributes: List<ProductAttributeData>,
         val fitSense: String?,
         val description: String?,

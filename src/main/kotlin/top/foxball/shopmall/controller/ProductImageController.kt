@@ -22,7 +22,7 @@ import java.time.LocalDateTime
 import java.util.UUID
 
 /**
- * @folder 商品/图片
+ * @folder 商品/媒体
  */
 @Validated
 @RestController
@@ -75,6 +75,50 @@ class ProductImageController(
     }
 
     /**
+     * @api 上传管理端商品展示视频
+     * @param files 商品展示视频列表
+     */
+    @PostMapping("/admin/api/product-videos", consumes = ["multipart/form-data"])
+    fun uploadVideos(
+        @AuthenticationPrincipal adminId: Long,
+        @RequestPart("files") @Size(min = 1, max = 1) files: List<MultipartFile>,
+    ): ResponseEntity<Response> {
+        data class FileData(
+            val id: UUID,
+            @param:JsonProperty("file_name")
+            val fileName: String,
+            @param:JsonProperty("content_type")
+            val contentType: String?,
+            @param:JsonProperty("size_bytes")
+            val sizeBytes: Long,
+            val sha256: String,
+            @param:JsonProperty("created_at")
+            val createdAt: LocalDateTime?,
+            @param:JsonProperty("stable_url")
+            val stableUrl: String,
+            val storage: String,
+        )
+
+        data class Response(val list: List<FileData>)
+
+        val list = productImageService.uploadVideos(adminId, files).map { details ->
+            val file = details.file
+            FileData(
+                id = file.id,
+                fileName = file.originalFilename,
+                contentType = file.contentType,
+                sizeBytes = file.sizeBytes,
+                sha256 = file.sha256,
+                createdAt = file.createdAt,
+                stableUrl = details.stableUrl,
+                storage = file.storage,
+            )
+        }
+        val rs = Response(list)
+        return builder.status(HttpStatus.CREATED).data(rs).build()
+    }
+
+    /**
      * @api 打开稳定商品图片地址
      * @param fileId 文件 ID
      * @param signature 永久用途签名
@@ -85,6 +129,23 @@ class ProductImageController(
         @RequestParam("signature") signature: String,
     ): ResponseEntity<Void> {
         val location = productImageService.resolve(fileId, signature)
+        return ResponseEntity.status(HttpStatus.FOUND)
+            .location(URI.create(location))
+            .cacheControl(CacheControl.noStore())
+            .build()
+    }
+
+    /**
+     * @api 打开稳定商品展示视频地址
+     * @param fileId 文件 ID
+     * @param signature 永久用途签名
+     */
+    @GetMapping("/api/product-videos/{file_id}")
+    fun openVideo(
+        @PathVariable("file_id") fileId: UUID,
+        @RequestParam("signature") signature: String,
+    ): ResponseEntity<Void> {
+        val location = productImageService.resolveVideo(fileId, signature)
         return ResponseEntity.status(HttpStatus.FOUND)
             .location(URI.create(location))
             .cacheControl(CacheControl.noStore())

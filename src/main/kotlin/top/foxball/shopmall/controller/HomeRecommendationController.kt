@@ -71,6 +71,7 @@ class HomeRecommendationController(
             val highlights: List<String>,
             val materials: List<MaterialData>,
             val images: List<ImageData>,
+            @param:JsonProperty("video_url") val videoUrl: String?,
             val attributes: List<AttributeData>,
             @param:JsonProperty("fit_sense") val fitSense: String?,
             val description: String?,
@@ -168,6 +169,7 @@ class HomeRecommendationController(
                                     images = product.images.map { image ->
                                         ImageData(image.url, image.altText, image.primary, image.sortOrder)
                                     },
+                                    videoUrl = product.videoUrl,
                                     attributes = product.attributes.map { AttributeData(it.code, it.value) },
                                     fitSense = product.fitSense,
                                     description = product.description,
