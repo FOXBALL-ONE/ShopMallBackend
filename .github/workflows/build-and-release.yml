@@ -6,6 +6,9 @@ on:
       - master
       - main
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -56,50 +59,21 @@ jobs:
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: latest-${{ steps.vars.outputs.sha_short }}
-          release_name: Latest Build (${{ steps.vars.outputs.sha_short }})
-          draft: false
-          prerelease: false
-
-      - name: Upload backend.jar
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./backend.jar
-          asset_name: backend.jar
-          asset_content_type: application/java-archive
-
-      - name: Upload frontend.tar.gz
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./frontend.tar.gz
-          asset_name: frontend.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload admin.tar.gz
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./admin.tar.gz
-          asset_name: admin.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Update latest tag
+      - name: Create or update latest tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -f latest
           git push -f origin latest
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build (${{ steps.vars.outputs.sha_short }})
+          files: |
+            backend.jar
+            frontend.tar.gz
+            admin.tar.gz
+          draft: false
+          prerelease: false
